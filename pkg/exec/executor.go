@@ -76,9 +76,20 @@ func NewExecutor(
 func (e *Executor) CheckGated() *ToolError {
 	if err := e.healthProbe.GatedCheck(); err != nil {
 		status := e.healthProbe.Status()
+
+		// Distinguish "never came up" from "was up, now down": if no successful
+		// pong has ever been observed, molu is still in its startup wait rather
+		// than recovering from a mid-run outage (spec Part 2 §8.5).
+		code := ErrCodeUnavailable
+		message := "xolu substrate is currently unreachable; retrying"
+		if status.LastPongAt.IsZero() {
+			code = ErrCodeStartup
+			message = "molu is still waiting for xolu's first successful pong at startup"
+		}
+
 		return &ToolError{
-			Code:    ErrCodeUnavailable,
-			Message: "xolu substrate is currently unreachable; retrying",
+			Code:    code,
+			Message: message,
 			Detail: map[string]interface{}{
 				"last_pong_at":      status.LastPongAt.Format(time.RFC3339),
 				"last_fail_at":      status.LastFailAt.Format(time.RFC3339),

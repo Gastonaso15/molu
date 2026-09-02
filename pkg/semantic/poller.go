@@ -88,11 +88,10 @@ func (p *SchemaPoller) PollOnce(ctx context.Context) error {
 	return nil
 }
 
-// Start launches the periodic background refresh loop.
+// Start launches the periodic background refresh loop. Callers are expected to
+// have already run an initial PollOnce so the semantic map is populated before
+// the MCP transport opens (spec Part 2 §8.4).
 func (p *SchemaPoller) Start(ctx context.Context) {
-	// Execute first poll attempt
-	_ = p.PollOnce(ctx)
-
 	go func() {
 		ticker := time.NewTicker(p.pollInterval)
 		defer ticker.Stop()

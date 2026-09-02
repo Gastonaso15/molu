@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -128,17 +129,39 @@ func (p *HealthProbe) recordFail(err error) {
 	p.status.LastFailAt = time.Now()
 	p.status.ConsecutiveFails++
 	p.status.LastError = err.Error()
-
-	// Calculate exponential backoff
-	backoff := p.failFloor * (1 << (p.status.ConsecutiveFails - 1))
-	if backoff > p.failCeiling || backoff < 0 {
-		backoff = p.failCeiling
-	}
-	p.status.NextRetryAt = time.Now().Add(backoff)
+	p.status.NextRetryAt = time.Now().Add(p.backoffFor(p.status.ConsecutiveFails))
 }
 
-// WaitForStartup blocks until xolu produces its first successful pong, or maxAttempts is reached.
+// backoffFor returns the delay before the next probe after `fails` consecutive
+// failures: failFloor, doubled once per failure, capped at failCeiling. A
+// non-positive `fails` yields the normal pingInterval. This is the single source
+// of truth for probe cadence — both recordFail (for NextRetryAt) and the Start
+// loop (for its sleep) call it, so the two can no longer disagree. The doubling
+// loop also avoids the integer overflow the previous `failFloor << fails` shift
+// could hit during a long outage.
+func (p *HealthProbe) backoffFor(fails int) time.Duration {
+	if fails <= 0 {
+		return p.pingInterval
+	}
+	backoff := p.failFloor
+	for i := 1; i < fails && backoff < p.failCeiling; i++ {
+		backoff *= 2
+	}
+	if backoff > p.failCeiling {
+		backoff = p.failCeiling
+	}
+	return backoff
+}
+
+// WaitForStartup blocks until xolu produces its first successful pong, retrying
+// at the normal pingInterval cadence (spec Part 2 §8.4). It gives up once
+// maxAttempts have failed; maxAttempts <= 0 means retry indefinitely.
 func (p *HealthProbe) WaitForStartup(ctx context.Context, maxAttempts int) error {
+	maxLabel := "unlimited"
+	if maxAttempts > 0 {
+		maxLabel = strconv.Itoa(maxAttempts)
+	}
+
 	attempts := 0
 	for {
 		attempts++
@@ -148,7 +171,12 @@ func (p *HealthProbe) WaitForStartup(ctx context.Context, maxAttempts int) error
 			return nil
 		}
 
-		slog.Info("Waiting for xolu...", "attempt", attempts, "max_attempts", maxAttempts, "error", err)
+		slog.Info("Waiting for xolu...",
+			"attempt", attempts,
+			"max_attempts", maxLabel,
+			"last_error", err.Error(),
+		)
+
 		if maxAttempts > 0 && attempts >= maxAttempts {
 			return fmt.Errorf("xolu failed to become ready after %d attempts: %w", maxAttempts, err)
 		}
@@ -156,7 +184,7 @@ func (p *HealthProbe) WaitForStartup(ctx context.Context, maxAttempts int) error
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(p.failFloor):
+		case <-time.After(p.pingInterval):
 		}
 	}
 }
@@ -175,11 +203,7 @@ func (p *HealthProbe) Start(ctx context.Context) {
 			if isHealthy {
 				sleepDuration = p.pingInterval
 			} else {
-				backoff := p.failFloor * (1 << fails)
-				if backoff > p.failCeiling || backoff < 0 {
-					backoff = p.failCeiling
-				}
-				sleepDuration = backoff
+				sleepDuration = p.backoffFor(fails)
 			}
 
 			select {

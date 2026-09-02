@@ -80,9 +80,24 @@ func main() {
 		cfg.PingFailFloor,
 		cfg.PingFailCeiling,
 	)
+
+	// 3. Block until xolu answers its first successful pong. The MCP transport
+	//    is not opened until this succeeds and the semantic map is populated —
+	//    an agent connecting sooner would see an empty tool list (spec Part 2 §8.4).
+	if err := healthProbe.WaitForStartup(ctx, cfg.StartupMaxAttempts); err != nil {
+		if ctx.Err() != nil {
+			slog.Info("Shutdown requested during startup wait; exiting")
+			return
+		}
+		slog.Error("xolu did not become ready; molu is exiting", "error", err)
+		os.Exit(1)
+	}
+
+	// 4. Start the background health probe now that a baseline pong exists.
 	healthProbe.Start(ctx)
 
-	// 3. Initialize Schema Poller
+	// 5. Initialize Schema Poller and populate the semantic map once, before the
+	//    transport opens, so the first tools/list already reflects the substrate.
 	schemaPoller := semantic.NewSchemaPoller(
 		cfg.XoluURL,
 		cfg.XoluAuthMode,
@@ -92,9 +107,12 @@ func main() {
 		semanticStore,
 		healthProbe,
 	)
+	if err := schemaPoller.PollOnce(ctx); err != nil {
+		slog.Warn("Initial semantic map poll failed; starting with an empty map", "error", err)
+	}
 	schemaPoller.Start(ctx)
 
-	// 4. Initialize Hub Catalogue Store (if configured)
+	// 6. Initialize Hub Catalogue Store (if configured)
 	var catStore *catalogue.CatalogueStore
 	if cfg.HubURL != "" {
 		catStore = catalogue.NewCatalogueStore(
@@ -106,7 +124,7 @@ func main() {
 		catStore.Start(ctx)
 	}
 
-	// 5. Initialize Executor
+	// 7. Initialize Executor
 	executor := exec.NewExecutor(
 		cfg.XoluURL,
 		cfg.XoluAuthMode,
@@ -118,10 +136,10 @@ func main() {
 		healthProbe,
 	)
 
-	// 6. Initialize MCP Server
+	// 8. Initialize MCP Server
 	mcpServer := mcp.NewServer(executor, catStore)
 
-	// 7. Start Transport
+	// 9. Start Transport
 	if cfg.Transport == "streamable-http" {
 		if err := mcpServer.RunHTTP(ctx, cfg.HTTPAddr, cfg.HTTPAuth, cfg.HTTPBearerToken); err != nil {
 			slog.Error("MCP HTTP server encountered error", "error", err)
