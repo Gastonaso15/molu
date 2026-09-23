@@ -1,0 +1,20 @@
+# Binarios compilados
+/bin/
+*.exe
+*.test
+
+# Dependencias y artefactos
+/vendor/
+*.log
+*.out
+
+# Entorno y credenciales
+.env
+*.jwt
+*.key
+*.pem
+
+# IDEs y editores
+.vscode/
+.idea/
+.DS_Store
