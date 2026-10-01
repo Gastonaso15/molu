@@ -1,11 +1,10 @@
-.PHONY: all build test clean run-molu run-hub
+.PHONY: all build test coverage clean run-molu
 
 all: test build
 
 build:
 	@mkdir -p bin
 	go build -o bin/molu ./cmd/molu
-	go build -o bin/molu-hub ./cmd/molu-hub
 
 test:
 	go test -v -race ./...
@@ -19,6 +18,3 @@ clean:
 
 run-molu:
 	go run ./cmd/molu
-
-run-hub:
-	go run ./cmd/molu-hub
