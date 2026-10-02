@@ -1,0 +1,44 @@
+# MEMORY.md — Memoria y Estado del Proyecto Molu & Hub
+
+## Estado General
+- **Proyecto**: Molu (Frontal MCP) + Hub de Seam (Registry MCP)
+- **Documento rector**: *SEAM-CURE — Equipo IA / MCP: Detalle de Entregables* (12 de septiembre de 2026).
+- **Metodología**: Spec-Driven Development (SDD) Spec-anchored.
+
+---
+
+## Lista Consolidada de Entregables (§2.3.2)
+
+| Ítem | Alcance | Referencia Normativa | Estado |
+| :--- | :--- | :--- | :--- |
+| **molu — frontal MCP** | Completo | Especificación molu Parte 2, Paquete de trabajo §3.2 | En desarrollo (config, probe inicial) |
+| **Hub / Registry MCP de Seam** | Completo | Especificación molu Parte 3, Paquete de trabajo §3.1 | Por iniciar |
+| **Taxonomía tipada de resultados** | Completo | Paquete de trabajo §3.3, especificación molu Parte 2 §8.5 | Especificado en constitución |
+| **Telemetría y auditoría** | Completo | Paquete de trabajo §3.4 | Pendiente |
+| **RPI — interfaz y proveedores V1** | Completo | Paquete de trabajo §3.6 (admit-all, static-context-rules, test double de Score) | Especificado en constitución |
+| **Documentación** | Completo | Despliegue, configuración, runbook operativo, diagramas .mmd y .pdf | Pendiente |
+| **Motor de Seam** | Parcial | Integración del publicador para funciones piloto Work Orders | Pendiente |
+
+---
+
+## Criterios de Aceptación Críticos a Demostrar
+- **Criterio 1**: Cliente MCP de terceros sin modificar completa escenario punta a punta con rechazo de FSM visible en el camino.
+- **Criterio 2**: Prueba de integración dedicada para cada una de las 6 filas de la taxonomía tipada (`NOT_OFFERED`, `NOT_FOUND`, `EMPTY`, `INVALID_TRANSITION`, `CONTRACT_VIOLATION`, `SUBSTRATE_UNAVAILABLE`).
+- **Criterio 7**: Cambiar de proveedor RPI por configuración (`admit-all` vs `static-context-rules`) altera los resultados de descubrimiento sin tocar código.
+
+---
+
+## Specs Activas y Futuras
+
+| Spec | Nombre / Descripción | Estado | Siguiente Paso |
+| :--- | :--- | :--- | :--- |
+| *(Ninguna activa)* | Sugerida: `001-xolu-client-auth` o `001-taxonomy-types` | - | Ejecutar `/sdd-spec 001-<nombre> <idea>` |
+
+---
+
+## Registro de Decisiones de Arquitectura (ADR)
+- **ADR-001**: Uso de `go test -v -race ./...` como compuerta de validación en cada micro-tarea TDD.
+- **ADR-002**: Desacoplamiento total entre lógica pura y llamadas I/O (xolu REST client y MCP transport) mediante interfaces.
+- **ADR-003**: Inmutabilidad de los 6 códigos tipados de resultados: nunca colapsar en fallos genéricos.
+- **ADR-004**: Neutralidad estricta: código agnóstico sin menciones a "Seam" en constantes, variables ni paquetes de molu o del Hub.
+- **ADR-005**: Diagramas de secuencia versionados como texto `.mmd` (Mermaid) con exportación a `.pdf`.
