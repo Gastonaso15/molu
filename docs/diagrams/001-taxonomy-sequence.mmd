@@ -1,0 +1,67 @@
+sequenceDiagram
+    autonumber
+    participant Agent as Agente MCP
+    participant Molu as molu (Front MCP)
+    participant Hub as Hub Registry
+    participant RPI as RPI Provider
+    participant Xolu as xolu Sustrato
+
+    Note over Agent,Xolu: Flujo normal de herramienta admitida
+    Agent->>Molu: tools/call {name: "walk", args: {...}}
+    Molu->>Hub: ResolveTool("walk")
+    Hub->>RPI: Admit(ctx, query, candidates)
+    RPI-->>Hub: admitted[] (incluye "walk")
+    Hub-->>Molu: ToolDescriptor admitido
+    
+    alt Tool es primitivo genérico (walk/find/get)
+        Molu->>Xolu: Walk/Find/Get via XoluClient
+        alt Xolu responde OK
+            Xolu-->>Molu: Resultado exitoso
+            Molu-->>Agent: Respuesta exitosa (MCP result)
+        else Xolu rechaza transición FSM
+            Xolu-->>Molu: error {code: "XOLU-INVALID_TRANSITION", message: "guarda: estado inválido"}
+            Molu->>Molu: WrapXoluInvalidTransition() preserva verbatim
+            Molu-->>Agent: error {code: "XOLU-INVALID_TRANSITION", message: "guarda: estado inválido"}
+        else Xolu inalcanzable (timeout/5xx)
+            Molu->>Molu: NewSubstrateUnavailable() con RetryMetadata
+            Molu-->>Agent: error {code: "XOLU-MOLU-FRONT-SUBSTRATE_UNAVAILABLE", details: {lastSuccessfulContact, nextRetryAt, attemptNumber, maxAttempts}}
+        end
+    else Tool es función de dominio (namespace.Nombre)
+        Molu->>Xolu: Walk (ejecuta FSM de dominio)
+        ... mismo flujo de errores ...
+    end
+
+    Note over Agent,Xolu: Flujo: herramienta NO admitida (RPI Admit retorna vacío)
+    Agent->>Molu: tools/call {name: "work_orders.CreateOrder", args: {...}}
+    Molu->>Hub: ResolveTool("work_orders.CreateOrder")
+    Hub->>RPI: Admit(ctx, query, candidates)
+    RPI-->>Hub: admitted[] = [] (vacío por tenant/rol)
+    Hub-->>Molu: NOT_OFFERED
+    Molu-->>Agent: error {code: "XOLU-MOLU-FRONT-NOT_OFFERED", message: "tool not offered for tenant"}
+
+    Note over Agent,Xolu: Flujo: objeto NO encontrado (molu detecta)
+    Agent->>Molu: tools/call {name: "get", args: {id: "obj-404"}}
+    Molu->>Xolu: Get(ctx, {id: "obj-404", tenant: "t-1"})
+    Xolu-->>Molu: NOT_FOUND (o molu detecta)
+    Molu->>Molu: NewNotFound() o WrapXoluNotFound()
+    Molu-->>Agent: error {code: "XOLU-MOLU-FRONT-NOT_FOUND" / "XOLU-NOT_FOUND"}
+
+    Note over Agent,Xolu: Flujo: consulta válida SIN resultados
+    Agent->>Molu: tools/call {name: "find", args: {query: {status: "archived"}}}
+    Molu->>Xolu: Find(ctx, {tenant: "t-1", query: {status: "archived"}})
+    Xolu-->>Molu: FindResponse {Results: [], Total: 0}
+    Molu->>Molu: NewEmpty()
+    Molu-->>Agent: error {code: "XOLU-MOLU-FRONT-EMPTY", message: "query returned no results"}
+
+    Note over Agent,Xolu: Flujo: violación de contrato (schema inválido)
+    Agent->>Molu: tools/call {name: "work_orders.CreateOrder", args: {description: "x"}}
+    Molu->>Molu: Validar input contra schema del publicador
+    Molu->>Molu: NewContractViolation() con fields: ["title", "due_date"]
+    Molu-->>Agent: error {code: "XOLU-MOLU-FRONT-CONTRACT_VIOLATION", details: {fields: ["title", "due_date"]}}
+
+    Note over Agent,Xolu: Flujo: código XOLU-* genérico preservado verbatim
+    Agent->>Molu: tools/call {name: "walk", args: {...}}
+    Molu->>Xolu: Walk(...)
+    Xolu-->>Molu: error {code: "XOLU-RATE_LIMITED", message: "rate limit", details: {retry_after: 60}}
+    Molu->>Molu: WrapXoluError() preserva verbatim
+    Molu-->>Agent: error {code: "XOLU-RATE_LIMITED", message: "rate limit", details: {retry_after: 60}}
