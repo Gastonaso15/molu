@@ -14,10 +14,11 @@ specs/
 ```
 
 ## Convención de Nomenclatura
-- `001-xolu-probe`
-- `002-schema-reader`
-- `003-semantic-map`
-- `004-mcp-tools`
+- `001-taxonomy-types`
+- `002-xolu-probe`
+- `003-schema-reader`
+- `004-semantic-map`
+- `005-mcp-tools`
 
 Para comenzar una nueva spec, utiliza el comando:
 ```bash

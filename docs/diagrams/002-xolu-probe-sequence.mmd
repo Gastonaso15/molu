@@ -1,0 +1,64 @@
+sequenceDiagram
+    autonumber
+    participant Operator as Operador
+    participant Molu as molu (Front MCP)
+    participant Probe as xolu Health Probe
+    participant Xolu as xolu Sustrato
+    participant Agent as Agente MCP
+
+    Note over Molu, Xolu: ARRANQUE (RF-1)
+    Molu->>Probe: WaitReady(ctx) con StartupMaxAttempts
+    loop hasta StartupMaxAttempts
+        Probe->>Xolu: GET /ready (timeout=PingTimeout)
+        alt 200 OK
+            Xolu-->>Probe: pong
+            Probe-->>Molu: Ready=true
+            Molu-->>Operator: molu iniciado correctamente
+        else timeout/5xx/error
+            Xolu-->>Probe: fallo
+            Probe->>Probe: backoff exponencial (FailFloor → FailCeiling)
+            Probe-->>Molu: reintento
+        end
+    end
+    opt agotó intentos
+        Molu-->>Operator: exit code ≠ 0
+    end
+
+    Note over Molu, Agent: OPERACIÓN NORMAL (RF-2)
+    Agent->>Molu: tools/call {name: "walk", ...}
+    Molu->>Probe: Check()
+    Probe-->>Molu: nil (healthy)
+    Molu->>Xolu: Walk/Find/Get
+    Xolu-->>Molu: resultado
+    Molu-->>Agent: respuesta exitosa
+
+    Note over Molu, Agent: FALLO DE XOLU (RF-3)
+    Agent->>Molu: tools/call {name: "walk", ...}
+    Molu->>Probe: Check()
+    Probe-->>Molu: nil (healthy)
+    Molu->>Xolu: Walk
+    Xolu-->>Molu: timeout/5xx/connection refused
+    Molu->>Probe: pingOnce() falla
+    Probe->>Probe: Healthy=false, backoff FailFloor
+    Agent->>Molu: tools/call (siguiente llamada)
+    Molu->>Probe: Check()
+    Probe-->>Molu: taxonomy.NewSubstrateUnavailable(RetryMetadata)
+    Molu-->>Agent: error {code: "XOLU-MOLU-FRONT-SUBSTRATE_UNAVAILABLE", details: {...}}
+
+    Note over Molu, Agent: BACKOFF EXPONENCIAL (RF-3)
+    loop fallos consecutivos
+        Probe->>Xolu: GET /ready (cada FailFloor*2^n hasta FailCeiling)
+        Xolu-->>Probe: fallo
+        Probe->>Probe: ConsecutiveFails++, NextRetryAt actualizado
+    end
+
+    Note over Molu, Agent: RECUPERACIÓN (RF-4)
+    Probe->>Xolu: GET /ready
+    Xolu-->>Probe: 200 OK
+    Probe->>Probe: Healthy=true, ConsecutiveFails=0, cadencia=Interval
+    Agent->>Molu: tools/call
+    Molu->>Probe: Check()
+    Probe-->>Molu: nil
+    Molu->>Xolu: Walk
+    Xolu-->>Molu: resultado
+    Molu-->>Agent: respuesta exitosa

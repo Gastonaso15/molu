@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/Gastonaso15/molu/pkg/taxonomy"
 )
 
 // Pinger es lo único que la sonda necesita de xolu: preguntar si está listo.
@@ -32,6 +34,8 @@ type ProbeState struct {
 	LastError        string
 	ConsecutiveFails int
 	NextRetryAt      time.Time
+	AttemptNumber    int
+	MaxAttempts      int
 }
 
 // Probe vigila si xolu está disponible. Corre en su propia goroutine
@@ -46,7 +50,14 @@ type Probe struct {
 }
 
 func NewProbe(pinger Pinger, cfg ProbeConfig) *Probe {
-	return &Probe{pinger: pinger, cfg: cfg, now: time.Now}
+	return &Probe{
+		pinger: pinger,
+		cfg:    cfg,
+		now:    time.Now,
+		state: ProbeState{
+			MaxAttempts: cfg.StartupMaxAttempts,
+		},
+	}
 }
 
 // pingOnce hace un solo ping a xolu y actualiza el estado.
@@ -61,6 +72,7 @@ func (p *Probe) pingOnce(ctx context.Context) error {
 		p.state.LastFailAt = p.now()
 		p.state.LastError = err.Error()
 		p.state.ConsecutiveFails++
+		p.state.AttemptNumber++
 	} else {
 		p.state.LastPongAt = p.now()
 		p.state.LastError = ""
@@ -95,7 +107,7 @@ func (p *Probe) State() ProbeState {
 }
 
 // Check es la compuerta (§8.2): devuelve nil si se puede llamar a xolu,
-// o un error XOLU-MOLU-FRONT-UNAVAILABLE con el detalle de §8.5.
+// o un error XOLU-MOLU-FRONT-SUBSTRATE_UNAVAILABLE con RetryMetadata completo.
 func (p *Probe) Check() error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -103,16 +115,12 @@ func (p *Probe) Check() error {
 		return nil
 	}
 	s := p.state
-	return &Error{
-		Code:    CodeUnavailable,
-		Message: "xolu substrate is currently unreachable; retrying",
-		Detail: map[string]any{
-			"last_pong_at":      formatTime(s.LastPongAt),
-			"last_fail_at":      formatTime(s.LastFailAt),
-			"consecutive_fails": s.ConsecutiveFails,
-			"next_retry_at":     formatTime(s.NextRetryAt),
-		},
-	}
+	return taxonomy.NewSubstrateUnavailable(
+		formatTimeString(s.LastPongAt),
+		formatTimeString(s.NextRetryAt),
+		s.AttemptNumber,
+		s.MaxAttempts,
+	)
 }
 
 // nextDelay calcula cuánto esperar hasta el próximo ping (§8.3):
@@ -187,6 +195,13 @@ func (p *Probe) Run(ctx context.Context) {
 func formatTime(t time.Time) any {
 	if t.IsZero() {
 		return nil
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func formatTimeString(t time.Time) string {
+	if t.IsZero() {
+		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
 }
