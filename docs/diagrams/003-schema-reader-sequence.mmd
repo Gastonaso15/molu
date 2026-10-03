@@ -1,0 +1,61 @@
+sequenceDiagram
+    autonumber
+    participant Operator as Operador
+    participant Molu as molu (Front MCP)
+    participant Loader as SchemaLoader
+    participant Xolu as xolu Sustrato
+    participant Agent as Agente MCP
+    participant MCP as MCP Server
+
+    Note over Molu, Xolu: ARRANQUE CON RETRY (RF-1, RF-3)
+    Molu->>Loader: Load(ctx) con MaxAttempts
+    loop hasta MaxAttempts
+        Loader->>Xolu: GET /schemas (timeout=SchemaTimeout)
+        alt 200 OK + JSON válido
+            Xolu-->>Loader: Schemas {primitives, stateMachines, payloadTypes}
+            Loader->>Loader: swap() atómico
+            Loader-->>Molu: nil
+            Molu->>MCP: Register tools: walk, find, get (sin namespace)
+            Molu-->>Operator: molu iniciado, primitivos registrados
+        else timeout/5xx/JSON inválido
+            Xolu-->>Loader: error
+            Loader->>Loader: backoff exponencial (RetryFloor → RetryCeiling)
+        end
+    end
+    opt agotó intentos
+        Molu-->>Operator: exit code ≠ 0
+    end
+
+    Note over Agent, MCP: OPERACIÓN NORMAL - TOOL CALL VÁLIDO (RF-5)
+    Agent->>MCP: tools/call {name: "walk", arguments: {...}}
+    MCP->>Molu: Execute("walk", args)
+    Molu->>Loader: GetPrimitives()
+    Loader-->>Molu: []PrimitiveSchema
+    Molu->>Molu: ValidateInput("walk", args)
+    Molu-->>Molu: nil (válido)
+    Molu->>Xolu: Walk (primitivo genérico)
+    Xolu-->>Molu: resultado FSM
+    Molu-->>Agent: respuesta exitosa
+
+    Note over Agent, MCP: TOOL CALL INVÁLIDO → CONTRACT_VIOLATION (RF-5, Criterio 2)
+    Agent->>MCP: tools/call {name: "walk", arguments: {invalid: true}}
+    MCP->>Molu: Execute("walk", args)
+    Molu->>Loader: GetPrimitives()
+    Molu->>Molu: ValidateInput("walk", args)
+    Molu-->>Molu: *taxonomy.TypedError{CONTRACT_VIOLATION, details: {fields: ["payload.step", "payload.transition"]}}
+    Molu-->>Agent: error {code: "XOLU-MOLU-FRONT-CONTRACT_VIOLATION", details: {...}}
+
+    Note over Molu, Xolu: HOT-RELOAD SIGHUP (RF-4)
+    Operator->>Molu: kill -SIGHUP <pid>
+    Molu->>Loader: Refresh(ctx)
+    Loader->>Xolu: GET /schemas
+    Xolu-->>Loader: Schemas actualizados (nuevo primitivo "find" añadido)
+    Loader->>Loader: swap() atómico
+    Molu->>MCP: Update tools: diff add "find"
+    Molu-->>Operator: schemas recargados, herramientas actualizadas
+
+    Note over Molu, Xolu: HOT-RELOAD INTERVALO (RF-4)
+    Loader->>Loader: ticker tick (RefreshInterval)
+    Loader->>Xolu: GET /schemas
+    Xolu-->>Loader: Schemas (sin cambios)
+    Loader->>Loader: swap() (mismo contenido, lastLoad actualizado)

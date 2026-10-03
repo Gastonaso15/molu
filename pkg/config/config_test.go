@@ -30,6 +30,21 @@ func TestDefaults(t *testing.T) {
 	if cfg.SchemaPollInterval != 60*time.Second {
 		t.Errorf("SchemaPollInterval = %v, se esperaba 60s", cfg.SchemaPollInterval)
 	}
+	if cfg.SchemaRefreshInterval != 60*time.Second {
+		t.Errorf("SchemaRefreshInterval = %v, se esperaba 60s", cfg.SchemaRefreshInterval)
+	}
+	if cfg.SchemaRetryFloor != 1*time.Second {
+		t.Errorf("SchemaRetryFloor = %v, se esperaba 1s", cfg.SchemaRetryFloor)
+	}
+	if cfg.SchemaRetryCeiling != 30*time.Second {
+		t.Errorf("SchemaRetryCeiling = %v, se esperaba 30s", cfg.SchemaRetryCeiling)
+	}
+	if cfg.SchemaMaxAttempts != 0 {
+		t.Errorf("SchemaMaxAttempts = %d, se esperaba 0 (ilimitado)", cfg.SchemaMaxAttempts)
+	}
+	if cfg.SchemaTimeout != 10*time.Second {
+		t.Errorf("SchemaTimeout = %v, se esperaba 10s", cfg.SchemaTimeout)
+	}
 	if cfg.PingInterval != 30*time.Second {
 		t.Errorf("PingInterval = %v, se esperaba 30s", cfg.PingInterval)
 	}
@@ -63,6 +78,8 @@ func TestValoresInvalidos(t *testing.T) {
 	setRequired(t)
 	t.Setenv("MOLU_FRONT_TRANSPORT", "sse")
 	t.Setenv("MOLU_FRONT_PING_INTERVAL", "treinta")
+	t.Setenv("MOLU_FRONT_SCHEMA_RETRY_FLOOR", "5s")
+	t.Setenv("MOLU_FRONT_SCHEMA_RETRY_CEILING", "2s")
 
 	_, err := LoadFromEnv()
 	if err == nil {
@@ -73,6 +90,9 @@ func TestValoresInvalidos(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "MOLU_FRONT_PING_INTERVAL") {
 		t.Errorf("el error no menciona MOLU_FRONT_PING_INTERVAL: %v", err)
+	}
+	if !strings.Contains(err.Error(), "MOLU_FRONT_SCHEMA_RETRY_FLOOR") {
+		t.Errorf("el error no menciona MOLU_FRONT_SCHEMA_RETRY_FLOOR: %v", err)
 	}
 }
 

@@ -98,6 +98,20 @@ func requireDetailsRetryMetadata(t *testing.T, err *TypedError, lastContact, nex
 	}
 }
 
+func requireTrue(t *testing.T, condition bool, msg string, args ...any) {
+	t.Helper()
+	if !condition {
+		t.Errorf(msg, args...)
+	}
+}
+
+func requireFalse(t *testing.T, condition bool, msg string, args ...any) {
+	t.Helper()
+	if condition {
+		t.Errorf(msg, args...)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
 }

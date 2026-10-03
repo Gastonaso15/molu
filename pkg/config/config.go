@@ -32,6 +32,13 @@ type Config struct {
 	SchemaPollInterval    time.Duration // MOLU_FRONT_SCHEMA_POLL_INTERVAL
 	CataloguePollInterval time.Duration // MOLU_FRONT_CATALOGUE_POLL_INTERVAL
 
+	// Schema Reader (Spec 003)
+	SchemaRefreshInterval time.Duration // MOLU_FRONT_SCHEMA_REFRESH_INTERVAL
+	SchemaRetryFloor      time.Duration // MOLU_FRONT_SCHEMA_RETRY_FLOOR
+	SchemaRetryCeiling    time.Duration // MOLU_FRONT_SCHEMA_RETRY_CEILING
+	SchemaMaxAttempts     int           // MOLU_FRONT_SCHEMA_MAX_ATTEMPTS (0 = ilimitado)
+	SchemaTimeout         time.Duration // MOLU_FRONT_SCHEMA_TIMEOUT
+
 	// Sonda de salud de xolu (§8)
 	PingInterval       time.Duration // MOLU_FRONT_PING_INTERVAL
 	PingTimeout        time.Duration // MOLU_FRONT_PING_TIMEOUT
@@ -71,6 +78,12 @@ func LoadFromEnv() (*Config, error) {
 
 		SchemaPollInterval:    r.duration("MOLU_FRONT_SCHEMA_POLL_INTERVAL", 60*time.Second),
 		CataloguePollInterval: r.duration("MOLU_FRONT_CATALOGUE_POLL_INTERVAL", 60*time.Second),
+
+		SchemaRefreshInterval: r.duration("MOLU_FRONT_SCHEMA_REFRESH_INTERVAL", 60*time.Second),
+		SchemaRetryFloor:      r.duration("MOLU_FRONT_SCHEMA_RETRY_FLOOR", 1*time.Second),
+		SchemaRetryCeiling:    r.duration("MOLU_FRONT_SCHEMA_RETRY_CEILING", 30*time.Second),
+		SchemaMaxAttempts:     r.integer("MOLU_FRONT_SCHEMA_MAX_ATTEMPTS", 0),
+		SchemaTimeout:         r.duration("MOLU_FRONT_SCHEMA_TIMEOUT", 10*time.Second),
 
 		PingInterval:       r.duration("MOLU_FRONT_PING_INTERVAL", 30*time.Second),
 		PingTimeout:        r.duration("MOLU_FRONT_PING_TIMEOUT", 5*time.Second),
@@ -140,6 +153,16 @@ func (c *Config) validate() []error {
 	}
 	positive("MOLU_FRONT_SCHEMA_POLL_INTERVAL", c.SchemaPollInterval)
 	positive("MOLU_FRONT_CATALOGUE_POLL_INTERVAL", c.CataloguePollInterval)
+	positive("MOLU_FRONT_SCHEMA_REFRESH_INTERVAL", c.SchemaRefreshInterval)
+	positive("MOLU_FRONT_SCHEMA_RETRY_FLOOR", c.SchemaRetryFloor)
+	positive("MOLU_FRONT_SCHEMA_RETRY_CEILING", c.SchemaRetryCeiling)
+	positive("MOLU_FRONT_SCHEMA_TIMEOUT", c.SchemaTimeout)
+	if c.SchemaRetryFloor > c.SchemaRetryCeiling {
+		errs = append(errs, errors.New("MOLU_FRONT_SCHEMA_RETRY_FLOOR no puede ser mayor que MOLU_FRONT_SCHEMA_RETRY_CEILING"))
+	}
+	if c.SchemaMaxAttempts < 0 {
+		errs = append(errs, errors.New("MOLU_FRONT_SCHEMA_MAX_ATTEMPTS no puede ser negativo (0 = ilimitado)"))
+	}
 	positive("MOLU_FRONT_PING_INTERVAL", c.PingInterval)
 	positive("MOLU_FRONT_PING_TIMEOUT", c.PingTimeout)
 	positive("MOLU_FRONT_PONG_FRESHNESS", c.PongFreshness)

@@ -11,7 +11,7 @@
 
 | Ítem | Alcance | Referencia Normativa | Estado |
 | :--- | :--- | :--- | :--- |
-| **molu — frontal MCP** | Completo | Especificación molu Parte 2, Paquete de trabajo §3.2 | En desarrollo (config, probe completado) |
+| **molu — frontal MCP** | Completo | Especificación molu Parte 2, Paquete de trabajo §3.2 | En desarrollo (config, probe, schema-reader completados) |
 | **Hub / Registry MCP de Seam** | Completo | Especificación molu Parte 3, Paquete de trabajo §3.1 | Por iniciar |
 | **Taxonomía tipada de resultados** | Completo | Paquete de trabajo §3.3, especificación molu Parte 2 §8.5 | **Completado (Spec 001)** |
 | **Telemetría y auditoría** | Completo | Paquete de trabajo §3.4 | Pendiente |
@@ -34,6 +34,7 @@
 | :--- | :--- | :--- | :--- |
 | **001** | `taxonomy-types` — Tipos de taxonomía tipada (6 códigos, prefijos, verbatim) | **Completada** | Iniciar spec 002 (`xolu-probe`) |
 | **002** | `xolu-probe` — Sonda de salud xolu (backoff, gating, SUBSTRATE_UNAVAILABLE) | **Completada** | Iniciar spec 003 (`schema-reader`) |
+| **003** | `schema-reader` — Lectora de schemas xolu (GET /schemas, walk/find/get sin namespace, hot-reload, CONTRACT_VIOLATION) | **Completada (18/18 tasks)** | Iniciar spec 004 (`rpi-admit-score`) |
 
 ---
 
@@ -64,12 +65,31 @@
 | `docs/diagrams/001-taxonomy-sequence.mmd` | Diagrama de secuencia Mermaid con todos los flujos de error tipado |
 
 ---
-
+ 
 ## Archivos Creados/Modificados (Spec 002)
-
+ 
 | Archivo | Descripción |
 | :--- | :--- |
 | `pkg/exec/probe.go` | Integración con taxonomía: `Check()` retorna `*taxonomy.TypedError` con `SUBSTRATE_UNAVAILABLE` y `RetryMetadata` completo; `ProbeState` añade `AttemptNumber`/`MaxAttempts` |
 | `pkg/exec/probe_test.go` | 10 tests unitarios: `Check()` taxonomía, healthy/nil, recovery reset backoff, concurrencia (-race), integración probe down → SUBSTRATE_UNAVAILABLE |
 | `pkg/xolu/client_mock.go` | Añadido `ReadyFunc`/`Ready()` para implementar interfaz `Pinger` |
 | `docs/diagrams/002-xolu-probe-sequence.mmd` | Diagrama de secuencia Mermaid: arranque, operación normal, fallo→backoff, recuperación, gating tool call |
+ 
+---
+ 
+## Archivos Creados/Modificados (Spec 003)
+ 
+| Archivo | Descripción |
+| :--- | :--- |
+| `pkg/schema/types.go` | Tipos de dominio: `PrimitiveSchema`, `StateMachine`, `Transition`, `PayloadType`, `Schemas` con tags JSON |
+| `pkg/schema/client.go` | Interfaz `SchemaClient` + `XoluSchemaClient` (HTTP con timeouts, manejo 5xx/JSON inválido) |
+| `pkg/schema/loader.go` | `SchemaLoader` completo: `Load` (retry/backoff), `Refresh`, `GetPrimitives`, `Run` (ticker), `Stop`, `swap` atómico con RWMutex |
+| `pkg/schema/validation.go` | `ValidateInput` con `gojsonschema` → `ValidationResult` (valid/invalidFields), sin ciclo de imports |
+| `pkg/schema/loader_test.go` | 15+ tests unitarios: carga, retry/backoff, max attempts, context cancellation, refresh atómico, diff add/remove, validación (éxito, required, type mismatch, enum, nested), concurrencia (-race) |
+| `pkg/schema/client_test.go` | 5 tests: timeout, 5xx, JSON inválido, estructura inesperada, concurrencia loader+refresh |
+| `pkg/config/config.go` | Añadidas `MOLU_FRONT_SCHEMA_REFRESH_INTERVAL`, `MOLU_FRONT_SCHEMA_RETRY_FLOOR`, `MOLU_FRONT_SCHEMA_RETRY_CEILING`, `MOLU_FRONT_SCHEMA_MAX_ATTEMPTS`, `MOLU_FRONT_SCHEMA_TIMEOUT` con defaults y validación |
+| `pkg/config/config_test.go` | Tests para nuevos defaults y validación (floor > ceiling, maxAttempts negativo) |
+| `cmd/molu/main.go` | Wiring: `Load()` al arranque, `Run()` en goroutine, SIGHUP handler → `Refresh()`, registro primitivos sin namespace |
+| `pkg/taxonomy/integration_test.go` | Nuevo `TestIntegration_ContractViolation_InvalidInput`: flujo E2E schema validation → `CONTRACT_VIOLATION` con `details.fields[]` (Criterio 2) |
+| `pkg/taxonomy/errors_test.go` | Helpers `requireTrue`, `requireFalse` |
+| `docs/diagrams/003-schema-reader-sequence.mmd` | Diagrama Mermaid: arranque+retry, carga exitosa, registro MCP, tool call válido, tool call inválido → CONTRACT_VIOLATION, hot-reload SIGHUP, hot-reload intervalo |

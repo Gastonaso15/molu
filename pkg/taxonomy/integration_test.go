@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Gastonaso15/molu/pkg/schema"
 	"github.com/Gastonaso15/molu/pkg/xolu"
 )
 
@@ -84,6 +85,91 @@ func TestIntegration_ContractViolation(t *testing.T) {
 	requireNotNil(t, err)
 	requireCode(t, err, PrefixMolu+string(CodeContractViolation))
 	requireDetailsFields(t, err, []string{"title", "due_date"})
+}
+
+// TestIntegration_ContractViolation_InvalidInput tests the full flow:
+// schema validation via ValidateInput → CONTRACT_VIOLATION with invalidFields
+func TestIntegration_ContractViolation_InvalidInput(t *testing.T) {
+	// Define primitives with schemas matching xolu
+	primitives := []schema.PrimitiveSchema{
+		{
+			Name: "walk",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"step":    map[string]interface{}{"type": "string", "enum": []string{"start", "continue", "finish"}},
+					"payload": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"title": map[string]interface{}{"type": "string"}}, "required": []string{"title"}},
+				},
+				"required": []string{"step", "payload"},
+			},
+		},
+		{
+			Name: "find",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{"type": "string"},
+				},
+				"required": []string{"query"},
+			},
+		},
+	}
+
+	// Test 1: Missing required field "step"
+	args := map[string]interface{}{"payload": map[string]interface{}{"title": "Test"}}
+	result := schema.ValidateInput(primitives, "walk", args)
+	requireFalse(t, result.Valid, "expected invalid for missing required field")
+	fields := result.InvalidFields
+	found := false
+	for _, f := range fields {
+		if f == "step" || f == "(root)" {
+			found = true
+			break
+		}
+	}
+	requireTrue(t, found, "expected 'step' or '(root)' in invalid fields, got %v", fields)
+
+	// Test 2: Missing nested required field "title" in payload
+	args = map[string]interface{}{"step": "start", "payload": map[string]interface{}{}}
+	result = schema.ValidateInput(primitives, "walk", args)
+	requireFalse(t, result.Valid, "expected invalid for missing nested required field")
+	fields = result.InvalidFields
+	found = false
+	for _, f := range fields {
+		if f == "payload.title" || f == "title" || f == "payload" {
+			found = true
+			break
+		}
+	}
+	requireTrue(t, found, "expected nested field in invalid fields, got %v", fields)
+
+	// Test 3: Enum violation
+	args = map[string]interface{}{"step": "invalid_step", "payload": map[string]interface{}{"title": "Test"}}
+	result = schema.ValidateInput(primitives, "walk", args)
+	requireFalse(t, result.Valid, "expected invalid for enum violation")
+	fields = result.InvalidFields
+	found = false
+	for _, f := range fields {
+		if f == "step" {
+			found = true
+			break
+		}
+	}
+	requireTrue(t, found, "expected 'step' in invalid fields for enum violation, got %v", fields)
+
+	// Test 4: Valid input should pass
+	args = map[string]interface{}{"step": "start", "payload": map[string]interface{}{"title": "Valid"}}
+	result = schema.ValidateInput(primitives, "walk", args)
+	requireTrue(t, result.Valid, "expected valid for valid input")
+
+	// Test 5: Full CONTRACT_VIOLATION error construction from validation result
+	args = map[string]interface{}{"step": "start", "payload": map[string]interface{}{}}
+	result = schema.ValidateInput(primitives, "walk", args)
+	requireFalse(t, result.Valid, "expected invalid for nested missing field")
+	err := NewContractViolation("tenant-123", "walk", result.InvalidFields)
+	requireNotNil(t, err)
+	requireCode(t, err, PrefixMolu+string(CodeContractViolation))
+	requireDetailsFields(t, err, result.InvalidFields)
 }
 
 func TestIntegration_SubstrateUnavailable(t *testing.T) {

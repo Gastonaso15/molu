@@ -11,6 +11,7 @@ import (
 	"github.com/Gastonaso15/molu/pkg/config"
 	"github.com/Gastonaso15/molu/pkg/exec"
 	"github.com/Gastonaso15/molu/pkg/obs"
+	"github.com/Gastonaso15/molu/pkg/schema"
 	"github.com/ha1tch/xolu/pkg/client"
 )
 
@@ -28,12 +29,7 @@ func main() {
 	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		slog.Info("Received signal, shutting down", "signal", sig.String())
-		cancel()
-	}()
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
 	// Cliente de xolu. Por ahora solo se usa para la sonda (/ready no
 	// requiere credencial); la autenticación se agrega en otro paso.
@@ -48,6 +44,16 @@ func main() {
 		StartupMaxAttempts: cfg.StartupMaxAttempts,
 	})
 
+	// Schema Loader (Spec 003): carga inicial con retry/backoff
+	schemaClient := schema.NewXoluSchemaClient(cfg.XoluURL, cfg.SchemaTimeout)
+	schemaLoader := schema.NewSchemaLoader(schemaClient, schema.LoaderConfig{
+		RefreshInterval: cfg.SchemaRefreshInterval,
+		RetryFloor:      cfg.SchemaRetryFloor,
+		RetryCeiling:    cfg.SchemaRetryCeiling,
+		MaxAttempts:     cfg.SchemaMaxAttempts,
+		Timeout:         cfg.SchemaTimeout,
+	})
+
 	// §8.4: no seguimos hasta que xolu responda el primer pong.
 	if err := probe.WaitReady(ctx); err != nil {
 		if ctx.Err() == nil {
@@ -57,6 +63,42 @@ func main() {
 	} else {
 		go probe.Run(ctx)
 	}
+
+	// Carga inicial de schemas (con retry/backoff)
+	if err := schemaLoader.Load(ctx); err != nil {
+		if ctx.Err() == nil {
+			slog.Error("failed to load schemas from xolu, exiting", "error", err)
+			os.Exit(1)
+		}
+	}
+
+	// Registrar primitivos genéricos en MCP server (sin namespace)
+	primitives := schemaLoader.GetPrimitives()
+	for _, p := range primitives {
+		slog.Info("Registering primitive", "name", p.Name)
+		// TODO: register p in MCP server
+	}
+
+	// Hot-reload: ticker
+	schemaLoader.Run(ctx)
+
+	go func() {
+		for sig := range sigCh {
+			switch sig {
+			case os.Interrupt, syscall.SIGTERM:
+				slog.Info("Received signal, shutting down", "signal", sig.String())
+				cancel()
+			case syscall.SIGHUP:
+				slog.Info("Received SIGHUP, refreshing schemas")
+				if err := schemaLoader.Refresh(ctx); err != nil {
+					slog.Error("schema refresh failed", "error", err)
+				} else {
+					slog.Info("Schemas refreshed successfully")
+					// TODO: update MCP server tool registry with diff
+				}
+			}
+		}
+	}()
 
 	<-ctx.Done()
 	fmt.Fprintln(os.Stderr, "Molu Frontend shutting down")
