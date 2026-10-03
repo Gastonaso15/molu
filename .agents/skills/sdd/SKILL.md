@@ -15,6 +15,7 @@ Esta guía define el flujo de trabajo guiado por especificaciones (Spec-Driven D
 3. **La spec manda**: si algo no está en la spec activa, no se implementa. El piso normativo del proyecto son los entregables y criterios de aceptación del documento de entregables.
 4. **Un cambio de requisitos** se formaliza primero en la spec, luego en el plan y las tareas, y por último en el código.
 5. **Cada spec vive en su propia carpeta**: `specs/NNN-nombre/` conteniendo `spec.md`, `plan.md` y `tasks.md`.
+   - **Persistencia obligatoria en disco**: Cada vez que el agente redacte o genere una spec (`spec.md`), plan (`plan.md`) o tareas (`tasks.md`), **DEBE guardarlo directamente en disco en su respectiva ruta** (`specs/NNN-nombre/spec.md`), creando la carpeta si no existe. Está estrictamente prohibido emitir el contenido en el chat pidiendo al usuario que lo copie y pegue manualmente.
 6. **Al terminar cada fase**, actualiza `MEMORY.md`.
 
 ---

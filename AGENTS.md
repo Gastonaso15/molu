@@ -58,6 +58,7 @@ Constitución → Spec (spec.md) → Clarificación → Plan (plan.md) → Tarea
 ### Reglas para Agentes
 - **Consulta la constitución**: Lee siempre [`docs/constitution.md`](file:///home/gaston/Documentos/vscode/molu/docs/constitution.md) antes de proponer diseño o escribir código.
 - **La Spec manda**: Ningún archivo en `cmd/` o `pkg/` se modifica sin una spec activa en `specs/NNN-<nombre>/`.
+- **Persistencia obligatoria en disco**: Al crear o modificar una spec, plan o tareas (`spec.md`, `plan.md`, `tasks.md`), el agente DEBE guardarlo directamente en disco en su respectiva carpeta `specs/NNN-<nombre>/`, creando la carpeta si no existe. Nunca pedir al usuario que lo copie/pegue manualmente ni dejarlo como mero texto en el chat.
 - **Desarrollo TDD por tareas**:
   - Implementa **una sola tarea** a la vez (`T1`, `T2`, etc.).
   - Escribe primero los tests (`*_test.go`).
