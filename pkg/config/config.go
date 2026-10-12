@@ -55,6 +55,10 @@ type Config struct {
 	// Comportamiento
 	RedactPayloads bool          // MOLU_FRONT_REDACT_PAYLOADS
 	CallTimeout    time.Duration // MOLU_FRONT_CALL_TIMEOUT
+
+	// RPI (Spec 004)
+	RPIProvider  string // MOLU_FRONT_RPI_PROVIDER: admit-all | static-context-rules
+	RPIRulesFile string // MOLU_FRONT_RPI_RULES_FILE (obligatorio si provider=static-context-rules)
 }
 
 // LoadFromEnv lee la configuración de las variables de entorno y la valida.
@@ -98,6 +102,10 @@ func LoadFromEnv() (*Config, error) {
 
 		RedactPayloads: r.boolean("MOLU_FRONT_REDACT_PAYLOADS", true),
 		CallTimeout:    r.duration("MOLU_FRONT_CALL_TIMEOUT", 30*time.Second),
+
+		// RPI (Spec 004)
+		RPIProvider:  r.str("MOLU_FRONT_RPI_PROVIDER", "static-context-rules"),
+		RPIRulesFile: r.str("MOLU_FRONT_RPI_RULES_FILE", ""),
 	}
 
 	r.errs = append(r.errs, cfg.validate()...)
@@ -174,6 +182,12 @@ func (c *Config) validate() []error {
 	}
 	if c.StartupMaxAttempts < 0 {
 		errs = append(errs, errors.New("MOLU_FRONT_STARTUP_MAX_ATTEMPTS no puede ser negativo (0 = ilimitado)"))
+	}
+
+	// RPI (Spec 004)
+	oneOf("MOLU_FRONT_RPI_PROVIDER", c.RPIProvider, "admit-all", "static-context-rules")
+	if c.RPIProvider == "static-context-rules" && c.RPIRulesFile == "" {
+		errs = append(errs, errors.New("MOLU_FRONT_RPI_RULES_FILE es obligatorio cuando MOLU_FRONT_RPI_PROVIDER=static-context-rules"))
 	}
 
 	return errs

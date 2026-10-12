@@ -1,0 +1,51 @@
+sequenceDiagram
+    autonumber
+    participant Agent as Agente (cliente MCP)
+    participant Molu as molu (Front MCP)
+    participant Hub as Hub (catálogo)
+    participant Registry as ProviderRegistry
+    participant Provider as RPI Provider
+
+    Note over Molu, Hub: ARRANQUE — VALIDACIÓN PROVEEDOR
+    Molu->>Registry: Create(MOLU_FRONT_RPI_PROVIDER, RulesFile)
+    alt config inválida
+        Registry-->>Molu: error
+        Molu->>Molu: log + os.Exit(1)
+    else ok
+        Registry-->>Molu: RPIProvider (admit-all | static-context-rules)
+    end
+
+    Note over Molu, Hub: DESCUBRIMIENTO — EJE 1 (RPI)
+    Agent->>Molu: tools/list (o tools/call discovery)
+    Molu->>Hub: GetCandidates() → []Candidate {id: "ns.Name", ...}
+    Hub-->>Molu: candidatos del catálogo (referencias, no copias)
+
+    Molu->>Molu: Discover(ctx, provider, query, candidates)
+    Note right of Molu: 1. Admit(ctx, query, candidates)
+    Molu->>Provider: Admit(ctx, AdmitQuery{tenant, role, query}, candidates)
+    alt admit-all
+        Provider-->>Molu: []AdmittedCandidate {Result: Admitted, ...} (todos, orden estable)
+    else static-context-rules
+        Provider->>Provider: lookup rules[tenant][role]
+        alt (tenant, role) tiene regla
+            Provider-->>Molu: []AdmittedCandidate {algunos Admitted, otros NotOffered con reason}
+        else sin regla para (tenant, role)
+            Provider-->>Molu: []AdmittedCandidate {TODOS NotOffered, reason="no rule for tenant/role"}
+        end
+    else proveedor no disponible
+        Provider-->>Molu: error
+        Molu->>Molu: toSubstrateUnavailable(err) → SUBSTRATE_UNAVAILABLE tipado (component=rpi-provider)
+    end
+
+    Note right of Molu: 2. Score (opcional, si StagesImplemented() & StageScore)
+    opt proveedor declara StageScore
+        Molu->>Provider: Score(ctx, ScoreQuery, admittedOnly)
+        Provider-->>Molu: []AdmittedCandidate REORDENADOS (sin score/rationale expuestos)
+    end
+
+    Note over Molu: DiscoveryResult{ Offered: admitidos reordenados, NotOffered: con Reason }
+    alt Offered vacío
+        Molu-->>Agent: tools/list → [] (EMPTY: resultado válido, sin padding, sin error)
+    else hay Offered
+        Molu-->>Agent: tools/list → [Offered...] (orden = orden tras Score)
+    end
