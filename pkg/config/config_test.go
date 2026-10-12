@@ -6,13 +6,11 @@ import (
 	"time"
 )
 
-// setRequired fija las variables obligatorias con valores válidos.
+// setRequired fija las tres variables obligatorias con valores válidos.
 func setRequired(t *testing.T) {
 	t.Setenv("MOLU_FRONT_XOLU_URL", "http://localhost:8080")
 	t.Setenv("MOLU_FRONT_XOLU_AUTH_MODE", "jwt")
 	t.Setenv("MOLU_FRONT_XOLU_TOKEN_FILE", "xolu.jwt")
-	// RPI: default es static-context-rules, requiere rules file
-	t.Setenv("MOLU_FRONT_RPI_RULES_FILE", "testdata/rules.json")
 }
 
 func TestDefaults(t *testing.T) {
@@ -108,81 +106,5 @@ func TestHubRequiereCredencial(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "MOLU_HUB_TOKEN_FILE") {
 		t.Errorf("el error no menciona MOLU_HUB_TOKEN_FILE: %v", err)
-	}
-}
-
-func TestRPIProviderDefaults(t *testing.T) {
-	setRequired(t)
-
-	cfg, err := LoadFromEnv()
-	if err != nil {
-		t.Fatalf("error inesperado: %v", err)
-	}
-
-	if cfg.RPIProvider != "static-context-rules" {
-		t.Errorf("RPIProvider = %q, se esperaba static-context-rules", cfg.RPIProvider)
-	}
-	if cfg.RPIRulesFile != "testdata/rules.json" {
-		t.Errorf("RPIRulesFile = %q, se esperaba testdata/rules.json", cfg.RPIRulesFile)
-	}
-}
-
-func TestRPIProviderAdmitAll(t *testing.T) {
-	setRequired(t)
-	t.Setenv("MOLU_FRONT_RPI_PROVIDER", "admit-all")
-	// admit-all no requiere rules file
-	t.Setenv("MOLU_FRONT_RPI_RULES_FILE", "")
-
-	cfg, err := LoadFromEnv()
-	if err != nil {
-		t.Fatalf("error inesperado: %v", err)
-	}
-
-	if cfg.RPIProvider != "admit-all" {
-		t.Errorf("RPIProvider = %q, se esperaba admit-all", cfg.RPIProvider)
-	}
-}
-
-func TestRPIProviderInvalid(t *testing.T) {
-	setRequired(t)
-	t.Setenv("MOLU_FRONT_RPI_PROVIDER", "invalid-provider")
-
-	_, err := LoadFromEnv()
-	if err == nil {
-		t.Fatal("se esperaba un error por provider inválido")
-	}
-	if !strings.Contains(err.Error(), "MOLU_FRONT_RPI_PROVIDER") {
-		t.Errorf("el error no menciona MOLU_FRONT_RPI_PROVIDER: %v", err)
-	}
-}
-
-func TestRPIStaticContextRulesRequiresRulesFile(t *testing.T) {
-	setRequired(t)
-	t.Setenv("MOLU_FRONT_RPI_PROVIDER", "static-context-rules")
-	t.Setenv("MOLU_FRONT_RPI_RULES_FILE", "")
-
-	_, err := LoadFromEnv()
-	if err == nil {
-		t.Fatal("se esperaba un error por rules file faltante")
-	}
-	if !strings.Contains(err.Error(), "MOLU_FRONT_RPI_RULES_FILE") {
-		t.Errorf("el error no menciona MOLU_FRONT_RPI_RULES_FILE: %v", err)
-	}
-}
-
-func TestRPIStaticContextRulesRulesFileMissing(t *testing.T) {
-	// La validación de config solo verifica que el string no esté vacío.
-	// La existencia del archivo se valida al crear el proveedor (en main.go).
-	// Este test verifica que config no falla por archivo inexistente.
-	setRequired(t)
-	t.Setenv("MOLU_FRONT_RPI_PROVIDER", "static-context-rules")
-	t.Setenv("MOLU_FRONT_RPI_RULES_FILE", "/nonexistent/rules.json")
-
-	cfg, err := LoadFromEnv()
-	if err != nil {
-		t.Fatalf("config no debería fallar por archivo inexistente: %v", err)
-	}
-	if cfg.RPIRulesFile != "/nonexistent/rules.json" {
-		t.Errorf("RPIRulesFile = %q, se esperaba /nonexistent/rules.json", cfg.RPIRulesFile)
 	}
 }

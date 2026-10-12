@@ -8,18 +8,18 @@ import (
 
 type AdmitAllProvider struct{}
 
-func NewAdmitAllProvider(config ProviderConfig) (rpi.RPIProvider, error) {
-	return &AdmitAllProvider{}, nil
+func NewAdmitAllProvider() *AdmitAllProvider {
+	return &AdmitAllProvider{}
 }
 
-func (p *AdmitAllProvider) StagesImplemented() rpi.Stage {
-	return rpi.StageAdmit
+func (p *AdmitAllProvider) Admit(ctx context.Context, query string, candidates []rpi.ToolCandidate) ([]rpi.ToolCandidate, error) {
+	return candidates, nil
 }
 
-func (p *AdmitAllProvider) Admit(ctx context.Context, query rpi.AdmitQuery, candidates []rpi.Candidate) ([]rpi.AdmittedCandidate, error) {
-	out := make([]rpi.AdmittedCandidate, 0, len(candidates))
-	for _, c := range candidates {
-		out = append(out, rpi.AdmittedCandidate{Candidate: c, Result: rpi.AdmissionAdmitted})
+func (p *AdmitAllProvider) Score(ctx context.Context, query string, admitted []rpi.ToolCandidate) ([]rpi.ScoredTool, error) {
+	scored := make([]rpi.ScoredTool, len(admitted))
+	for i, t := range admitted {
+		scored[i] = rpi.ScoredTool{ToolCandidate: t, Score: 1.0}
 	}
-	return out, nil
+	return scored, nil
 }

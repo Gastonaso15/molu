@@ -1,7 +1,0 @@
-{
-  "version": "1",
-  "rules": [
-    {"tenant": "tenant1", "role": "admin", "allowedIds": ["work_orders.CreateOrder", "inventory.Reserve"]},
-    {"tenant": "tenant1", "role": "user", "allowedIds": ["work_orders.CreateOrder"]}
-  ]
-}

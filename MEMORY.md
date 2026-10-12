@@ -15,7 +15,7 @@
 | **Hub / Registry MCP de Seam** | Completo | Especificación molu Parte 3, Paquete de trabajo §3.1 | Por iniciar |
 | **Taxonomía tipada de resultados** | Completo | Paquete de trabajo §3.3, especificación molu Parte 2 §8.5 | **Completado (Spec 001)** |
 | **Telemetría y auditoría** | Completo | Paquete de trabajo §3.4 | Pendiente |
-| **RPI — interfaz y proveedores V1** | Completo | Paquete de trabajo §3.6 (admit-all, static-context-rules, test double de Score) | **Completado (Spec 004)** |
+| **RPI — interfaz y proveedores V1** | Completo | Paquete de trabajo §3.6 (admit-all, static-context-rules, test double de Score) | Especificado en constitución |
 | **Documentación** | Completo | Despliegue, configuración, runbook operativo, diagramas .mmd y .pdf | Pendiente |
 | **Motor de Seam** | Parcial | Integración del publicador para funciones piloto Work Orders | Pendiente |
 
@@ -34,7 +34,7 @@
 | :--- | :--- | :--- | :--- |
 | **001** | `taxonomy-types` — Tipos de taxonomía tipada (6 códigos, prefijos, verbatim) | **Completada** | Iniciar spec 002 (`xolu-probe`) |
 | **002** | `xolu-probe` — Sonda de salud xolu (backoff, gating, SUBSTRATE_UNAVAILABLE) | **Completada** | Iniciar spec 003 (`schema-reader`) |
-| **004** | `rpi-admit-score` — RPI Admit & Score (Eje 1: interfaz Admitter/Scorer, proveedores admit-all/static-context-rules, test double Score, Discover orquesta Admit→Score, config MOLU_FRONT_RPI_PROVIDER, Criterio 7) | **Completada (11/11 tasks)** | Iniciar spec 005 (Hub/Registry MCP) |
+| **003** | `schema-reader` — Lectora de schemas xolu (GET /schemas, walk/find/get sin namespace, hot-reload, CONTRACT_VIOLATION) | **Completada (18/18 tasks)** | Iniciar spec 004 (`rpi-admit-score`) |
 
 ---
 
@@ -93,48 +93,3 @@
 | `pkg/taxonomy/integration_test.go` | Nuevo `TestIntegration_ContractViolation_InvalidInput`: flujo E2E schema validation → `CONTRACT_VIOLATION` con `details.fields[]` (Criterio 2) |
 | `pkg/taxonomy/errors_test.go` | Helpers `requireTrue`, `requireFalse` |
 | `docs/diagrams/003-schema-reader-sequence.mmd` | Diagrama Mermaid: arranque+retry, carga exitosa, registro MCP, tool call válido, tool call inválido → CONTRACT_VIOLATION, hot-reload SIGHUP, hot-reload intervalo |
-| :--- | :--- |
-
----
-
-## Registro de Decisiones de Arquitectura (ADR) — Spec 004
-
-- **ADR-007** (Spec 004): Interfaces `Admitter` (obligatoria) y `Scorer` (opcional) separadas en `pkg/rpi/admit_score.go`; `RPIProvider` declara etapas vía `StagesImplemented()` bitmask; `ProviderRegistry` en `pkg/rpi/providers/registry.go` evita ciclo de imports y valida coherencia `StageScore`↔`Scorer`.
-- **ADR-008** (Spec 004): `Discover` en `pkg/rpi/discover.go` orquesta Eje 1: `Admit` → si `StagesImplemented()&StageScore` → `Score` (solo admitidos) → `DiscoveryResult{Offered, NotOffered}`; error proveedor → `taxonomy.NewSubstrateUnavailable` con `Details["component"]="rpi-provider"`, sin inventar timestamps.
-- **ADR-009** (Spec 004): `Candidate` = referencia `namespace.Nombre` (no copias); `Offered` = solo admitidos reordenados; `NotOffered` = rechazados con `Reason`; `Score` reordena sin exponer `score`/`rationale` (cumple §2.5).
-- **ADR-010** (Spec 004): `static-context-rules` carga JSON al arranque, denegar por defecto si no hay regla para `(tenant, rol)`, sin comodines en V1; `admit-all` admite todos; `score-test-double` solo en tests.
-- **ADR-011** (Spec 004): Config RPI estilo actual (`LoadFromEnv`, `validate() []error`, `reader.str`, `errors.Join`); `MOLU_FRONT_RPI_PROVIDER` default `static-context-rules` requiere `MOLU_FRONT_RPI_RULES_FILE`; arranque en `main.go` valida proveedor y hace `os.Exit(1)` si falla.
-
----
-
-## Archivos Creados/Modificados (Spec 004)
-
-| Archivo | Descripción |
-| :--- | :--- |
-| `pkg/rpi/admit_score.go` | **Reemplazado**: interfaces `Admitter`, `Scorer`, tipos `Stage`, `AdmitQuery`, `ScoreQuery`, `Candidate`, `AdmittedCandidate`, `AdmissionResult`, `DiscoveryResult`, `RPIProvider`; eliminados `ToolCandidate`, `ScoredTool`, vieja `RPIProvider` |
-| `pkg/rpi/admit_score_test.go` | **Creado**: tests de tipos y bitmask `Stage` |
-| `pkg/rpi/providers/admit_all.go` | **Reemplazado**: `AdmitAllProvider` implementa `Admitter`; factory `NewAdmitAllProvider` devuelve `(rpi.RPIProvider, error)` |
-| `pkg/rpi/providers/admit_all_test.go` | **Creado**: tests unitarios admisión total, orden estable, factory returns interface |
-| `pkg/rpi/providers/static_context_rules.go` | **Reemplazado**: `StaticContextRulesProvider` implementa `Admitter`; carga JSON, filtra `(tenant, rol)`, denegar por defecto, orden estable |
-| `pkg/rpi/providers/static_context_rules_test.go` | **Creado**: 8 tests: carga JSON, filtro tenant/rol, denegar por defecto, catálogo vacío, orden estable, factory returns interface |
-| `pkg/rpi/providers/score_test_double.go` | **Creado**: `ScoreTestDouble` implementa `Scorer` + opcional `Admitter` delegando; `SetError`, `SetAdmitDelegate`, `StagesImplemented()` |
-| `pkg/rpi/providers/score_test_double_test.go` | **Creado**: 6 tests: reordena, vacío, no toca otro tenant, error controlado, delega Admit, stages |
-| `pkg/rpi/providers/registry.go` | **Creado**: `ProviderRegistry` en `pkg/rpi/providers` (evita ciclo); `Create` valida coherencia `StageScore`↔`Scorer`; `KnownProviders()` |
-| `pkg/rpi/providers/registry_test.go` | **Creado**: 6 tests: create admit-all/static, unknown, sin rules file, valida coherencia, known providers |
-| `pkg/rpi/providers/integration_test.go` | **Creado**: 5 tests integración: conformidad §2.5 (ambos proveedores), Criterio 7, NOT_OFFERED, EMPTY, SUBSTRATE_UNAVAILABLE con `component=rpi-provider` |
-| `pkg/rpi/discover.go` | **Creado**: `Discover(ctx, provider, query, candidates) (DiscoveryResult, error)` orquesta Admit→Score; `ErrProviderUnavailable`; `toSubstrateUnavailable` con `component=rpi-provider` |
-| `pkg/rpi/discover_test.go` | **Creado**: 8 tests: AdmitOnly, WithNotOffered, WithScorer, ProviderUnavailable (Admit/Score), ScoreNotDeclared_NoCall, EmptyCatalog, ScoreOnlyAdmitted |
-| `pkg/config/config.go` | **Modificado**: añadidos `MOLU_FRONT_RPI_PROVIDER` (default `static-context-rules`), `MOLU_FRONT_RPI_RULES_FILE`; validación en `validate()` estilo actual |
-| `pkg/config/config_test.go` | **Modificado**: 6 tests nuevos: defaults, admit-all, provider inválido, static requiere rules file, archivo inexistente (config no falla, falla en main) |
-| `pkg/config/testdata/rules.json` | **Creado**: JSON de ejemplo para tests (tenant1/admin/user, tenant2/admin) |
-| `pkg/rpi/providers/testdata/rules.json` | **Creado**: copia para tests de integración (ruta relativa) |
-| `cmd/molu/main.go` | **Modificado**: crea `ProviderRegistry` y proveedor RPI al arrancar; error → log + `os.Exit(1)`; guarda proveedor para wiring futuro Hub |
-| `docs/diagrams/004-rpi-admit-score-sequence.mmd` | **Creado**: Diagrama Mermaid: arranque validación proveedor → descubrimiento → Admit → Score (si StageScore) → DiscoveryResult → Offered/NotOffered/EMPTY/SUBSTRATE_UNAVAILABLE |
-| `docs/diagrams/004-rpi-admit-score-sequence.pdf` | **Pendiente**: renderizado con `mmdc` (no disponible en entorno; generable en CI/local) |
-
----
-
-## Criterios de Aceptación Demostrados (Spec 004)
-
-- **Criterio 2** (parcial): Tests de integración dedicados para `NOT_OFFERED`, `EMPTY`, `SUBSTRATE_UNAVAILABLE` (Eje 1). `NOT_FOUND`, `CONTRACT_VIOLATION`, `INVALID_TRANSITION` son Eje 2 (fuera de alcance).
-- **Criterio 7**: `TestIntegration_Criterion7_ProviderSwitch` verifica que mismo `AdmitQuery` + mismos candidatos con `admit-all` vs `static-context-rules` (seleccionados por `MOLU_FRONT_RPI_PROVIDER`) producen `DiscoveryResult` distintos.

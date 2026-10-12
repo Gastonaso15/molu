@@ -11,7 +11,6 @@ import (
 	"github.com/Gastonaso15/molu/pkg/config"
 	"github.com/Gastonaso15/molu/pkg/exec"
 	"github.com/Gastonaso15/molu/pkg/obs"
-	"github.com/Gastonaso15/molu/pkg/rpi/providers"
 	"github.com/Gastonaso15/molu/pkg/schema"
 	"github.com/ha1tch/xolu/pkg/client"
 )
@@ -25,20 +24,7 @@ func main() {
 	}
 	obs.InitLogger(cfg.LogLevel, cfg.LogFormat)
 
-	slog.Info("Starting Molu Frontend", "xolu_url", cfg.XoluURL, "transport", cfg.Transport, "rpi_provider", cfg.RPIProvider)
-
-	// Crear proveedor RPI al arrancar (valida reglas si static-context-rules)
-	rpiRegistry := providers.NewProviderRegistry()
-	rpiProvider, err := rpiRegistry.Create(cfg.RPIProvider, providers.ProviderConfig{
-		RulesFile: cfg.RPIRulesFile,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "RPI provider init failed: %v\n", err)
-		os.Exit(1)
-	}
-	// rpiProvider guardado para wiring futuro con Hub (fuera de esta spec)
-	_ = rpiProvider
-
+	slog.Info("Starting Molu Frontend", "xolu_url", cfg.XoluURL, "transport", cfg.Transport)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
