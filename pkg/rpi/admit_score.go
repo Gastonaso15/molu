@@ -1,8 +1,12 @@
 package rpi
 
-import "context"
+import (
+	"context"
 
-// Stage: bitmask de etapas que implementa un proveedor
+	"github.com/Gastonaso15/molu/pkg/taxonomy"
+)
+
+// Stage: bitmask of stages implemented by a provider
 type Stage uint8
 
 const (
@@ -10,25 +14,25 @@ const (
 	StageScore
 )
 
-// AdmitQuery: contexto de quién pregunta
+// AdmitQuery: context of who is asking
 type AdmitQuery struct {
 	Tenant        string
 	Role          string
 	OriginalQuery string
 }
 
-// ScoreQuery: contexto de scoring (hereda de AdmitQuery)
+// ScoreQuery: scoring context (inherits from AdmitQuery)
 type ScoreQuery struct {
 	AdmitQuery
 }
 
-// Candidate: referencia a función de dominio del catálogo (sin schemas copiados)
+// Candidate: reference to a domain function from the catalog (no schemas copied)
 type Candidate struct {
-	ID          string // namespace.Nombre, ej. "work_orders.CreateOrder"
-	Description string // opcional
+	ID          string // namespace.Nombre, e.g. "work_orders.CreateOrder"
+	Description string // optional
 }
 
-// AdmissionResult: resultado de admisión por candidato
+// AdmissionResult: admission result per candidate
 type AdmissionResult uint8
 
 const (
@@ -36,33 +40,41 @@ const (
 	AdmissionNotOffered
 )
 
-// AdmittedCandidate: Candidate + su resultado de admisión
+// AdmittedCandidate: Candidate + its admission result
 type AdmittedCandidate struct {
 	Candidate
 	Result AdmissionResult
-	Reason string // solo si NotOffered
+	Reason string // only if NotOffered
 }
 
-// DiscoveryResult: resultado final de Discover
+// DiscoveryResult: final result of Discover
 type DiscoveryResult struct {
-	Offered    []Candidate        // solo admitidos, en orden final (tras Score si aplica)
-	NotOffered []AdmittedCandidate // los rechazados con su Reason
+	Offered    []Candidate        // only admitted, in final order (after Score if applicable)
+	NotOffered []AdmittedCandidate // rejected candidates with their Reason
 }
 
-// Admitter: etapa obligatoria — filtra y marca candidatos
+// Admitter: mandatory stage - filters and marks candidates
 type Admitter interface {
 	Admit(ctx context.Context, query AdmitQuery, candidates []Candidate) ([]AdmittedCandidate, error)
-	// error solo para SUBSTRATE_UNAVAILABLE del proveedor
+	// error only for SUBSTRATE_UNAVAILABLE from provider
 }
 
-// Scorer: etapa opcional — reordena admitidos (sin exponer score/rationale)
+// Scorer: optional stage - reorders admitted candidates (without exposing score/rationale)
 type Scorer interface {
 	Score(ctx context.Context, query ScoreQuery, admitted []AdmittedCandidate) ([]AdmittedCandidate, error)
 }
 
-// RPIProvider: proveedor concreto declara qué etapas implementa
+// RPIProvider: concrete provider declares which stages it implements
 type RPIProvider interface {
-	Admitter // embebido: Admit es obligatorio
-	// Scorer es opcional; si no lo implementa, el registry lo detecta
+	Admitter // embedded: Admit is mandatory
+	// Scorer is optional; if not implemented, registry detects it
 	StagesImplemented() Stage // bitmask: StageAdmit | StageScore
+}
+
+// NotOfferedToTaxonomyError: converts a NotOffered AdmittedCandidate to a taxonomy typed error
+func NotOfferedToTaxonomyError(tenant string, ac AdmittedCandidate) *taxonomy.TypedError {
+	if ac.Result != AdmissionNotOffered {
+		return nil
+	}
+	return taxonomy.NewNotOffered(tenant, ac.Candidate.ID)
 }

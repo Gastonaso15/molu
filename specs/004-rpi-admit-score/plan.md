@@ -4,7 +4,7 @@
 
 | Archivo | Responsabilidad | RF Cubiertos |
 |---------|-----------------|--------------|
-| `pkg/rpi/admit_score.go` | **Modificar (reemplazar)**: Interfaces `Admitter`, `Scorer`, tipos `AdmitQuery`, `ScoreQuery`, `Candidate`, `AdmittedCandidate`, `AdmissionResult`, `Stage` (bitmask), `RPIProvider` (con `StagesImplemented()`), **`DiscoveryResult`** (`Offered []Candidate`, `NotOffered []AdmittedCandidate`). Se eliminan `ToolCandidate`, `ScoredTool` y la interfaz `RPIProvider` vieja. | RF-9, RF-10, RF-13 |
+| `pkg/rpi/admit_score.go` | **Modificar (reemplazar)**: Interfaces `Admitter`, `Scorer`, tipos `AdmitQuery`, `ScoreQuery`, `Candidate`, `AdmittedCandidate`, `AdmissionResult`, `Stage` (bitmask), `RPIProvider` (con `StagesImplemented()`), **`DiscoveryResult`** (`Offered []Candidate`, `NotOffered []AdmittedCandidate`). **Helper `NotOfferedToTaxonomyError(tenant string, ac AdmittedCandidate) *taxonomy.TypedError`**. Se eliminan `ToolCandidate`, `ScoredTool` y la interfaz `RPIProvider` vieja. **Comentarios en inglés**. | RF-9, RF-10, RF-13, RF-14 |
 | `pkg/rpi/providers/admit_all.go` | **Modificar (reemplazar)**: `AdmitAllProvider` implementa `Admitter`; admite todos los candidatos, orden estable, sin `Score`. **`NewAdmitAllProvider` devuelve `(rpi.RPIProvider, error)`**. | RF-6 |
 | `pkg/rpi/providers/static_context_rules.go` | **Modificar (reemplazar)**: `StaticContextRulesProvider` implementa `Admitter`; carga reglas JSON desde archivo al arranque, filtra por `(tenant, rol)`, denegar por defecto, orden estable, sin `Score`, **sin comodines en V1**. **`NewStaticContextRulesProvider` devuelve `(rpi.RPIProvider, error)`**. | RF-7 |
 | `pkg/rpi/providers/score_test_double.go` | **Crear**: `ScoreTestDouble` implementa `Scorer` (y opcional `Admitter` delegando); solo para tests, no seleccionable por config. | RF-8 |
@@ -14,8 +14,11 @@
 | `pkg/rpi/providers/static_context_rules_test.go` | **Modificar/Crear**: Tests unitarios `StaticContextRulesProvider` — carga reglas, filtra por tenant/rol, denegar por defecto, orden estable, `NOT_OFFERED` con razón, `EMPTY` cuando ninguno admitido. **Sin test Wildcard**. | RF-2, RF-3, RF-7 |
 | `pkg/rpi/providers/score_test_double_test.go` | **Crear**: Tests unitarios `ScoreTestDouble.Score` — reordena admitidos, no puntúa candidatos de otro tenant, error controlado para `SUBSTRATE_UNAVAILABLE`. | RF-8, RF-10 |
 | `pkg/rpi/discover.go` | **Crear**: `Discover(ctx, provider, query, candidates) (DiscoveryResult, error)` — orquesta: 1) `Admit`; 2) si `provider.StagesImplemented() & StageScore != 0` → `Score` **solo con admitidos**; 3) convierte error "proveedor no disponible" en `taxonomy.NewSubstrateUnavailable` con `RetryMetadata` + `Details["component"]="rpi-provider"`. Define `ErrProviderUnavailable` (error centinela con último contacto y próximo reintento). | RF-1, RF-4, RF-10, RF-13 |
+| `pkg/rpi/discover.go` | **Añadir**: Helper `NotOfferedToTaxonomyError` en `admit_score.go` (ver arriba). No cambios en `discover.go` más que importar taxonomy si no estaba. | RF-14 |
 | `pkg/rpi/discover_test.go` | **Crear**: Tests de orquestación — `Discover` llama Admit → Score (según `StagesImplemented`) → `DiscoveryResult` final; error proveedor → `SUBSTRATE_UNAVAILABLE` tipado con component=rpi-provider; Score reordena solo Offered. | RF-1, RF-4, RF-10, RF-13 |
-| `pkg/rpi/integration_test.go` | **Crear**: Tests de integración — conformidad §2.5 (ambos proveedores), Criterio 7 (mismos inputs, providers distintos = outputs distintos), `NOT_OFFERED`, `EMPTY`, `SUBSTRATE_UNAVAILABLE` (proveedor falso). | RF-2, RF-3, RF-4, Criterio 7, §2.5 |
+| `pkg/rpi/providers/integration_test.go` | **Crear**: Tests de integración — conformidad §2.5 (ambos proveedores), Criterio 7 (mismos inputs, providers distintos = outputs distintos), `NOT_OFFERED`, `EMPTY`, `SUBSTRATE_UNAVAILABLE` (proveedor falso). | RF-2, RF-3, RF-4, Criterio 7, §2.5 |
+| `pkg/rpi/providers/integration_test.go` | **Modificar**: `TestIntegration_Conformity_Section25` — añadir caso `(tenant, rol)` sin regla → `Offered` vacío, `err == nil`, todos en `NotOffered` con `Reason`. | RF-3, §2.5(b) |
+| `pkg/rpi/providers/integration_test.go` | **Modificar**: `TestIntegration_NOT_OFFERED_Explicit` — verifica código taxonomía exacto `XOLU-MOLU-FRONT-NOT_OFFERED` y que no es `NOT_FOUND` (usa `NotOfferedToTaxonomyError`). | RF-2, RF-14 |
 | `pkg/config/config.go` | **Modificar**: Añadir `MOLU_FRONT_RPI_PROVIDER` (valores `admit-all`\|`static-context-rules`, default `static-context-rules`), `MOLU_FRONT_RPI_RULES_FILE` (path). Estilo actual: `reader.str`, `validate() []error`, `errors.Join`. **Sin tags `env:` ni librerías nuevas**. Validación: proveedor conocido; si `static-context-rules` → rules file obligatorio. | RF-5, RF-7 |
 | `pkg/config/config_test.go` | **Modificar**: `TestDefaults` actualizado (default `static-context-rules` requiere `MOLU_FRONT_RPI_RULES_FILE`); tests validación config RPI — proveedor inválido → error arranque, reglas requeridas para `static-context-rules`. | RF-5, RF-7 |
 | `cmd/molu/main.go` | **Modificar**: Al arrancar, crea `ProviderRegistry`, llama `Create(config.RPIProvider, ProviderConfig{RulesFile: config.RPIRulesFile})`. Si error → log + `os.Exit(1)` (cumple "archivo reglas inválido → molu no arranca"). Proveedor guardado para wiring futuro con Hub (fuera de esta spec). | RF-5, RF-7 |
@@ -78,6 +81,14 @@ type AdmittedCandidate struct {
 type DiscoveryResult struct {
     Offered    []Candidate        // solo admitidos, en orden final (tras Score si aplica)
     NotOffered []AdmittedCandidate // los rechazados con su Reason
+}
+
+// NotOfferedToTaxonomyError: convierte un AdmittedCandidate NotOffered en error tipado
+func NotOfferedToTaxonomyError(tenant string, ac AdmittedCandidate) *taxonomy.TypedError {
+    if ac.Result != AdmissionNotOffered {
+        return nil
+    }
+    return taxonomy.NewNotOffered(tenant, ac.Candidate.ID)
 }
 
 // Admitter: etapa obligatoria — filtra y marca candidatos
@@ -537,13 +548,13 @@ sequenceDiagram
 | `TestDiscover_ScoreNotDeclared_NoCall` | RF-13 | Proveedor implementa Scorer pero NO declara StageScore → `Discover` NO llama Score. |
 | `TestConfig_Validate_RPI` | RF-5, RF-7 | Proveedor inválido → error; `static-context-rules` sin rules file → error; default correcto (requiere rules file). |
 
-### Integración (`go test -v -race ./pkg/rpi/... -run Integration`)
+### Integración (`go test -v -race ./pkg/rpi/providers/... -run Integration`)
 
 | Test | RF | Descripción |
 |------|----|-------------|
-| `TestIntegration_Conformity_Section25` | §2.5, RF-2,3,4,11 | **Ambos proveedores**: (a) `Offered` = referencias `namespace.Nombre` (no copias); (b) `Offered` vacío = `EMPTY` honesto sin padding; (c) `NotOffered` → `NOT_OFFERED` con reason; (d) proveedor falso → `SUBSTRATE_UNAVAILABLE` tipado (no lista vacía); (e) `Offered` sin `score`/`rationale`. |
+| `TestIntegration_Conformity_Section25` | §2.5, RF-2,3,4,11 | **Ambos proveedores**: (a) `Offered` = referencias `namespace.Nombre` (no copias); (b) **caso `(tenant, rol)` sin regla → `Offered` vacío, `err == nil`, todos en `NotOffered` con `Reason`**; (c) `NotOffered` → `NOT_OFFERED` con reason; (d) proveedor falso → `SUBSTRATE_UNAVAILABLE` tipado (no lista vacía); (e) `Offered` sin `score`/`rationale`. |
 | `TestIntegration_Criterion7_ProviderSwitch` | RF-5, Criterio 7 | Mismo `AdmitQuery` + mismos `[]Candidate`, `admit-all` vs `static-context-rules` → `DiscoveryResult` distintos (uno admite todos, otro filtra). |
-| `TestIntegration_NOT_OFFERED_Explicit` | RF-2 | Candidato filtrado → `NotOffered` con `Reason` (no eliminado). |
+| `TestIntegration_NOT_OFFERED_Explicit` | RF-2, RF-14 | Candidato filtrado → `NotOffered` con `Reason`; **verifica `NotOfferedToTaxonomyError` produce `XOLU-MOLU-FRONT-NOT_OFFERED` y no `NOT_FOUND`**. |
 | `TestIntegration_EMPTY_ValidResult` | RF-3 | Ningún admitido → `Offered` vacío, **no error**, no `SUBSTRATE_UNAVAILABLE`. |
 | `TestIntegration_SUBSTRATE_UNAVAILABLE_Typed` | RF-4 | Proveedor falso devuelve error → `Discover` retorna `*taxonomy.TypedError{Code: SUBSTRATE_UNAVAILABLE, Details: RetryMetadata{...}, component=rpi-provider}`. |
 
@@ -572,6 +583,7 @@ sequenceDiagram
 | RF-11 | Proveedores stateless, sin persistencia, devuelven solo referencias; verificado en conformidad §2.5. |
 | RF-12 | Código sin "Seam"; revisado en PR. |
 | RF-13 | `RPIProvider.StagesImplemented()` bitmask; `ProviderRegistry` valida coherencia StageScore↔Scorer; `Discover` usa `StagesImplemented()&StageScore` para decidir llamar Score; test registry + `TestDiscover_ScoreNotDeclared_NoCall`. |
+| RF-14 | Helper `NotOfferedToTaxonomyError(tenant, candidateID)` en `admit_score.go`; test integración `TestIntegration_NOT_OFFERED_Explicit` verifica código `XOLU-MOLU-FRONT-NOT_OFFERED` y que no es `NOT_FOUND`; conformidad §2.5(b) caso sin regla. |
 
 ---
 

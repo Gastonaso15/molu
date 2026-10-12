@@ -34,7 +34,7 @@
 | :--- | :--- | :--- | :--- |
 | **001** | `taxonomy-types` — Tipos de taxonomía tipada (6 códigos, prefijos, verbatim) | **Completada** | Iniciar spec 002 (`xolu-probe`) |
 | **002** | `xolu-probe` — Sonda de salud xolu (backoff, gating, SUBSTRATE_UNAVAILABLE) | **Completada** | Iniciar spec 003 (`schema-reader`) |
-| **004** | `rpi-admit-score` — RPI Admit & Score (Eje 1: interfaz Admitter/Scorer, proveedores admit-all/static-context-rules, test double Score, Discover orquesta Admit→Score, config MOLU_FRONT_RPI_PROVIDER, Criterio 7) | **Completada (11/11 tasks)** | Iniciar spec 005 (Hub/Registry MCP) |
+| **004** | `rpi-admit-score` — RPI Admit & Score (Eje 1: interfaz Admitter/Scorer, proveedores admit-all/static-context-rules, test double Score, Discover orquesta Admit→Score, config MOLU_FRONT_RPI_PROVIDER, Criterio 7, RF-14 NotOffered→taxonomy) | **Implementada (12/12 tasks)** | Iniciar spec 005 (Hub/Registry MCP) |
 
 ---
 
@@ -45,6 +45,12 @@
 - **ADR-004**: Neutralidad estricta: código agnóstico sin menciones a "Seam" en constantes, variables ni paquetes de molu o del Hub.
 - **ADR-005**: Diagramas de secuencia versionados como texto `.mmd` (Mermaid) con exportación a `.pdf`.
 - **ADR-006** (Spec 001): Paquete compartido `pkg/taxonomy/` interno con constructores puros, interfaces `XoluClient`, `MCPTransport`, `RPIProvider` mockables, `RetryMetadata` con attemptNumber/maxAttempts, formato `XOLU-<CODE>` fijo para xolu.
+- **ADR-007** (Spec 004): Interfaces `Admitter` (obligatoria) y `Scorer` (opcional) separadas en `pkg/rpi/admit_score.go`; `RPIProvider` declara etapas vía `StagesImplemented()` bitmask; `ProviderRegistry` en `pkg/rpi/providers/registry.go` evita ciclo de imports y valida coherencia `StageScore`↔`Scorer`.
+- **ADR-008** (Spec 004): `Discover` en `pkg/rpi/discover.go` orquesta Eje 1: `Admit` → si `StagesImplemented()&StageScore` → `Score` (solo admitidos) → `DiscoveryResult{Offered, NotOffered}`; error proveedor → `taxonomy.NewSubstrateUnavailable` con `Details["component"]="rpi-provider"`, sin inventar timestamps.
+- **ADR-009** (Spec 004): `Candidate` = referencia `namespace.Nombre` (no copias); `Offered` = solo admitidos reordenados; `NotOffered` = rechazados con `Reason`; `Score` reordena sin exponer `score`/`rationale` (cumple §2.5).
+- **ADR-010** (Spec 004): `static-context-rules` carga JSON al arranque, denegar por defecto si no hay regla para `(tenant, rol)`, sin comodines en V1; `admit-all` admite todos; `score-test-double` solo en tests.
+- **ADR-011** (Spec 004): Config RPI estilo actual (`LoadFromEnv`, `validate() []error`, `reader.str`, `errors.Join`); `MOLU_FRONT_RPI_PROVIDER` default `static-context-rules` requiere `MOLU_FRONT_RPI_RULES_FILE`; arranque en `main.go` valida proveedor y hace `os.Exit(1)` si falla.
+- **ADR-012** (Spec 004): Helper `NotOfferedToTaxonomyError(tenant, candidateID)` en `pkg/rpi/admit_score.go` convierte `NotOffered` a `taxonomy.NewNotOffered` con código `XOLU-MOLU-FRONT-NOT_OFFERED`; test de integración verifica código exacto y que no es `NOT_FOUND`.
 
 ---
 ## Archivos Creados (Spec 001)
@@ -93,17 +99,6 @@
 | `pkg/taxonomy/integration_test.go` | Nuevo `TestIntegration_ContractViolation_InvalidInput`: flujo E2E schema validation → `CONTRACT_VIOLATION` con `details.fields[]` (Criterio 2) |
 | `pkg/taxonomy/errors_test.go` | Helpers `requireTrue`, `requireFalse` |
 | `docs/diagrams/003-schema-reader-sequence.mmd` | Diagrama Mermaid: arranque+retry, carga exitosa, registro MCP, tool call válido, tool call inválido → CONTRACT_VIOLATION, hot-reload SIGHUP, hot-reload intervalo |
-| :--- | :--- |
-
----
-
-## Registro de Decisiones de Arquitectura (ADR) — Spec 004
-
-- **ADR-007** (Spec 004): Interfaces `Admitter` (obligatoria) y `Scorer` (opcional) separadas en `pkg/rpi/admit_score.go`; `RPIProvider` declara etapas vía `StagesImplemented()` bitmask; `ProviderRegistry` en `pkg/rpi/providers/registry.go` evita ciclo de imports y valida coherencia `StageScore`↔`Scorer`.
-- **ADR-008** (Spec 004): `Discover` en `pkg/rpi/discover.go` orquesta Eje 1: `Admit` → si `StagesImplemented()&StageScore` → `Score` (solo admitidos) → `DiscoveryResult{Offered, NotOffered}`; error proveedor → `taxonomy.NewSubstrateUnavailable` con `Details["component"]="rpi-provider"`, sin inventar timestamps.
-- **ADR-009** (Spec 004): `Candidate` = referencia `namespace.Nombre` (no copias); `Offered` = solo admitidos reordenados; `NotOffered` = rechazados con `Reason`; `Score` reordena sin exponer `score`/`rationale` (cumple §2.5).
-- **ADR-010** (Spec 004): `static-context-rules` carga JSON al arranque, denegar por defecto si no hay regla para `(tenant, rol)`, sin comodines en V1; `admit-all` admite todos; `score-test-double` solo en tests.
-- **ADR-011** (Spec 004): Config RPI estilo actual (`LoadFromEnv`, `validate() []error`, `reader.str`, `errors.Join`); `MOLU_FRONT_RPI_PROVIDER` default `static-context-rules` requiere `MOLU_FRONT_RPI_RULES_FILE`; arranque en `main.go` valida proveedor y hace `os.Exit(1)` si falla.
 
 ---
 

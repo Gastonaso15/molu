@@ -1,6 +1,6 @@
 # Spec 004 — RPI Admit & Score (Eje 1: Qué se ofrece)
 
-Estado: completada
+Estado: implementada
 
 ## Contexto y objetivo
 
@@ -54,6 +54,7 @@ Esta especificación define la **interfaz RPI (Relevance Provider Interface)** y
 - RF-11: EL SISTEMA es **stateless** en persistencia propia: la RPI no guarda decisiones, no es segunda fuente de verdad, devuelve solo referencias e identificadores.
 - RF-12: EL SISTEMA **nunca** usa la palabra "Seam" en código, constantes, configuración por defecto ni mensajes de error (neutralidad de dominio, §2.6 punto 4).
 - RF-13: CADA PROVEEDOR declara, al registrarse, qué etapas implementa (`Admit`, `Score`, o ambas). El registro de proveedores expone esta capacidad.
+- RF-14: CUANDO un candidato resulta `NotOffered`, EL SISTEMA provee una conversión a error tipado de taxonomía mediante `taxonomy.NewNotOffered(tenant, candidateID)`, produciendo código `XOLU-MOLU-FRONT-NOT_OFFERED`. El test de integración verifica ese código exacto y que **no** es `NOT_FOUND`.
 
 ## Requisitos no funcionales
 
@@ -71,6 +72,7 @@ Esta especificación define la **interfaz RPI (Relevance Provider Interface)** y
 - Tenant/rol no presente en reglas → candidato marcado `NOT_OFFERED`.
 - Cambio de proveedor por config sin reinicio: **fuera de alcance** (requiere reinicio en V1).
 - Reglas con tenant/rol comodín (`*`) → se decide en plan.md.
+- **Tenant/rol sin regla en `static-context-rules` → `Offered` vacío, `err == nil`, todos los candidatos en `NotOffered` con `Reason` no vacío**.
 
 ## Fuera de alcance
 
@@ -91,8 +93,9 @@ Esta especificación define la **interfaz RPI (Relevance Provider Interface)** y
 - Tests unitarios: `Admitter` de ambos proveedores, `Scorer` del test double, carga de reglas, validación config.
 - Test de integración dedicado para `NOT_OFFERED` (candidato filtrado por tenant/rol) y `EMPTY` (lista admitida vacía).
 - Test de integración para `SUBSTRATE_UNAVAILABLE` (proveedor no disponible — probado con proveedor falso en tests).
-- **Pruebas de conformidad §2.5 contra AMBOS proveedores**: verifican que (a) devuelven referencias y no copias; (b) vacío honesto sin padding; (c) cada rechazado queda marcado `NOT_OFFERED`; (d) proveedor no disponible da error tipado y no lista vacía; (e) ningún tipo interno sale de la interfaz.
+- **Pruebas de conformidad §2.5 contra AMBOS proveedores**: verifican que (a) devuelven referencias y no copias; (b) **vacío honesto sin padding: caso `(tenant, rol)` sin regla → `Offered` vacío, `err == nil`, todos los candidatos en `NotOffered` con `Reason` no vacío**; (c) cada rechazado queda marcado `NOT_OFFERED`; (d) proveedor no disponible da error tipado y no lista vacía; (e) ningún tipo interno sale de la interfaz.
 - **Test del Criterio 7**: mismo contexto y candidatos, `admit-all` vs `static-context-rules` elegidos por `MOLU_FRONT_RPI_PROVIDER` dan resultados distintos.
+- **Test de integración `NOT_OFFERED` verifica código taxonomía exacto `XOLU-MOLU-FRONT-NOT_OFFERED` y que no es `NOT_FOUND`**.
 - Diagrama de secuencia Mermaid (`.mmd` + `.pdf`): flujo descubrimiento → RPI Admit → resultado admitido/NOT_OFFERED/EMPTY/SUBSTRATE_UNAVAILABLE.
 - `go test -v -race ./...` pasa limpio (cero data races).
 
@@ -100,3 +103,5 @@ Esta especificación define la **interfaz RPI (Relevance Provider Interface)** y
 
 - Formato exacto del archivo de reglas `MOLU_FRONT_RPI_RULES_FILE` (JSON/YAML/TOML, estructura).
 - Soporte de comodines (`*`) para tenant/rol en `static-context-rules`.
+- Función helper `NotOfferedToTaxonomyError(tenant string, admittedCandidate AdmittedCandidate) *taxonomy.TypedError` en `pkg/rpi` para convertir `NotOffered` a error tipado.
+- Traducción de comentarios en español en `pkg/rpi/*.go` al inglés (AGENTS.md).

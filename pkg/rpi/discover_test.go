@@ -59,7 +59,7 @@ func (f *fakeScoringProvider) StagesImplemented() Stage {
 func (f *fakeScoringProvider) Admit(ctx context.Context, query AdmitQuery, candidates []Candidate) ([]AdmittedCandidate, error) {
 	return f.admitResult, nil
 }
-// No implementa Scorer
+// Does not implement Scorer
 
 func TestDiscover_AdmitOnly(t *testing.T) {
 	candidates := []Candidate{
@@ -77,7 +77,7 @@ func TestDiscover_AdmitOnly(t *testing.T) {
 		t.Fatalf("Discover error: %v", err)
 	}
 
-	// Todos admitidos, mismo orden
+	// All admitted, same order
 	if len(result.Offered) != 3 {
 		t.Errorf("Offered len = %d, want 3", len(result.Offered))
 	}
@@ -117,7 +117,7 @@ func TestDiscover_WithNotOffered(t *testing.T) {
 		t.Errorf("NotOffered len = %d, want 1", len(result.NotOffered))
 	}
 
-	// Verificar NotOffered tiene Reason
+	// Verify NotOffered has Reason
 	for _, no := range result.NotOffered {
 		if no.Reason == "" {
 			t.Errorf("NotOffered %q has empty Reason", no.Candidate.ID)
@@ -138,7 +138,7 @@ func TestDiscover_WithScorer(t *testing.T) {
 		{Candidate: candidates[2], Result: AdmissionAdmitted},
 	}
 
-	// Scorer reordena (reverse)
+	// Scorer reorders (reverse)
 	scoreResult := []AdmittedCandidate{
 		{Candidate: candidates[2], Result: AdmissionAdmitted},
 		{Candidate: candidates[1], Result: AdmissionAdmitted},
@@ -157,7 +157,7 @@ func TestDiscover_WithScorer(t *testing.T) {
 		t.Fatalf("Discover error: %v", err)
 	}
 
-	// Offered debe estar en el orden del Score (reverse)
+	// Offered should be in Score order (reverse)
 	if len(result.Offered) != 3 {
 		t.Errorf("Offered len = %d, want 3", len(result.Offered))
 	}
@@ -183,7 +183,7 @@ func TestDiscover_ProviderUnavailable_Admit(t *testing.T) {
 		t.Errorf("result should be zero value on error")
 	}
 
-	// Verificar que es TypedError con SUBSTRATE_UNAVAILABLE
+	// Verify TypedError with SUBSTRATE_UNAVAILABLE
 	var typedErr *taxonomy.TypedError
 	if !errors.As(err, &typedErr) {
 		t.Fatalf("error is not *taxonomy.TypedError: %T", err)
@@ -191,7 +191,7 @@ func TestDiscover_ProviderUnavailable_Admit(t *testing.T) {
 	if typedErr.Code != string(taxonomy.PrefixMolu+taxonomy.CodeSubstrateUnavailable) {
 		t.Errorf("Code = %v, want SUBSTRATE_UNAVAILABLE", typedErr.Code)
 	}
-	// Verificar component = rpi-provider
+	// Verify component = rpi-provider
 	if typedErr.Details == nil {
 		t.Fatal("Details is nil")
 	}
@@ -229,7 +229,7 @@ func TestDiscover_ProviderUnavailable_Score(t *testing.T) {
 
 func TestDiscover_ScoreNotDeclared_NoCall(t *testing.T) {
 	candidates := []Candidate{{ID: "a", Description: "A"}}
-	provider := &fakeScoringProvider{ // Declara StageScore pero NO implementa Scorer
+	provider := &fakeScoringProvider{ // Declares StageScore but does NOT implement Scorer
 		admitResult: []AdmittedCandidate{{Candidate: candidates[0], Result: AdmissionAdmitted}},
 	}
 	query := AdmitQuery{Tenant: "t", Role: "r", OriginalQuery: "q"}
@@ -239,7 +239,7 @@ func TestDiscover_ScoreNotDeclared_NoCall(t *testing.T) {
 		t.Fatal("expected error when provider declares StageScore but doesn't implement Scorer")
 	}
 
-	// Defense in depth: Discover devuelve error si declara StageScore pero no implementa Scorer
+	// Defense in depth: Discover returns error if declares StageScore but doesn't implement Scorer
 	var typedErr *taxonomy.TypedError
 	if !errors.As(err, &typedErr) {
 		t.Fatalf("error is not *taxonomy.TypedError: %T", err)
@@ -279,7 +279,7 @@ func TestDiscover_ScoreOnlyAdmitted(t *testing.T) {
 		{Candidate: candidates[2], Result: AdmissionAdmitted},
 	}
 
-	// Score solo recibe los admitidos (a y c), reordena a [c, a]
+	// Score only receives admitted (a and c), reorders to [c, a]
 	scoreResult := []AdmittedCandidate{
 		{Candidate: candidates[2], Result: AdmissionAdmitted},
 		{Candidate: candidates[0], Result: AdmissionAdmitted},
@@ -296,14 +296,14 @@ func TestDiscover_ScoreOnlyAdmitted(t *testing.T) {
 		t.Fatalf("Discover error: %v", err)
 	}
 
-	// Offered debe tener solo a y c, en orden del Score
+	// Offered should have only a and c, in Score order
 	if len(result.Offered) != 2 {
 		t.Errorf("Offered len = %d, want 2", len(result.Offered))
 	}
 	if result.Offered[0].ID != "c" || result.Offered[1].ID != "a" {
 		t.Errorf("Offered = %v, want [c, a]", getIDs(result.Offered))
 	}
-	// NotOffered debe tener b con Reason
+	// NotOffered should have b with Reason
 	if len(result.NotOffered) != 1 {
 		t.Errorf("NotOffered len = %d, want 1", len(result.NotOffered))
 	}

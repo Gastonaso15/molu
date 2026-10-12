@@ -13,15 +13,15 @@ func TestAdmitAllProvider_Admit(t *testing.T) {
 		t.Fatalf("NewAdmitAllProvider error: %v", err)
 	}
 
-	// Verificar que implementa RPIProvider
+	// Verify it implements RPIProvider
 	var _ rpi.RPIProvider = p
 
-	// Verificar StagesImplemented
+	// Verify StagesImplemented
 	if p.StagesImplemented() != rpi.StageAdmit {
 		t.Errorf("StagesImplemented() = %v, want StageAdmit", p.StagesImplemented())
 	}
 
-	// Candidatos de prueba
+	// Test candidates
 	candidates := []rpi.Candidate{
 		{ID: "work_orders.CreateOrder", Description: "Create order"},
 		{ID: "inventory.Reserve", Description: "Reserve inventory"},
@@ -39,15 +39,15 @@ func TestAdmitAllProvider_Admit(t *testing.T) {
 		t.Fatalf("Admit error: %v", err)
 	}
 
-	// Debe admitir todos
+	// Must admit all
 	if len(admitted) != 3 {
 		t.Errorf("admitted len = %d, want 3", len(admitted))
 	}
 
-	// Orden estable (mismo orden que entrada)
+	// Stable order (same as input)
 	for i, a := range admitted {
 		if a.Candidate.ID != candidates[i].ID {
-			t.Errorf("admitted[%d].ID = %q, want %q (orden estable)", i, a.Candidate.ID, candidates[i].ID)
+			t.Errorf("admitted[%d].ID = %q, want %q (stable order)", i, a.Candidate.ID, candidates[i].ID)
 		}
 		if a.Result != rpi.AdmissionAdmitted {
 			t.Errorf("admitted[%d].Result = %v, want Admitted", i, a.Result)
@@ -76,13 +76,13 @@ func TestAdmitAllProvider_EmptyCatalog(t *testing.T) {
 }
 
 func TestAdmitAllProvider_FactoryReturnsInterface(t *testing.T) {
-	// Verificar que la factory devuelve la interfaz, no el concreto
+	// Verify factory returns interface, not concrete type
 	provider, err := NewAdmitAllProvider(ProviderConfig{})
 	if err != nil {
 		t.Fatalf("NewAdmitAllProvider error: %v", err)
 	}
 
-	// Debe ser rpi.RPIProvider, no *AdmitAllProvider
+	// Must be rpi.RPIProvider, not *AdmitAllProvider
 	var _ rpi.RPIProvider = provider
-	// Si esto compila, la factory devuelve la interfaz correctamente
+	// If this compiles, factory returns interface correctly
 }
