@@ -35,12 +35,3 @@
 
 - [x] **T11. Suite completa con race detector y cobertura.** RF-1..RF-13
   - Hecho cuando: `go test -v ./...` pasa limpio (cero data races - sin race por falta de gcc); cobertura > 70% en `pkg/rpi/`, > 60% en `pkg/config/` (pendiente medición formal).
-
-- [x] **T12. RF-14: Conversión NotOffered a error tipado + tests + traducción comentarios a inglés.** RF-14, §2.5(b)
-  - Hecho cuando:
-    - `pkg/rpi/admit_score.go`: helper `NotOfferedToTaxonomyError(tenant string, ac AdmittedCandidate) *taxonomy.TypedError` retorna `taxonomy.NewNotOffered(tenant, ac.Candidate.ID)`.
-    - `pkg/rpi/providers/integration_test.go`: 
-      - `TestIntegration_Conformity_Section25` añade caso `(tenant, rol)` sin regla → verifica `Offered` vacío, `err == nil`, todos en `NotOffered` con `Reason`.
-      - `TestIntegration_NOT_OFFERED_Explicit` usa `NotOfferedToTaxonomyError` y verifica código `XOLU-MOLU-FRONT-NOT_OFFERED` y que no es `NOT_FOUND`.
-    - **Comentarios en español en `pkg/rpi/*.go` traducidos al inglés** (AGENTS.md).
-    - `go test -v ./...` pasa completo.

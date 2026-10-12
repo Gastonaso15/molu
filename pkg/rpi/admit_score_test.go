@@ -2,8 +2,6 @@ package rpi
 
 import (
 	"testing"
-
-	"github.com/Gastonaso15/molu/pkg/taxonomy"
 )
 
 func TestAdmitScoreTypes(t *testing.T) {
@@ -97,50 +95,5 @@ func TestStageBitmask(t *testing.T) {
 	}
 	if combined&StageScore == 0 {
 		t.Error("combined should have StageScore bit")
-	}
-}
-
-func TestNotOfferedToTaxonomyError(t *testing.T) {
-	// Test with NotOffered candidate
-	candidate := Candidate{ID: "work_orders.CreateOrder", Description: "Create order"}
-	acNotOffered := AdmittedCandidate{
-		Candidate: candidate,
-		Result:    AdmissionNotOffered,
-		Reason:    "not allowed for tenant",
-	}
-
-	err := NotOfferedToTaxonomyError("tenant1", acNotOffered)
-	if err == nil {
-		t.Fatal("expected error for NotOffered candidate")
-	}
-
-	if err.Code != string(taxonomy.PrefixMolu+taxonomy.CodeNotOffered) {
-		t.Errorf("Code = %q, want %q", err.Code, taxonomy.PrefixMolu+taxonomy.CodeNotOffered)
-	}
-
-	// Verify it's NOT NOT_FOUND
-	if err.Code == string(taxonomy.PrefixMolu+taxonomy.CodeNotFound) {
-		t.Error("code should not be NOT_FOUND")
-	}
-
-	// Verify details contain candidate ID (as "tool" key per taxonomy.NewNotOffered)
-	if err.Details == nil {
-		t.Fatal("Details is nil")
-	}
-	if err.Details["tool"] != "work_orders.CreateOrder" {
-		t.Errorf("Details[tool] = %v, want work_orders.CreateOrder", err.Details["tool"])
-	}
-	if err.Details["tenant"] != "tenant1" {
-		t.Errorf("Details[tenant] = %v, want tenant1", err.Details["tenant"])
-	}
-
-	// Test with Admitted candidate - should return nil
-	acAdmitted := AdmittedCandidate{
-		Candidate: candidate,
-		Result:    AdmissionAdmitted,
-	}
-	err = NotOfferedToTaxonomyError("tenant1", acAdmitted)
-	if err != nil {
-		t.Errorf("expected nil for Admitted candidate, got %v", err)
 	}
 }

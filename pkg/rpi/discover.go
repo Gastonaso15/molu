@@ -8,8 +8,8 @@ import (
 )
 
 type ErrProviderUnavailable struct {
-	LastContact  string // RFC3339, empty if unknown
-	NextRetryAt  string // RFC3339, empty if unknown
+	LastContact  string // RFC3339, vacío si desconocido
+	NextRetryAt  string // RFC3339, vacío si desconocido
 	Attempt      int
 	MaxAttempts  int
 }
@@ -24,7 +24,7 @@ func Discover(ctx context.Context, provider RPIProvider, query AdmitQuery, candi
 		return DiscoveryResult{}, toSubstrateUnavailable(err)
 	}
 
-	// Separate admitted and not offered
+	// Separar admitidos y no admitidos
 	var admittedOnly []AdmittedCandidate
 	var notOffered []AdmittedCandidate
 	for _, a := range admitted {
@@ -35,11 +35,11 @@ func Discover(ctx context.Context, provider RPIProvider, query AdmitQuery, candi
 		}
 	}
 
-	// Optional scoring: only if provider declares StageScore
+	// Scoring opcional: solo si proveedor declara StageScore
 	if provider.StagesImplemented()&StageScore != 0 {
 		scorer, ok := provider.(Scorer)
 		if !ok {
-			// Registry already validated this at creation, but defense in depth
+			// Registry ya validó esto al crear, pero defensa en profundidad
 			return DiscoveryResult{}, toSubstrateUnavailable(&ErrProviderUnavailable{})
 		}
 		scoreQuery := ScoreQuery{AdmitQuery: query}
@@ -50,7 +50,7 @@ func Discover(ctx context.Context, provider RPIProvider, query AdmitQuery, candi
 		admittedOnly = reordered
 	}
 
-	// Build Offered with only IDs and descriptions (references, not copies)
+	// Construir Offered solo con IDs y descripciones (referencias, no copias)
 	offered := make([]Candidate, 0, len(admittedOnly))
 	for _, a := range admittedOnly {
 		offered = append(offered, a.Candidate)
@@ -65,8 +65,8 @@ func Discover(ctx context.Context, provider RPIProvider, query AdmitQuery, candi
 func toSubstrateUnavailable(err error) *taxonomy.TypedError {
 	var provErr *ErrProviderUnavailable
 	if !errors.As(err, &provErr) {
-		// Generic provider error -> empty metadata (do not invent lastSuccessfulContact=now)
-		// Operator will see component="rpi-provider" to distinguish from xolu
+		// Error genérico del proveedor → metadata vacía (no inventar lastSuccessfulContact=ahora)
+		// El operador verá component="rpi-provider" para distinguir de xolu
 		te := taxonomy.NewSubstrateUnavailable("", "", 1, 1)
 		if te.Details == nil {
 			te.Details = make(map[string]any)

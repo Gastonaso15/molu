@@ -9,7 +9,7 @@ import (
 )
 
 func TestStaticContextRulesProvider_LoadRules(t *testing.T) {
-	// Valid JSON
+	// JSON válido
 	tmpfile, err := os.CreateTemp("", "rules-*.json")
 	if err != nil {
 		t.Fatalf("CreateTemp error: %v", err)
@@ -34,12 +34,12 @@ func TestStaticContextRulesProvider_LoadRules(t *testing.T) {
 		t.Fatalf("NewStaticContextRulesProvider error: %v", err)
 	}
 
-	// Verify StagesImplemented
+	// Verificar StagesImplemented
 	if p.StagesImplemented() != rpi.StageAdmit {
 		t.Errorf("StagesImplemented() = %v, want StageAdmit", p.StagesImplemented())
 	}
 
-	// Verify factory returns interface
+	// Verificar factory returns interface
 	var _ rpi.RPIProvider = p
 }
 
@@ -98,7 +98,7 @@ func TestStaticContextRulesProvider_Admit_WithRule(t *testing.T) {
 		{ID: "billing.Invoice", Description: "Create invoice"},
 	}
 
-	// Tenant1 + admin: should admit CreateOrder and Reserve, reject Invoice
+	// Tenant1 + admin: debe admitir CreateOrder y Reserve, rechazar Invoice
 	query := rpi.AdmitQuery{Tenant: "tenant1", Role: "admin", OriginalQuery: "test"}
 	admitted, err := p.Admit(context.Background(), query, candidates)
 	if err != nil {
@@ -109,7 +109,7 @@ func TestStaticContextRulesProvider_Admit_WithRule(t *testing.T) {
 		t.Errorf("admitted len = %d, want 3", len(admitted))
 	}
 
-	// Verify expected results
+	// Verificar resultados esperados
 	expected := map[string]rpi.AdmissionResult{
 		"work_orders.CreateOrder": rpi.AdmissionAdmitted,
 		"inventory.Reserve":       rpi.AdmissionAdmitted,
@@ -162,7 +162,7 @@ func TestStaticContextRulesProvider_Admit_NoRule(t *testing.T) {
 		{ID: "inventory.Reserve", Description: "Reserve inventory"},
 	}
 
-	// Tenant1 + user: no rule for (tenant1, user) -> deny by default
+	// Tenant1 + user: no hay regla para (tenant1, user) -> denegar por defecto
 	query := rpi.AdmitQuery{Tenant: "tenant1", Role: "user", OriginalQuery: "test"}
 	admitted, err := p.Admit(context.Background(), query, candidates)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestStaticContextRulesProvider_Admit_NoRule(t *testing.T) {
 
 	for _, a := range admitted {
 		if a.Result != rpi.AdmissionNotOffered {
-			t.Errorf("%s: Result = %v, want NotOffered (deny by default)", a.Candidate.ID, a.Result)
+			t.Errorf("%s: Result = %v, want NotOffered (denegar por defecto)", a.Candidate.ID, a.Result)
 		}
 		if a.Reason == "" {
 			t.Errorf("%s: Reason should not be empty for NotOffered", a.Candidate.ID)
@@ -247,11 +247,11 @@ func TestStaticContextRulesProvider_Admit_StableOrder(t *testing.T) {
 		t.Fatalf("Admit error: %v", err)
 	}
 
-	// Stable order = input order (not alphabetical order of allowedIds)
+	// Orden estable = orden de entrada (no orden alfabético de allowedIds)
 	expectedOrder := []string{"c", "a", "b"}
 	for i, a := range admitted {
 		if a.Candidate.ID != expectedOrder[i] {
-			t.Errorf("admitted[%d].ID = %q, want %q (stable order)", i, a.Candidate.ID, expectedOrder[i])
+			t.Errorf("admitted[%d].ID = %q, want %q (orden estable)", i, a.Candidate.ID, expectedOrder[i])
 		}
 	}
 }

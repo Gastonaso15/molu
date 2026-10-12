@@ -26,11 +26,6 @@ func TestIntegration_Conformity_Section25(t *testing.T) {
 			provider: "static-context-rules",
 			rules:    "testdata/rules.json",
 		},
-		{
-			name:     "static-context-rules-no-rule",
-			provider: "static-context-rules",
-			rules:    "testdata/rules.json",
-		},
 	}
 
 	candidates := []rpi.Candidate{
@@ -40,7 +35,6 @@ func TestIntegration_Conformity_Section25(t *testing.T) {
 	}
 
 	query := rpi.AdmitQuery{Tenant: "tenant1", Role: "admin", OriginalQuery: "test"}
-	noRuleQuery := rpi.AdmitQuery{Tenant: "tenant999", Role: "rolenoexiste", OriginalQuery: "test"}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -50,12 +44,7 @@ func TestIntegration_Conformity_Section25(t *testing.T) {
 				t.Fatalf("Create error: %v", err)
 			}
 
-			q := query
-			if tc.name == "static-context-rules-no-rule" {
-				q = noRuleQuery
-			}
-
-			result, err := rpi.Discover(context.Background(), provider, q, candidates)
+			result, err := rpi.Discover(context.Background(), provider, query, candidates)
 			if err != nil {
 				t.Fatalf("Discover error: %v", err)
 			}
@@ -74,23 +63,8 @@ func TestIntegration_Conformity_Section25(t *testing.T) {
 			}
 
 			// (b) Vacío honesto sin padding
-			// Caso especial: (tenant, rol) sin regla -> Offered vacío, err == nil, todos en NotOffered con Reason
-			if tc.name == "static-context-rules-no-rule" {
-				if len(result.Offered) != 0 {
-					t.Errorf("Offered should be empty for tenant/role without rule, got %d", len(result.Offered))
-				}
-				if err != nil {
-					t.Errorf("err should be nil for tenant/role without rule, got %v", err)
-				}
-				if len(result.NotOffered) != len(candidates) {
-					t.Errorf("NotOffered should have all %d candidates, got %d", len(candidates), len(result.NotOffered))
-				}
-				for _, no := range result.NotOffered {
-					if no.Reason == "" {
-						t.Errorf("NotOffered %q should have non-empty Reason", no.Candidate.ID)
-					}
-				}
-			} else if len(result.Offered) == 0 {
+			// Si no hay admitidos, Offered debe ser slice vacío (nil o len=0), no error
+			if len(result.Offered) == 0 {
 				// EMPTY válido - no error, no padding
 				if result.Offered == nil {
 					// nil slice es OK para empty
@@ -224,29 +198,6 @@ func TestIntegration_NOT_OFFERED_Explicit(t *testing.T) {
 	}
 	if no.Reason == "" {
 		t.Error("NotOffered Reason should not be empty")
-	}
-
-	// Verificar conversión a error tipado de taxonomía: NOT_OFFERED exacto, no NOT_FOUND
-	taxErr := rpi.NotOfferedToTaxonomyError(query.Tenant, no)
-	if taxErr == nil {
-		t.Fatal("expected taxonomy error for NotOffered candidate")
-	}
-	if taxErr.Code != string(taxonomy.PrefixMolu+taxonomy.CodeNotOffered) {
-		t.Errorf("Code = %q, want %q", taxErr.Code, taxonomy.PrefixMolu+taxonomy.CodeNotOffered)
-	}
-	// Verificar que NO es NOT_FOUND
-	if taxErr.Code == string(taxonomy.PrefixMolu+taxonomy.CodeNotFound) {
-		t.Error("code should not be NOT_FOUND")
-	}
-	// Verificar detalles
-	if taxErr.Details == nil {
-		t.Fatal("Details is nil")
-	}
-	if taxErr.Details["tool"] != "billing.Invoice" {
-		t.Errorf("Details[tool] = %v, want billing.Invoice", taxErr.Details["tool"])
-	}
-	if taxErr.Details["tenant"] != "tenant1" {
-		t.Errorf("Details[tenant] = %v, want tenant1", taxErr.Details["tenant"])
 	}
 }
 

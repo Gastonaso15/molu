@@ -17,7 +17,7 @@ func (f *failingScorer) Score(ctx context.Context, query rpi.ScoreQuery, admitte
 func TestScoreTestDouble_Score_Reorders(t *testing.T) {
 	td := NewScoreTestDouble()
 
-	// Verify it implements Scorer
+	// Verificar que implementa Scorer
 	var _ rpi.Scorer = td
 
 	admitted := []rpi.AdmittedCandidate{
@@ -37,15 +37,15 @@ func TestScoreTestDouble_Score_Reorders(t *testing.T) {
 		t.Errorf("reordered len = %d, want 3", len(reordered))
 	}
 
-	// Verify same candidates (no copies, references)
-	// Test double may reorder deterministically (e.g., reverse)
-	// Important: same IDs, same count
+	// Verificar que son los mismos candidatos (no copias, referencias)
+	// El test double puede reordenar de forma determinista (ej. reverse)
+	// Lo importante: mismos IDs, misma cantidad
 	ids := make([]string, len(reordered))
 	for i, a := range reordered {
 		ids[i] = a.Candidate.ID
 	}
 
-	// Must contain the same 3 IDs
+	// Debe contener los mismos 3 IDs
 	found := map[string]bool{}
 	for _, id := range ids {
 		found[id] = true
@@ -76,7 +76,7 @@ func TestScoreTestDouble_Score_DoesNotTouchOtherTenant(t *testing.T) {
 		{Candidate: rpi.Candidate{ID: "a", Description: "A"}, Result: rpi.AdmissionAdmitted},
 	}
 
-	// ScoreQuery with different tenant than candidates (simulating partition)
+	// ScoreQuery con tenant diferente al de los candidatos (simulando partición)
 	query := rpi.ScoreQuery{AdmitQuery: rpi.AdmitQuery{Tenant: "other-tenant", Role: "r", OriginalQuery: "q"}}
 
 	reordered, err := td.Score(context.Background(), query, admitted)
@@ -84,7 +84,7 @@ func TestScoreTestDouble_Score_DoesNotTouchOtherTenant(t *testing.T) {
 		t.Fatalf("Score error: %v", err)
 	}
 
-	// Should return same admitted unchanged (does not score candidates from other tenant)
+	// Debe devolver los mismos admitidos sin modificar (no puntúa candidatos de otro tenant)
 	if len(reordered) != 1 {
 		t.Errorf("reordered len = %d, want 1", len(reordered))
 	}
@@ -102,7 +102,7 @@ func TestScoreTestDouble_Score_ErrorControlled(t *testing.T) {
 
 	query := rpi.ScoreQuery{AdmitQuery: rpi.AdmitQuery{Tenant: "t", Role: "r", OriginalQuery: "q"}}
 
-	// Simulate controlled error
+	// Simular error controlado
 	td.SetError(errors.New("test error"))
 
 	_, err := td.Score(context.Background(), query, admitted)
@@ -117,7 +117,7 @@ func TestScoreTestDouble_Score_ErrorControlled(t *testing.T) {
 func TestScoreTestDouble_OptionalAdmitter_Delegates(t *testing.T) {
 	td := NewScoreTestDouble()
 
-	// Configure delegate for Admit
+	// Configurar delegate para Admit
 	delegate := &AdmitAllProvider{}
 	td.SetAdmitDelegate(delegate)
 
@@ -150,7 +150,7 @@ func TestScoreTestDouble_StagesImplemented(t *testing.T) {
 		t.Errorf("StagesImplemented() should have StageScore bit, got %v", stages)
 	}
 	if stages&rpi.StageAdmit != 0 {
-		// Optional: may have Admit if delegating
+		// Opcional: puede tener Admit si delega
 		t.Logf("ScoreTestDouble also declares StageAdmit: %v", stages&rpi.StageAdmit != 0)
 	}
 }

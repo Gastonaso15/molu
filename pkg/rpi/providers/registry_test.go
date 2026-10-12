@@ -28,7 +28,7 @@ func TestProviderRegistry_Create_AdmitAll(t *testing.T) {
 func TestProviderRegistry_Create_StaticContextRules(t *testing.T) {
 	reg := NewProviderRegistry()
 
-	// Needs valid rules file
+	// Necesita archivo de reglas válido
 	tmpfile, err := createTempRulesFile(t, `{"version": "1", "rules": []}`)
 	if err != nil {
 		t.Fatalf("createTempRulesFile error: %v", err)
@@ -68,7 +68,7 @@ func TestProviderRegistry_Create_StaticContextRules_NoRulesFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing rules file")
 	}
-	if err.Error() != "read rules file: open : no such file or directory" &&
+	if err.Error() != "read rules file: open : no such file or directory" && 
 	   err.Error() != "read rules file: open : The system cannot find the file specified." {
 		t.Errorf("error = %q, want 'read rules file: ...'", err.Error())
 	}
@@ -77,14 +77,14 @@ func TestProviderRegistry_Create_StaticContextRules_NoRulesFile(t *testing.T) {
 func TestProviderRegistry_Create_ValidatesStageScoreRequiresScorer(t *testing.T) {
 	reg := NewProviderRegistry()
 
-	// Create a fake provider that declares StageScore but doesn't implement Scorer
-	// For this we need a registry that allows custom provider registration
-	// In this test we verify validation exists by checking that
-	// ScoreTestDouble with StageScore implements Scorer
-	// (actual validation happens in Create)
+	// Crear un proveedor falso que declara StageScore pero no implementa Scorer
+	// Para esto necesitamos un registro que permita registrar proveedores custom
+	// En este test verificamos que la validación existe comprobando que
+	// ScoreTestDouble con StageScore implementa Scorer
+	// (la validación real ocurre en Create)
 
-	// Real validation test would use a mock, but here we verify
-	// that registry has the validation logic
+	// El test real de validación se haría con un mock, pero aquí verificamos
+	// que el registry tiene la lógica de validación
 	_ = reg
 }
 
@@ -134,3 +134,5 @@ func createTempFile(t *testing.T, content string) (string, error) {
 	}
 	return f.Name(), nil
 }
+
+// Need to import os
