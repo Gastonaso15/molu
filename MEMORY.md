@@ -107,4 +107,16 @@
 | `pkg/hub/publisher_api.go` | Commit `98a5411`. `PublisherAPI` agnóstica de transporte con las herramientas MCP `registry.register`, `registry.unregister`, `registry.list` (`Tools()` entrega descriptores con JSON Schema en orden estable; `Handle(method, params)` despacha). `decodeParams` es estricto (JSON mal formado, no-objeto, datos sobrantes, campos desconocidos o de tipo incorrecto → `CONTRACT_VIOLATION` con el campo infractor). Método desconocido → `NOT_OFFERED`. `registry.list` es vista administrativa sin filtro RPI y devuelve `{"tools":[]}` si está vacío |
 | `pkg/hub/publisher_api_test.go` | Tests: register idempotente, violaciones de contrato por tabla, unregister y su `NOT_FOUND`, list administrativo (params vacío/null/`{}`), catálogo vacío, campo desconocido, método no ofrecido, descriptores de `Tools()` |
 
+
+## Archivos Creados/Modificados (CI y Herramientas, sesión 15-oct-2026)
+
+| Archivo | Descripción |
+| :--- | :--- |
+| `.github/workflows/ci.yml` | Workflow de GitHub Actions (`CI - Build & Test`) para verificar compilación (`make build`) y dependencias (`go mod verify`) automáticamente en cada push y pull request a `main`/`master`. |
+| `makefile` | Añadido target `inspector` para compilar e iniciar directamente `@modelcontextprotocol/inspector` inyectando las variables de entorno de molu mediante flags `-e` (`MOLU_FRONT_XOLU_URL`, `MOLU_FRONT_XOLU_AUTH_MODE`, `MOLU_FRONT_XOLU_TOKEN_FILE` con ruta absoluta a `.token.dev`). |
+| `.gitignore` | Añadido `.token.dev` y `*.dev` para evitar versionar tokens de prueba locales. |
+| `README.md` | Creado README principal en la raíz con resumen del proyecto y guía paso a paso para ejecutar con MCP Inspector (vía `make inspector`, `npx` directo con flags `-e`, `go run` y UI web con variables de entorno mínimas requeridas). |
+| `docs/README.md` | Actualizado con sección de inicio rápido para MCP Inspector y referencia al README raíz. |
+
+
 **Pendiente de Spec 005**: `tools/list` con RPI (RF-4, RF-5, RF-6, RF-9), `tools/call` stub `NOT_OFFERED` (RF-7), carga del proveedor RPI y variables `MOLU_HUB_*` (RF-1), wiring MCP en `cmd/`, pruebas de integración de Criterios 2 y 7, diagrama `docs/diagrams/005-*.mmd` y `.pdf`. No existen aún `plan.md` ni `tasks.md` de las specs 004 y 005.

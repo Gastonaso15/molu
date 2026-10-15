@@ -13,6 +13,9 @@
 *.jwt
 *.key
 *.pem
+.token.dev
+*.dev
+
 
 # IDEs y editores
 .vscode/

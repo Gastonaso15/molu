@@ -16,6 +16,25 @@ The specification is in three parts, each self-contained.
 
 - [**Part 3 — The molu hub**](./molu-part3-hub.md). The specification of the hub — protocol and reference implementation. The function contract, publisher and consumer protocols, authentication and namespaces, memory and xolu-backed storage backends.
 
+## MCP Inspector
+
+Para interactuar y depurar las herramientas MCP de `molu`:
+
+```bash
+# Variables mínimas requeridas por molu
+export MOLU_FRONT_XOLU_URL="http://localhost:8080"
+export MOLU_FRONT_XOLU_AUTH_MODE="bearer"
+export MOLU_FRONT_XOLU_TOKEN_FILE="/ruta/a/tu/token"
+
+# Ejecutar con el inspector (vía Makefile)
+make inspector
+
+# O directamente vía npx
+npx @modelcontextprotocol/inspector ./bin/molu
+```
+
+Consulte el [README principal](../README.md#ejecución-y-pruebas-con-mcp-inspector) para más detalles y opciones de configuración.
+
 ## License
 
 Apache 2.0. See [LICENSE](https://www.apache.org/licenses/LICENSE-2.0).
