@@ -66,7 +66,10 @@ Constitución → Spec (spec.md) → Clarificación → Plan (plan.md) → Tarea
   - Escribe el código mínimo en Go para que pasen (verde con `go test -v -race ./...`).
   - Marca la tarea con `[x]` en `tasks.md` indicando los RF cubiertos.
   - **PÁRATE**. No avances a la siguiente tarea sin confirmación expresa del usuario.
-- **Memoria del proyecto**: Actualiza [`MEMORY.md`](file:///home/gaston/Documentos/vscode/molu/MEMORY.md) al finalizar cada hito o spec.
+- **Memoria del proyecto (obligatoria)**: Al terminar **cada tarea o sesión de trabajo**, y siempre antes de cerrar o dar por concluida la sesión, el agente DEBE actualizar [`MEMORY.md`](file:///home/gaston/Documentos/vscode/molu/MEMORY.md) para mantenerlo al día. Nunca se deja para después ni se espera a que el usuario lo pida.
+  - Refleja el estado real: estado de la spec y de los entregables, archivos creados o modificados (con su descripción y los RF que cubren), decisiones nuevas (ADR) y los pendientes con el siguiente paso.
+  - Si la sesión produjo commits, revísalos con `git log` y asegúrate de que queden reflejados.
+  - Edita las secciones existentes en lugar de duplicarlas, y no afirmes como completado lo que no lo está.
 
 ---
 

@@ -12,7 +12,7 @@
 | Ítem | Alcance | Referencia Normativa | Estado |
 | :--- | :--- | :--- | :--- |
 | **molu — frontal MCP** | Completo | Especificación molu Parte 2, Paquete de trabajo §3.2 | En desarrollo (config, probe, schema-reader completados) |
-| **Hub / Registry MCP de Seam** | Completo | Especificación molu Parte 3, Paquete de trabajo §3.1 | Por iniciar |
+| **Hub / Registry MCP de Seam** | Completo | Especificación molu Parte 3, Paquete de trabajo §3.1 | En desarrollo (Spec 005: registry thread-safe y API de publicadores completados) |
 | **Taxonomía tipada de resultados** | Completo | Paquete de trabajo §3.3, especificación molu Parte 2 §8.5 | **Completado (Spec 001)** |
 | **Telemetría y auditoría** | Completo | Paquete de trabajo §3.4 | Pendiente |
 | **RPI — interfaz y proveedores V1** | Completo | Paquete de trabajo §3.6 (admit-all, static-context-rules, test double de Score) | Especificado en constitución |
@@ -35,6 +35,8 @@
 | **001** | `taxonomy-types` — Tipos de taxonomía tipada (6 códigos, prefijos, verbatim) | **Completada** | Iniciar spec 002 (`xolu-probe`) |
 | **002** | `xolu-probe` — Sonda de salud xolu (backoff, gating, SUBSTRATE_UNAVAILABLE) | **Completada** | Iniciar spec 003 (`schema-reader`) |
 | **003** | `schema-reader` — Lectora de schemas xolu (GET /schemas, walk/find/get sin namespace, hot-reload, CONTRACT_VIOLATION) | **Completada (18/18 tasks)** | Iniciar spec 004 (`rpi-admit-score`) |
+| **004** | `rpi-admit-score` — Interfaz RPI (`Admit`/`Score`) y proveedores V1 (`admit-all`, `static-context-rules`) | Spec aprobada; implementación previa revertida (commits `457bbd1`, `3aa5903`), pendiente de reimplementar | Generar plan.md y tasks.md; reimplementar con TDD |
+| **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI, `tools/call` stub | **En curso** (spec en borrador; `Registry` y `PublisherAPI` implementados) | Añadir `tools/list` con Admit+Score (depende de spec 004), `tools/call` stub, config `MOLU_HUB_*`, wiring MCP y diagrama |
 
 ---
 
@@ -93,3 +95,16 @@
 | `pkg/taxonomy/integration_test.go` | Nuevo `TestIntegration_ContractViolation_InvalidInput`: flujo E2E schema validation → `CONTRACT_VIOLATION` con `details.fields[]` (Criterio 2) |
 | `pkg/taxonomy/errors_test.go` | Helpers `requireTrue`, `requireFalse` |
 | `docs/diagrams/003-schema-reader-sequence.mmd` | Diagrama Mermaid: arranque+retry, carga exitosa, registro MCP, tool call válido, tool call inválido → CONTRACT_VIOLATION, hot-reload SIGHUP, hot-reload intervalo |
+
+---
+
+## Archivos Creados (Spec 005, sesión 14-oct-2026)
+
+| Archivo | Descripción |
+| :--- | :--- |
+| `pkg/hub/registry.go` | Commit `92355cf`. `ToolRegistration` y `Registry` en memoria, thread-safe (`sync.RWMutex`, índice por publicador + índice plano por nombre). `Register` valida convención de nombres (primitivo sin namespace, dominio `namespace.Nombre`), es idempotente por `(publisher_id, name)` y rechaza con `CONTRACT_VIOLATION` un nombre ya tomado por otro publicador. `Unregister` → `NOT_FOUND` con `details {publisher_id, name}`. `Lookup`/`List` devuelven copias profundas, ordenadas por nombre, `List` nunca retorna `nil`. Cubre RF-2, RF-3, RF-8 y RF-10 |
+| `pkg/hub/registry_test.go` | Tests: registro (dominio y primitivo), payloads inválidos, duplicado idempotente, nombre de otro publicador, unregister/not found, listado por publicador y global, catálogo vacío, aislamiento de copias, acceso concurrente (-race) |
+| `pkg/hub/publisher_api.go` | Commit `98a5411`. `PublisherAPI` agnóstica de transporte con las herramientas MCP `registry.register`, `registry.unregister`, `registry.list` (`Tools()` entrega descriptores con JSON Schema en orden estable; `Handle(method, params)` despacha). `decodeParams` es estricto (JSON mal formado, no-objeto, datos sobrantes, campos desconocidos o de tipo incorrecto → `CONTRACT_VIOLATION` con el campo infractor). Método desconocido → `NOT_OFFERED`. `registry.list` es vista administrativa sin filtro RPI y devuelve `{"tools":[]}` si está vacío |
+| `pkg/hub/publisher_api_test.go` | Tests: register idempotente, violaciones de contrato por tabla, unregister y su `NOT_FOUND`, list administrativo (params vacío/null/`{}`), catálogo vacío, campo desconocido, método no ofrecido, descriptores de `Tools()` |
+
+**Pendiente de Spec 005**: `tools/list` con RPI (RF-4, RF-5, RF-6, RF-9), `tools/call` stub `NOT_OFFERED` (RF-7), carga del proveedor RPI y variables `MOLU_HUB_*` (RF-1), wiring MCP en `cmd/`, pruebas de integración de Criterios 2 y 7, diagrama `docs/diagrams/005-*.mmd` y `.pdf`. No existen aún `plan.md` ni `tasks.md` de las specs 004 y 005.
