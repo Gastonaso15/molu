@@ -37,8 +37,10 @@
 | **003** | `schema-reader` — Lectora de schemas xolu (GET /schemas, walk/find/get sin namespace, hot-reload, CONTRACT_VIOLATION) | **Completada (18/18 tasks)** | Iniciar spec 004 (`rpi-admit-score`) |
 | **004** | `rpi-admit-score` — Interfaz RPI (`Admit`/`Score`) y proveedores V1 (`admit-all`, `static-context-rules`) | **En curso**: plan.md y tasks.md creados (solo T-004.2 y T-004.3); T1–T4 hechas (interfaz `RPIProvider` + mock, proveedor `admit-all`). Implementación previa revertida (`457bbd1`, `3aa5903`) | Pendientes de sus responsables: `static-context-rules` (T-004.4), `NOT_OFFERED` (T-004.5), config `MOLU_FRONT_RPI_*` (RF-1), `tools/list` (RF-2, RF-3, RF-8), Criterio 7 y diagrama; cada uno agrega sus tareas a `tasks.md` |
 | **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI, `tools/call` stub | **En curso** (spec en borrador; `Registry` y `PublisherAPI` implementados) | Añadir `tools/list` con Admit+Score (depende de spec 004), `tools/call` stub, config `MOLU_HUB_*`, wiring MCP y diagrama |
-| **006** | *(reservada para spec 004 `rpi-admit-score`)* | — | — |
+| **006** | `mcp-server-stdio` — Servidor MCP Stdio y Despachador de Primitivos en Molu Frontend | **En curso (1/6 tasks)** | Continuar con T2 (`tools/call`: gating de salud y no ofrecidas) |
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Iniciar spec 008 (si aplica) / documentación pendiente T23-T28 |
+
+
 
 ---
 
@@ -87,7 +89,7 @@
 | Archivo | Descripción |
 | :--- | :--- |
 | `pkg/schema/types.go` | Tipos de dominio: `PrimitiveSchema`, `StateMachine`, `Transition`, `PayloadType`, `Schemas` con tags JSON |
-| `pkg/schema/client.go` | Interfaz `SchemaClient` + `XoluSchemaClient` (HTTP con timeouts, manejo 5xx/JSON inválido) |
+| `pkg/schema/client.go` | Interfaz `SchemaClient` + `XoluSchemaClient` (HTTP con timeouts, consulta a `/api/v1/schemas`, manejo 5xx/JSON inválido) |
 | `pkg/schema/loader.go` | `SchemaLoader` completo: `Load` (retry/backoff), `Refresh`, `GetPrimitives`, `Run` (ticker), `Stop`, `swap` atómico con RWMutex |
 | `pkg/schema/validation.go` | `ValidateInput` con `gojsonschema` → `ValidationResult` (valid/invalidFields), sin ciclo de imports |
 | `pkg/schema/loader_test.go` | 15+ tests unitarios: carga, retry/backoff, max attempts, context cancellation, refresh atómico, diff add/remove, validación (éxito, required, type mismatch, enum, nested), concurrencia (-race) |
@@ -163,7 +165,7 @@ Merge con spec 007 (`658def3`): `RPIProvider` conserva `SetLogger`/`SetMetrics` 
 | `pkg/telemetry/middleware_test.go` | 6 tests: request_id (ULID), traceparent extraction/generation, propagación context, method/tool extraction, response headers |
 | `pkg/telemetry/config.go` | Estructuras `Config` + `DefaultConfig` + `LoadConfigFromEnv`: todas las variables `MOLU_FRONT_LOG_*`, `MOLU_FRONT_TELEMETRY_*`, `MOLU_FRONT_SECURITY_LOG_*` con defaults y validación |
 | `pkg/telemetry/config_test.go` | 4 tests: defaults, env parsing, validación (format/level/component/ports), telemetry defaults |
-| `pkg/xolu/client.go` | `HTTPXoluClient` con logging integrado: `Walk`/`Find`/`Get`/`Ping` loggean latencia y código taxonomía, `Ready` para probe, inyección de `Logger` y `Metrics` |
+| `pkg/xolu/client.go` | `HTTPXoluClient` con logging integrado: `Walk`/`Find`/`Get`/`Ping` loggean latencia y código taxonomía, `Ready` para probe apuntando a `GET /ready` (endpoint oficial de readiness de xolu en Spec 002), inyección de `Logger` y `Metrics` |
 | `pkg/rpi/admit_score.go` | Helpers `AdmitWithLogging`/`ScoreWithLogging`: log aplicaciones/seguridad con latencia, decision DENY si Admit vacío, integración con `Logger` y `Metrics` opcionales |
 | `cmd/molu/main.go` | Wiring completo: `Logger`, `Metrics`, `Health`, servidor telemetry HTTP en puerto 9090 (`/metrics`, `/healthz`), `xolu.HTTPXoluClient` con logger/metrics, probe con `Ready`, health check periódico xolu, graceful shutdown |
 | `pkg/telemetry_integration/integration_test.go` | 6 tests de integración: flujo MCP completo (4 dominios + métricas), error taxonomía + request_id, security auth DENY, xolu unavailable + health 503, shutdown, rotación bajo carga (-race) |
@@ -174,4 +176,13 @@ Merge con spec 007 (`658def3`): `RPIProvider` conserva `SetLogger`/`SetMetrics` 
 | `docs/diagrams/007-telemetry-error-sequence.mmd` | Diagrama error taxonomía: NOT_FOUND → correlación request_id en details + log network/error + métrica error |
 | `docs/diagrams/007-telemetry-health-metrics.mmd` | Diagrama health/metrics: scrape /metrics, health check cache 30s, ping periódico xolu, backoff arranque |
 
----
+---243
+
+## Archivos Creados / Modificados (Spec 006, sesión 16-oct-2026)
+
+| Archivo | Descripción |
+| :--- | :--- |
+| `pkg/mcp/server.go` | Implementación del servidor MCP: interfaces `PrimitiveProvider`, `HealthChecker`, `SubstrateExecutor`, loop JSON-RPC 2.0 sobre `stdio`, `HandleListTools` con formateo de herramientas sin namespace, `ServeStdio` (RF-1, RF-2). |
+| `pkg/mcp/server_test.go` | Tests unitarios para `initialize` y `tools/list` con esquemas y con catálogo vacío (RF-1, RF-2). |
+| `cmd/molu/main.go` | Conexión e instanciación de `mcp.NewServer()`, inicio de `ServeStdio(ctx)` en background, actualización de primitivos en `SIGHUP`. |
+| `pkg/telemetry/logger.go` | Redirección de logs de consola/fallback de `os.Stdout` a `os.Stderr` para preservar el canal JSON-RPC puro en `stdio`. |

@@ -31,7 +31,7 @@ func NewXoluSchemaClient(baseURL string, timeout time.Duration) *XoluSchemaClien
 }
 
 func (c *XoluSchemaClient) FetchSchemas(ctx context.Context) (Schemas, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/schemas", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/schemas", nil)
 	if err != nil {
 		return Schemas{}, fmt.Errorf("create request: %w", err)
 	}

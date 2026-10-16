@@ -236,7 +236,7 @@ func (c *HTTPXoluClient) Ping(ctx context.Context) error {
 		ctxLog.Network().Info().Msg("xolu ping start")
 	}
 
-	_, err := c.doRequest(ctx, "GET", "/ping", nil, nil)
+	_, err := c.doRequest(ctx, "GET", "/ready", nil, nil)
 
 	latencyMs := float64(time.Since(start).Milliseconds())
 

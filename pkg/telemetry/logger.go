@@ -67,12 +67,12 @@ func NewLogger(cfg Config, extraWriters ...io.Writer) Logger {
 		secFile := newSecurityWriter(cfg.OutputPath, "security.log", cfg.SecurityMaxAgeDays)
 		securityOut = secFile
 	} else {
-		// Console/stdout logging
+		// Console/stderr logging (stdio MCP safe)
 		var out io.Writer
 		if cfg.Format == "json" {
-			out = os.Stdout
+			out = os.Stderr
 		} else {
-			out = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+			out = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
 		}
 		systemOut = out
 		appOut = out
@@ -411,7 +411,7 @@ type rotatingWriter struct {
 func newRotatingWriter(dir, filename string, maxSizeMB, maxAgeDays int, compress bool) io.Writer {
 	f, err := os.OpenFile(filepath.Join(dir, filename), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return os.Stdout
+		return os.Stderr
 	}
 	return &rotatingWriter{File: f}
 }
@@ -424,7 +424,7 @@ type securityWriter struct {
 func newSecurityWriter(dir, filename string, maxAgeDays int) io.Writer {
 	f, err := os.OpenFile(filepath.Join(dir, filename), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return os.Stdout
+		return os.Stderr
 	}
 	return &securityWriter{File: f}
 }

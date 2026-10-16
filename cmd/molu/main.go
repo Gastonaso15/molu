@@ -11,8 +11,10 @@ import (
 
 	"github.com/Gastonaso15/molu/pkg/config"
 	"github.com/Gastonaso15/molu/pkg/exec"
+	"github.com/Gastonaso15/molu/pkg/mcp"
 	"github.com/Gastonaso15/molu/pkg/obs"
 	"github.com/Gastonaso15/molu/pkg/schema"
+	"github.com/Gastonaso15/molu/pkg/taxonomy"
 	"github.com/Gastonaso15/molu/pkg/telemetry"
 	"github.com/Gastonaso15/molu/pkg/xolu"
 )
@@ -113,12 +115,25 @@ func main() {
 		}
 	}
 
-	// Registrar primitivos genéricos en MCP server (sin namespace)
+	// Inicializar Servidor MCP (Spec 006)
+	mcpServer := mcp.NewServer(mcp.ServerConfig{
+		Provider:    &loaderProvider{loader: schemaLoader},
+		Health:      probe,
+		CallTimeout: cfg.CallTimeout,
+	})
+
 	primitives := schemaLoader.GetPrimitives()
 	for _, p := range primitives {
 		logger.System().Info().Str("name", p.Name).Msg("Registering primitive")
-		// TODO: register p in MCP server
 	}
+
+	// Iniciar servidor MCP sobre stdio
+	go func() {
+		if err := mcpServer.ServeStdio(ctx); err != nil && ctx.Err() == nil {
+			logger.System().Error().Err(err).Msg("MCP stdio server terminated")
+			cancel()
+		}
+	}()
 
 	// Hot-reload: ticker
 	schemaLoader.Run(ctx)
@@ -153,7 +168,7 @@ func main() {
 					logger.System().Error().Err(err).Msg("schema refresh failed")
 				} else {
 					logger.System().Info().Msg("Schemas refreshed successfully")
-					// TODO: update MCP server tool registry with diff
+					mcpServer.UpdatePrimitives(schemaLoader.GetPrimitives())
 				}
 			}
 		}
@@ -176,3 +191,19 @@ func main() {
 }
 
 var startTime = time.Now()
+
+type loaderProvider struct {
+	loader *schema.SchemaLoader
+}
+
+func (lp *loaderProvider) GetPrimitives() []schema.PrimitiveSchema {
+	return lp.loader.GetPrimitives()
+}
+
+func (lp *loaderProvider) ValidateInput(primitiveName string, input map[string]interface{}) *taxonomy.TypedError {
+	res := schema.ValidateInput(lp.loader.GetPrimitives(), primitiveName, input)
+	if !res.Valid {
+		return taxonomy.NewContractViolation("", primitiveName, res.InvalidFields)
+	}
+	return nil
+}
