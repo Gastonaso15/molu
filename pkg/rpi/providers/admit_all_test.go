@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/Gastonaso15/molu/pkg/rpi"
+	"github.com/Gastonaso15/molu/pkg/telemetry"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func sampleCatalog() []rpi.ToolCandidate {
@@ -152,5 +154,21 @@ func TestAdmitAllConcurrent(t *testing.T) {
 	}
 	if catalog[0].Name != "walk" {
 		t.Errorf("concurrent callers changed the shared catalog: %q", catalog[0].Name)
+	}
+}
+
+func TestAdmitAllStoresTelemetry(t *testing.T) {
+	p := NewAdmitAllProvider()
+	logger := telemetry.NewLogger(telemetry.DefaultConfig())
+	metrics := telemetry.NewMetricsWithRegistry(prometheus.NewRegistry())
+
+	p.SetLogger(logger)
+	p.SetMetrics(metrics)
+
+	if p.Logger() != logger {
+		t.Error("Logger() did not return the logger set with SetLogger")
+	}
+	if p.Metrics() != metrics {
+		t.Error("Metrics() did not return the metrics set with SetMetrics")
 	}
 }

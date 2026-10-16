@@ -3,39 +3,80 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Gastonaso15/molu/pkg/config"
 	"github.com/Gastonaso15/molu/pkg/exec"
 	"github.com/Gastonaso15/molu/pkg/obs"
 	"github.com/Gastonaso15/molu/pkg/schema"
-	"github.com/ha1tch/xolu/pkg/client"
+	"github.com/Gastonaso15/molu/pkg/telemetry"
+	"github.com/Gastonaso15/molu/pkg/xolu"
 )
 
 func main() {
-
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "configuración inválida:\n%v\n", err)
 		os.Exit(1)
 	}
+
+	// Initialize legacy logger for backward compatibility
 	obs.InitLogger(cfg.LogLevel, cfg.LogFormat)
 
-	slog.Info("Starting Molu Frontend", "xolu_url", cfg.XoluURL, "transport", cfg.Transport)
+	// Initialize telemetry (Spec 007)
+	telemetryCfg := telemetry.LoadConfigFromEnv()
+	telemetryCfg.Component = telemetry.ComponentMoluFront
+
+	logger := telemetry.NewLogger(telemetryCfg)
+	metrics := telemetry.NewMetrics()
+	health := telemetry.NewHealth()
+
+	// Start telemetry HTTP server if enabled
+	var telemetryServer *http.Server
+	if telemetryCfg.TelemetryEnabled {
+		telemetryMux := http.NewServeMux()
+		telemetryMux.Handle(telemetryCfg.TelemetryMetricsPath, metrics.Handler())
+		telemetryMux.Handle(telemetryCfg.TelemetryHealthPath, health.Handler())
+		telemetryServer = &http.Server{
+			Addr:         fmt.Sprintf(":%d", telemetryCfg.TelemetryPort),
+			Handler:      telemetryMux,
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+		}
+		go func() {
+			if err := telemetryServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				logger.System().Error().Err(err).Msg("telemetry server failed")
+			}
+		}()
+		logger.System().Info().
+			Int("port", telemetryCfg.TelemetryPort).
+			Str("metrics_path", telemetryCfg.TelemetryMetricsPath).
+			Str("health_path", telemetryCfg.TelemetryHealthPath).
+			Msg("telemetry server started")
+	}
+
+	logger.System().Info().
+		Str("version", "dev").
+		Str("xolu_url", cfg.XoluURL).
+		Str("transport", cfg.Transport).
+		Msg("Starting Molu Frontend")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
-	// Cliente de xolu. Por ahora solo se usa para la sonda (/ready no
-	// requiere credencial); la autenticación se agrega en otro paso.
-	xolu := client.New(cfg.XoluURL)
+	// Cliente de xolu
+	xoluClient := xolu.NewHTTPXoluClient(cfg.XoluURL, cfg.PingTimeout)
+	xoluClient.SetLogger(logger)
+	xoluClient.SetMetrics(metrics)
 
-	probe := exec.NewProbe(xolu, exec.ProbeConfig{
+	probe := exec.NewProbe(xoluClient, exec.ProbeConfig{
 		Interval:           cfg.PingInterval,
 		Timeout:            cfg.PingTimeout,
 		Freshness:          cfg.PongFreshness,
@@ -57,7 +98,7 @@ func main() {
 	// §8.4: no seguimos hasta que xolu responda el primer pong.
 	if err := probe.WaitReady(ctx); err != nil {
 		if ctx.Err() == nil {
-			slog.Error("xolu is not available, exiting", "error", err)
+			logger.System().Error().Err(err).Msg("xolu is not available, exiting")
 			os.Exit(1)
 		}
 	} else {
@@ -67,7 +108,7 @@ func main() {
 	// Carga inicial de schemas (con retry/backoff)
 	if err := schemaLoader.Load(ctx); err != nil {
 		if ctx.Err() == nil {
-			slog.Error("failed to load schemas from xolu, exiting", "error", err)
+			logger.System().Error().Err(err).Msg("failed to load schemas from xolu, exiting")
 			os.Exit(1)
 		}
 	}
@@ -75,25 +116,43 @@ func main() {
 	// Registrar primitivos genéricos en MCP server (sin namespace)
 	primitives := schemaLoader.GetPrimitives()
 	for _, p := range primitives {
-		slog.Info("Registering primitive", "name", p.Name)
+		logger.System().Info().Str("name", p.Name).Msg("Registering primitive")
 		// TODO: register p in MCP server
 	}
 
 	// Hot-reload: ticker
 	schemaLoader.Run(ctx)
 
+	// Update health with xolu status periodically
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := xoluClient.Ping(ctx); err != nil {
+					health.SetXoluStatus(false, time.Now())
+				} else {
+					health.SetXoluStatus(true, time.Now())
+				}
+			}
+		}
+	}()
+
 	go func() {
 		for sig := range sigCh {
 			switch sig {
 			case os.Interrupt, syscall.SIGTERM:
-				slog.Info("Received signal, shutting down", "signal", sig.String())
+				logger.System().Info().Str("signal", sig.String()).Msg("Received signal, shutting down")
 				cancel()
 			case syscall.SIGHUP:
-				slog.Info("Received SIGHUP, refreshing schemas")
+				logger.System().Info().Msg("Received SIGHUP, refreshing schemas")
 				if err := schemaLoader.Refresh(ctx); err != nil {
-					slog.Error("schema refresh failed", "error", err)
+					logger.System().Error().Err(err).Msg("schema refresh failed")
 				} else {
-					slog.Info("Schemas refreshed successfully")
+					logger.System().Info().Msg("Schemas refreshed successfully")
 					// TODO: update MCP server tool registry with diff
 				}
 			}
@@ -101,5 +160,19 @@ func main() {
 	}()
 
 	<-ctx.Done()
-	fmt.Fprintln(os.Stderr, "Molu Frontend shutting down")
+
+	// Shutdown telemetry server
+	if telemetryCfg.TelemetryEnabled {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := telemetryServer.Shutdown(shutdownCtx); err != nil {
+			logger.System().Error().Err(err).Msg("telemetry server shutdown error")
+		}
+	}
+
+	logger.System().Info().
+		Str("uptime", time.Since(startTime).String()).
+		Msg("Molu Frontend shutting down")
 }
+
+var startTime = time.Now()

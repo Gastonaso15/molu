@@ -14,7 +14,7 @@
 | **molu — frontal MCP** | Completo | Especificación molu Parte 2, Paquete de trabajo §3.2 | En desarrollo (config, probe, schema-reader completados) |
 | **Hub / Registry MCP de Seam** | Completo | Especificación molu Parte 3, Paquete de trabajo §3.1 | En desarrollo (Spec 005: registry thread-safe y API de publicadores completados) |
 | **Taxonomía tipada de resultados** | Completo | Paquete de trabajo §3.3, especificación molu Parte 2 §8.5 | **Completado (Spec 001)** |
-| **Telemetría y auditoría** | Completo | Paquete de trabajo §3.4 | Pendiente |
+| **Telemetría y auditoría** | Completo | Paquete de trabajo §3.4 | **Completado (Spec 007: 30/30 tasks, coverage 72.8%)** |
 | **RPI — interfaz y proveedores V1** | Completo | Paquete de trabajo §3.6 (admit-all, static-context-rules, test double de Score) | Especificado en constitución |
 | **Documentación** | Completo | Despliegue, configuración, runbook operativo, diagramas .mmd y .pdf | Pendiente |
 | **Motor de Seam** | Parcial | Integración del publicador para funciones piloto Work Orders | Pendiente |
@@ -37,6 +37,8 @@
 | **003** | `schema-reader` — Lectora de schemas xolu (GET /schemas, walk/find/get sin namespace, hot-reload, CONTRACT_VIOLATION) | **Completada (18/18 tasks)** | Iniciar spec 004 (`rpi-admit-score`) |
 | **004** | `rpi-admit-score` — Interfaz RPI (`Admit`/`Score`) y proveedores V1 (`admit-all`, `static-context-rules`) | **En curso**: plan.md y tasks.md creados (solo T-004.2 y T-004.3); T1–T4 hechas (interfaz `RPIProvider` + mock, proveedor `admit-all`). Implementación previa revertida (`457bbd1`, `3aa5903`) | Pendientes de sus responsables: `static-context-rules` (T-004.4), `NOT_OFFERED` (T-004.5), config `MOLU_FRONT_RPI_*` (RF-1), `tools/list` (RF-2, RF-3, RF-8), Criterio 7 y diagrama; cada uno agrega sus tareas a `tasks.md` |
 | **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI, `tools/call` stub | **En curso** (spec en borrador; `Registry` y `PublisherAPI` implementados) | Añadir `tools/list` con Admit+Score (depende de spec 004), `tools/call` stub, config `MOLU_HUB_*`, wiring MCP y diagrama |
+| **006** | *(reservada para spec 004 `rpi-admit-score`)* | — | — |
+| **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Iniciar spec 008 (si aplica) / documentación pendiente T23-T28 |
 
 ---
 
@@ -47,6 +49,7 @@
 - **ADR-004**: Neutralidad estricta: código agnóstico sin menciones a "Seam" en constantes, variables ni paquetes de molu o del Hub.
 - **ADR-005**: Diagramas de secuencia versionados como texto `.mmd` (Mermaid) con exportación a `.pdf`.
 - **ADR-006** (Spec 001): Paquete compartido `pkg/taxonomy/` interno con constructores puros, interfaces `XoluClient`, `MCPTransport`, `RPIProvider` mockables, `RetryMetadata` con attemptNumber/maxAttempts, formato `XOLU-<CODE>` fijo para xolu.
+- **ADR-007** (Spec 007): Librería `zerolog` para logging estructurado (API fluida, zero-allocation JSON, mejor performance que zap); UUID v7 (ULID) para `request_id` (timestamp ordenable); W3C `traceparent` para `trace_id`/`span_id` (estándar industria); Security log separado con flush síncrono (integridad auditoría); Puerto telemetry 9090 desacoplado del MCP; `LogRotator` propia para control total (tamaño+tiempo, compresión, security log independiente); Prometheus client nativo para métricas; Health check con cache 30s basado en último ping exitoso xolu.
 
 ---
 ## Archivos Creados (Spec 001)
@@ -121,7 +124,9 @@
 | `pkg/rpi/providers/admit_all.go` | `AdmitAllProvider` con firmas nuevas y aserción `rpi.RPIProvider`: `Admit` devuelve copia de todo, `Score` 1.0 conservando orden. RF-5, RF-7, RF-9 |
 | `pkg/rpi/providers/admit_all_test.go` | Admite todo, catálogo vacío/`nil`, aislamiento de la entrada, Score 1.0 y orden, concurrencia (-race) |
 
-`pkg/rpi/providers/static_context_rules.go` no se tocó: conserva las firmas viejas (compila porque no declara la interfaz) y se adapta en T-004.4. `go test -race ./...` pasa salvo `pkg/schema` `TestLoaderConcurrency`, carrera preexistente en `main` (spec 003).
+Merge con spec 007 (`658def3`): `RPIProvider` conserva `SetLogger`/`SetMetrics` de la spec 007; `AdmitWithLogging`/`ScoreWithLogging` adaptados a `AdmitContext`; admit-all y `MockRPIProvider` implementan `SetLogger`, `SetMetrics`, `Logger()`, `Metrics()` (plan D6).
+
+`pkg/rpi/providers/static_context_rules.go` no se tocó: conserva las firmas viejas (compila porque no declara la interfaz) y se adapta en T-004.4. `go test ./...` pasa completo. Con `-race` fallan `pkg/schema` (`TestLoaderConcurrency`) y `pkg/telemetry`/`pkg/telemetry_integration`: carreras preexistentes en `main`, no de la spec 004.
 
 ## Archivos Creados/Modificados (CI y Herramientas, sesión 15-oct-2026)
 
@@ -135,3 +140,38 @@
 
 
 **Pendiente de Spec 005**: `tools/list` con RPI (RF-4, RF-5, RF-6, RF-9), `tools/call` stub `NOT_OFFERED` (RF-7), carga del proveedor RPI y variables `MOLU_HUB_*` (RF-1), wiring MCP en `cmd/`, pruebas de integración de Criterios 2 y 7, diagrama `docs/diagrams/005-*.mmd` y `.pdf`. No existe aún `plan.md` ni `tasks.md` de la spec 005. La interfaz RPI de la spec 004 (T-004.2) ya está disponible para `tools/list`.
+
+---
+
+## Archivos Creados (Spec 007)
+
+| Archivo | Descripción |
+| :--- | :--- |
+| `specs/007-telemetry-and-observability/spec.md` | Especificación funcional EARS con 14 RF: logging 4 dominios (sistema, aplicación, seguridad, red/acceso), correlación request_id (ULID/UUID v7) + trace_id (W3C traceparent), rotación por tamaño/tiempo, security log append-only flush síncrono, health/metrics en puerto 9090, propagación headers a xolu, ADR-007 |
+| `specs/007-telemetry-and-observability/plan.md` | Plan técnico: 20+ archivos Go (`pkg/telemetry/*`, integración en `pkg/xolu`, `pkg/rpi`, `cmd/molu`), modelos/contratos, mapeo RF→implementación, decisiones técnicas (ADR-007), matriz de tests unitarios/integración/concurrencia |
+| `specs/007-telemetry-and-observability/tasks.md` | 30 micro-tareas TDD (T1–T30) con criterios de aceptación "rojo→verde", cubriendo todos los RF y entregables de documentación |
+| `pkg/telemetry/types.go` | Tipos base: `LogDomain` (system/application/security/network), `LogLevel`, `LogEntry` con campos base obligatorios, `RequestContext` con correlation IDs, `RetryMetadata` (reutiliza de taxonomy) |
+| `pkg/telemetry/logger.go` | Interfaz `Logger` + implementación `zerologLogger` con 4 dominios, `WithContext`/`WithFields`, niveles configurables, security log flush síncrono, rotación integrada |
+| `pkg/telemetry/logger_test.go` | 10 tests unitarios: JSON/console format, niveles, dominios, security sync, WithContext, WithFields, Level getter/setter, zero-alloc benchmark |
+| `pkg/telemetry/rotation.go` | `LogRotator` con rotación por tamaño (configurable MB) + tiempo (días), compresión gzip async, limpieza por antigüedad, concurrencia segura (mutex), no pérdida de datos |
+| `pkg/telemetry/rotation_test.go` | 6 tests: rotación por tamaño/tiempo, retención, compresión, concurrencia (-race), no pérdida de datos |
+| `pkg/telemetry/metrics.go` | Interfaz `Metrics` + implementación Prometheus: contadores peticiones (component/method/tool/code), histogramas latencia (component/method), contadores errores (component/code), handler `/metrics` |
+| `pkg/telemetry/metrics_test.go` | 4 tests con registry custom: contadores, histogramas, handler, multi-componente |
+| `pkg/telemetry/health.go` | Interfaz `Health` + implementación: `/healthz` (ready/live), estado xolu basado en último ping exitoso (cache 30s), devuelve 503 si stale >30s |
+| `pkg/telemetry/health_test.go` | 5 tests: ready/live inicial, xolu available/unavailable, métodos Ready/Live, cache TTL |
+| `pkg/telemetry/middleware.go` | Middleware MCP: genera `request_id` (ULID), extrae/propaga `trace_id`/`span_id` (W3C traceparent), parsea method/tool del body JSON, setea headers `X-Request-ID`, `X-Trace-ID` en respuesta |
+| `pkg/telemetry/middleware_test.go` | 6 tests: request_id (ULID), traceparent extraction/generation, propagación context, method/tool extraction, response headers |
+| `pkg/telemetry/config.go` | Estructuras `Config` + `DefaultConfig` + `LoadConfigFromEnv`: todas las variables `MOLU_FRONT_LOG_*`, `MOLU_FRONT_TELEMETRY_*`, `MOLU_FRONT_SECURITY_LOG_*` con defaults y validación |
+| `pkg/telemetry/config_test.go` | 4 tests: defaults, env parsing, validación (format/level/component/ports), telemetry defaults |
+| `pkg/xolu/client.go` | `HTTPXoluClient` con logging integrado: `Walk`/`Find`/`Get`/`Ping` loggean latencia y código taxonomía, `Ready` para probe, inyección de `Logger` y `Metrics` |
+| `pkg/rpi/admit_score.go` | Helpers `AdmitWithLogging`/`ScoreWithLogging`: log aplicaciones/seguridad con latencia, decision DENY si Admit vacío, integración con `Logger` y `Metrics` opcionales |
+| `cmd/molu/main.go` | Wiring completo: `Logger`, `Metrics`, `Health`, servidor telemetry HTTP en puerto 9090 (`/metrics`, `/healthz`), `xolu.HTTPXoluClient` con logger/metrics, probe con `Ready`, health check periódico xolu, graceful shutdown |
+| `pkg/telemetry_integration/integration_test.go` | 6 tests de integración: flujo MCP completo (4 dominios + métricas), error taxonomía + request_id, security auth DENY, xolu unavailable + health 503, shutdown, rotación bajo carga (-race) |
+| `docs/deployment/007-telemetry-deployment.md` | Despliegue: orden tolerado, puertos (MCP 8080 / telemetry 9090), reintentos backoff, transportes stdio/streamable-http, verificaciones post-despliegue |
+| `docs/configuration/007-telemetry-config.md` | Configuración: lista exhaustiva `MOLU_FRONT_LOG_*`, `MOLU_FRONT_TELEMETRY_*`, `MOLU_FRONT_SECURITY_LOG_*`, `MOLU_FRONT_XOLU_*`, defaults y justificación operativa por ambiente |
+| `docs/runbook/007-telemetry-runbook.md` | Runbook: diagnóstico por 4 dominios, correlación request_id/trace_id (ULID/W3C), códigos taxonomía en logs, procedimiento SUBSTRATE_UNAVAILABLE, métricas Prometheus, health check, rotación |
+| `docs/diagrams/007-telemetry-sequence.mmd` | Diagrama secuencia: petición MCP → middleware → 4 dominios + métricas + health check |
+| `docs/diagrams/007-telemetry-error-sequence.mmd` | Diagrama error taxonomía: NOT_FOUND → correlación request_id en details + log network/error + métrica error |
+| `docs/diagrams/007-telemetry-health-metrics.mmd` | Diagrama health/metrics: scrape /metrics, health check cache 30s, ping periódico xolu, backoff arranque |
+
+---

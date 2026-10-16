@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"sync"
+
+	"github.com/Gastonaso15/molu/pkg/telemetry"
 )
 
 // AdmitCall records the arguments of one MockRPIProvider.Admit call.
@@ -26,6 +28,8 @@ type MockRPIProvider struct {
 	ScoreFunc  func(ctx context.Context, actx AdmitContext, admitted []ToolCandidate) ([]ScoredTool, error)
 	AdmitCalls []AdmitCall
 	ScoreCalls []ScoreCall
+	logger     telemetry.Logger
+	metrics    telemetry.Metrics
 }
 
 var _ RPIProvider = (*MockRPIProvider)(nil)
@@ -50,6 +54,32 @@ func (m *MockRPIProvider) Score(ctx context.Context, actx AdmitContext, admitted
 		return fn(ctx, actx, admitted)
 	}
 	return nil, errors.New("Score not implemented")
+}
+
+func (m *MockRPIProvider) SetLogger(logger telemetry.Logger) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logger = logger
+}
+
+func (m *MockRPIProvider) SetMetrics(metrics telemetry.Metrics) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.metrics = metrics
+}
+
+// Logger returns the logger set with SetLogger, so AdmitWithLogging and
+// ScoreWithLogging can log through the mock.
+func (m *MockRPIProvider) Logger() telemetry.Logger {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.logger
+}
+
+func (m *MockRPIProvider) Metrics() telemetry.Metrics {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.metrics
 }
 
 func (m *MockRPIProvider) Reset() {

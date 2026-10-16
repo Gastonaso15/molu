@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+
+	"github.com/Gastonaso15/molu/pkg/telemetry"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestMockRPIProviderDelegatesAndRecordsCalls(t *testing.T) {
@@ -102,5 +105,21 @@ func TestMockRPIProviderConcurrent(t *testing.T) {
 
 	if len(m.AdmitCalls) != n || len(m.ScoreCalls) != n {
 		t.Errorf("calls = admit %d score %d, want %d each", len(m.AdmitCalls), len(m.ScoreCalls), n)
+	}
+}
+
+func TestMockRPIProviderStoresTelemetry(t *testing.T) {
+	m := &MockRPIProvider{}
+	logger := telemetry.NewLogger(telemetry.DefaultConfig())
+	metrics := telemetry.NewMetricsWithRegistry(prometheus.NewRegistry())
+
+	m.SetLogger(logger)
+	m.SetMetrics(metrics)
+
+	if m.Logger() != logger {
+		t.Error("Logger() did not return the logger set with SetLogger")
+	}
+	if m.Metrics() != metrics {
+		t.Error("Metrics() did not return the metrics set with SetMetrics")
 	}
 }

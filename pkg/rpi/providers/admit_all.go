@@ -4,12 +4,17 @@ import (
 	"context"
 
 	"github.com/Gastonaso15/molu/pkg/rpi"
+	"github.com/Gastonaso15/molu/pkg/telemetry"
 )
 
 // AdmitAllProvider is the V1 development provider: it admits every candidate
-// unconditionally and scores each one 1.0. It holds no state, so it is safe
-// for concurrent use.
-type AdmitAllProvider struct{}
+// unconditionally and scores each one 1.0. Admit and Score keep no state, so
+// they are safe for concurrent use; SetLogger and SetMetrics are meant to be
+// called once at startup, before serving.
+type AdmitAllProvider struct {
+	logger  telemetry.Logger
+	metrics telemetry.Metrics
+}
 
 var _ rpi.RPIProvider = (*AdmitAllProvider)(nil)
 
@@ -32,4 +37,22 @@ func (p *AdmitAllProvider) Score(ctx context.Context, actx rpi.AdmitContext, adm
 		scored[i] = rpi.ScoredTool{ToolCandidate: t, Score: 1.0}
 	}
 	return scored, nil
+}
+
+func (p *AdmitAllProvider) SetLogger(logger telemetry.Logger) {
+	p.logger = logger
+}
+
+func (p *AdmitAllProvider) SetMetrics(metrics telemetry.Metrics) {
+	p.metrics = metrics
+}
+
+// Logger returns the logger set with SetLogger, used by rpi.AdmitWithLogging
+// and rpi.ScoreWithLogging.
+func (p *AdmitAllProvider) Logger() telemetry.Logger {
+	return p.logger
+}
+
+func (p *AdmitAllProvider) Metrics() telemetry.Metrics {
+	return p.metrics
 }

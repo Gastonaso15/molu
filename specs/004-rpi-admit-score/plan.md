@@ -104,6 +104,7 @@ sequenceDiagram
   - *Descartada:* una librería de mocks. Sería una dependencia extra para solo dos métodos.
 - **D4.** admit-all devuelve un slice nuevo, para no compartir memoria con el catálogo del llamador.
 - **D5.** Catálogo vacío → slice vacío no `nil`. Es la misma convención que `hub.Registry.List`.
+- **D6. Integración con la spec 007 (telemetría).** La spec 007 agregó `SetLogger` y `SetMetrics` a `RPIProvider`, y los helpers `AdmitWithLogging`/`ScoreWithLogging`. Al unir ambas specs se conservan esos métodos, los helpers pasan a recibir `AdmitContext` (y loguean `tenant`, `roles` y `query`), y tanto admit-all como el mock implementan `SetLogger`, `SetMetrics`, `Logger()` y `Metrics()`.
 
 ---
 
