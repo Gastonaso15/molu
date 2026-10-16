@@ -35,7 +35,7 @@
 | **001** | `taxonomy-types` — Tipos de taxonomía tipada (6 códigos, prefijos, verbatim) | **Completada** | Iniciar spec 002 (`xolu-probe`) |
 | **002** | `xolu-probe` — Sonda de salud xolu (backoff, gating, SUBSTRATE_UNAVAILABLE) | **Completada** | Iniciar spec 003 (`schema-reader`) |
 | **003** | `schema-reader` — Lectora de schemas xolu (GET /schemas, walk/find/get sin namespace, hot-reload, CONTRACT_VIOLATION) | **Completada (18/18 tasks)** | Iniciar spec 004 (`rpi-admit-score`) |
-| **004** | `rpi-admit-score` — Interfaz RPI (`Admit`/`Score`) y proveedores V1 (`admit-all`, `static-context-rules`) | Spec aprobada; implementación previa revertida (commits `457bbd1`, `3aa5903`), pendiente de reimplementar | Generar plan.md y tasks.md; reimplementar con TDD |
+| **004** | `rpi-admit-score` — Interfaz RPI (`Admit`/`Score`) y proveedores V1 (`admit-all`, `static-context-rules`) | **En curso**: plan.md y tasks.md creados (solo T-004.2 y T-004.3); T1–T4 hechas (interfaz `RPIProvider` + mock, proveedor `admit-all`). Implementación previa revertida (`457bbd1`, `3aa5903`) | Pendientes de sus responsables: `static-context-rules` (T-004.4), `NOT_OFFERED` (T-004.5), config `MOLU_FRONT_RPI_*` (RF-1), `tools/list` (RF-2, RF-3, RF-8), Criterio 7 y diagrama; cada uno agrega sus tareas a `tasks.md` |
 | **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI, `tools/call` stub | **En curso** (spec en borrador; `Registry` y `PublisherAPI` implementados) | Añadir `tools/list` con Admit+Score (depende de spec 004), `tools/call` stub, config `MOLU_HUB_*`, wiring MCP y diagrama |
 
 ---
@@ -61,7 +61,7 @@
 | `pkg/xolu/client_mock.go` | `MockXoluClient` con registro de llamadas |
 | `pkg/mcp/transport.go` | Interfaz `MCPTransport` (Send, Receive, Close) |
 | `pkg/mcp/transport_mock.go` | `MockMCPTransport` con registro de llamadas |
-| `pkg/rpi/admit_score.go` | Interfaz `RPIProvider` (Admit, Score), structs `ToolCandidate`, `ScoredTool` |
+| `pkg/rpi/admit_score.go` | Interfaz `RPIProvider` (Admit, Score), structs `ToolCandidate`, `ScoredTool` (reescrito en spec 004) |
 | `pkg/rpi/providers/admit_all.go` | Proveedor V1 `AdmitAllProvider` (admite todo, score 1.0) |
 | `pkg/rpi/providers/static_context_rules.go` | Proveedor V1 `StaticContextRulesProvider` (stub con reglas por tenant/rol) |
 | `docs/diagrams/001-taxonomy-sequence.mmd` | Diagrama de secuencia Mermaid con todos los flujos de error tipado |
@@ -108,6 +108,21 @@
 | `pkg/hub/publisher_api_test.go` | Tests: register idempotente, violaciones de contrato por tabla, unregister y su `NOT_FOUND`, list administrativo (params vacío/null/`{}`), catálogo vacío, campo desconocido, método no ofrecido, descriptores de `Tools()` |
 
 
+## Archivos Creados/Modificados (Spec 004, T-004.2 y T-004.3, sesión 16-oct-2026)
+
+| Archivo | Descripción |
+| :--- | :--- |
+| `specs/004-rpi-admit-score/plan.md` | Plan técnico limitado a T-004.2 y T-004.3. Decisiones: `Admit`/`Score` devuelven `error` (D1), parámetro `actx` (D2), mock en `pkg/rpi` (D3), admit-all devuelve slice nuevo (D4), catálogo vacío → slice vacío no `nil` (D5) |
+| `specs/004-rpi-admit-score/tasks.md` | T1–T4 completadas, cada una etiquetada con su tarjeta de Trello |
+| `pkg/rpi/admit_score.go` | Tipos de la spec: `ToolCandidate` (+`Primitive`), `AdmitContext {Tenant, Roles, Query}`, `ScoredTool` (+`Rationale`); `RPIProvider` con `Admit/Score(ctx, AdmitContext, ...)`. Definiciones, RF-10 |
+| `pkg/rpi/admit_score_test.go` | Nombres JSON de los tipos y embebido de `ToolCandidate` en `ScoredTool` |
+| `pkg/rpi/provider_mock.go` | `MockRPIProvider` thread-safe (`AdmitFunc`/`ScoreFunc`, `AdmitCalls`/`ScoreCalls`, `Reset`), estilo `MockXoluClient`. RF-9 |
+| `pkg/rpi/provider_mock_test.go` | Delegación, errores, "not implemented", `Reset` y concurrencia (-race) |
+| `pkg/rpi/providers/admit_all.go` | `AdmitAllProvider` con firmas nuevas y aserción `rpi.RPIProvider`: `Admit` devuelve copia de todo, `Score` 1.0 conservando orden. RF-5, RF-7, RF-9 |
+| `pkg/rpi/providers/admit_all_test.go` | Admite todo, catálogo vacío/`nil`, aislamiento de la entrada, Score 1.0 y orden, concurrencia (-race) |
+
+`pkg/rpi/providers/static_context_rules.go` no se tocó: conserva las firmas viejas (compila porque no declara la interfaz) y se adapta en T-004.4. `go test -race ./...` pasa salvo `pkg/schema` `TestLoaderConcurrency`, carrera preexistente en `main` (spec 003).
+
 ## Archivos Creados/Modificados (CI y Herramientas, sesión 15-oct-2026)
 
 | Archivo | Descripción |
@@ -119,4 +134,4 @@
 | `docs/README.md` | Actualizado con sección de inicio rápido para MCP Inspector y referencia al README raíz. |
 
 
-**Pendiente de Spec 005**: `tools/list` con RPI (RF-4, RF-5, RF-6, RF-9), `tools/call` stub `NOT_OFFERED` (RF-7), carga del proveedor RPI y variables `MOLU_HUB_*` (RF-1), wiring MCP en `cmd/`, pruebas de integración de Criterios 2 y 7, diagrama `docs/diagrams/005-*.mmd` y `.pdf`. No existen aún `plan.md` ni `tasks.md` de las specs 004 y 005.
+**Pendiente de Spec 005**: `tools/list` con RPI (RF-4, RF-5, RF-6, RF-9), `tools/call` stub `NOT_OFFERED` (RF-7), carga del proveedor RPI y variables `MOLU_HUB_*` (RF-1), wiring MCP en `cmd/`, pruebas de integración de Criterios 2 y 7, diagrama `docs/diagrams/005-*.mmd` y `.pdf`. No existe aún `plan.md` ni `tasks.md` de la spec 005. La interfaz RPI de la spec 004 (T-004.2) ya está disponible para `tools/list`.
