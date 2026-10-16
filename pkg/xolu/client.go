@@ -7,15 +7,15 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Gastonaso15/molu/pkg/telemetry"
 	"github.com/Gastonaso15/molu/pkg/taxonomy"
+	"github.com/Gastonaso15/molu/pkg/telemetry"
 )
 
 type WalkRequest struct {
-	Tool      string
-	Input     map[string]any
-	TenantID  string
-	Context   map[string]any
+	Tool     string
+	Input    map[string]any
+	TenantID string
+	Context  map[string]any
 }
 
 type WalkResponse struct {
@@ -24,10 +24,10 @@ type WalkResponse struct {
 }
 
 type FindRequest struct {
-	Query     map[string]any
-	TenantID  string
-	Limit     int
-	Offset    int
+	Query    map[string]any
+	TenantID string
+	Limit    int
+	Offset   int
 }
 
 type FindResponse struct {
@@ -307,8 +307,8 @@ func (c *HTTPXoluClient) doRequest(ctx context.Context, method, path string, bod
 
 	if resp.StatusCode >= 400 {
 		var errResp struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
+			Code    string         `json:"code"`
+			Message string         `json:"message"`
 			Details map[string]any `json:"details"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {

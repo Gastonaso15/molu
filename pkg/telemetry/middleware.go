@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,14 +13,12 @@ import (
 // Middleware handles MCP request correlation.
 type Middleware struct {
 	logger Logger
-	entropy *ulid.MonotonicEntropy
 }
 
 // NewMiddleware creates a new MCP middleware.
 func NewMiddleware(logger Logger) *Middleware {
 	return &Middleware{
-		logger:  logger,
-		entropy: ulid.Monotonic(ulid.DefaultEntropy(), 0),
+		logger: logger,
 	}
 }
 
@@ -29,7 +28,7 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 		// Extract or generate request_id (ULID - time-ordered like UUID v7)
 		requestID := r.Header.Get("X-Request-ID")
 		if requestID == "" {
-			requestID = ulid.MustNew(ulid.Now(), m.entropy).String()
+			requestID = ulid.MustNew(ulid.Now(), rand.Reader).String()
 		}
 
 		// Extract or generate trace_id from W3C traceparent
@@ -63,15 +62,15 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 func extractTraceParent(header string) (traceID, spanID string) {
 	if header == "" {
 		// Generate new trace ID (32 hex chars) and span ID (16 hex chars)
-		traceID = ulid.MustNew(ulid.Now(), ulid.DefaultEntropy()).String()
-		spanID = ulid.MustNew(ulid.Now(), ulid.DefaultEntropy()).String()[:16]
+		traceID = ulid.MustNew(ulid.Now(), rand.Reader).String()
+		spanID = ulid.MustNew(ulid.Now(), rand.Reader).String()[:16]
 		return traceID, spanID
 	}
 
 	parts := strings.Split(header, "-")
 	if len(parts) < 3 {
-		traceID = ulid.MustNew(ulid.Now(), ulid.DefaultEntropy()).String()
-		spanID = ulid.MustNew(ulid.Now(), ulid.DefaultEntropy()).String()[:16]
+		traceID = ulid.MustNew(ulid.Now(), rand.Reader).String()
+		spanID = ulid.MustNew(ulid.Now(), rand.Reader).String()[:16]
 		return traceID, spanID
 	}
 

@@ -112,21 +112,21 @@ func TestLoaderConcurrency(t *testing.T) {
 
 	go func() {
 		for i := 0; i < 10; i++ {
-			mockClient.schemas = Schemas{
+			mockClient.SetSchemas(Schemas{
 				Primitives: []PrimitiveSchema{
 					{Name: "walk", Description: "Walk FSM", InputSchema: map[string]interface{}{"type": "object"}},
 					{Name: "find", Description: "Find FSM", InputSchema: map[string]interface{}{"type": "object"}},
 					{Name: "get", Description: "Get FSM", InputSchema: map[string]interface{}{"type": "object"}},
 				},
-			}
+			})
 			_ = loader.Refresh(context.Background())
 			time.Sleep(5 * time.Millisecond)
-			mockClient.schemas = Schemas{
+			mockClient.SetSchemas(Schemas{
 				Primitives: []PrimitiveSchema{
 					{Name: "walk", Description: "Walk FSM", InputSchema: map[string]interface{}{"type": "object"}},
 					{Name: "find", Description: "Find FSM", InputSchema: map[string]interface{}{"type": "object"}},
 				},
-			}
+			})
 			_ = loader.Refresh(context.Background())
 			time.Sleep(5 * time.Millisecond)
 		}

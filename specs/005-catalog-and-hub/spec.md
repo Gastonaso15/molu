@@ -37,8 +37,11 @@ Esta especificación define el **Hub/Registry MCP** como servicio independiente 
   - `registry.register` — registra herramienta (params: ToolRegistration)
   - `registry.unregister` — elimina herramienta (params: `{ publisher_id, name }`)
   - `registry.list` — lista herramientas del publicador (params: `{ publisher_id? }`)
-  - `tools/list` — descubrimiento filtrado por RPI (params: AdmitContext)
-  - `tools/call` — invocación (V1: stub que retorna NOT_OFFERED "execution not implemented"; futura: proxy a molu/xolu)
+  - `tools/list` — descubrimiento filtrado por RPI (params: AdmitContext). Incluye funciones de dominio y primitivos genéricos sin namespace (`get`, `find`, `walk`):
+    - `get`: obtención de entidad por ID (`{entity, id}`).
+    - `find`: búsqueda estructurada por atributos (`{entity, filters}`), consulta OQL (`{query}`) o texto libre (`{search}`).
+    - `walk`: ejecución de transiciones en FSMs (`{machine_id, event, payload}`) o navegación de grafos (`{node_id, direction}`).
+  - `tools/call` — invocación (V1: stub que retorna NOT_OFFERED "execution not implemented"; la ejecución de los endpoints reales de xolu corresponde a molu frontal).
 
 ## Requisitos funcionales (en notación EARS)
 - RF-1: CUANDO el Hub arranca, EL SISTEMA carga proveedor RPI indicado en `MOLU_HUB_RPI_PROVIDER` (`admit-all` | `static-context-rules`).
@@ -88,6 +91,7 @@ Esta especificación define el **Hub/Registry MCP** como servicio independiente 
 - [RESUELTO] **Comportamiento ante registro duplicado (`publisher_id` + `name`)**: Sobrescribe atómicamente de forma idempotente sin emitir error (según §4.2 de la spec del Hub), permitiendo que los publicadores actualicen sus definiciones o se recuperen de reinicios.
 - [RESUELTO] **Formato de reglas para `static-context-rules` en Hub**: Mismo formato JSON (`map[string][]string`) e infraestructura compartida que molu (Spec 004 vía `pkg/rpi/`), cargado desde archivo vía `MOLU_HUB_RPI_RULES_FILE` o inline vía `MOLU_HUB_RPI_RULES_JSON`.
 - [RESUELTO] **Comportamiento de `tools/call` en Hub V1**: Retorna error tipado `NOT_OFFERED` fijo indicando que la ejecución no está soportada en el Hub y debe ser dirigida al frontal molu, respetando la estricta separación de roles (§2: el Hub solo media en descubrimiento, nunca en invocación).
+- [RESUELTO] **Relación de esquemas del Hub con endpoints reales de xolu**: Los publicadores pueden registrar esquemas para los tres primitivos genéricos sin namespace (`get`, `find`, `walk`). El Hub valida únicamente los nombres y la sintaxis JSON Schema de los inputs, pero **nunca** invoca los endpoints de xolu (`/api/v1/{entity}/{id}`, `/api/v1/{entity}`, `/api/v1/oql/query`, `/api/v2/fsm/...`). Toda invocación real corresponde a `molu` frontal (Spec 006).
 - [RESUELTO] **Variables de entorno `MOLU_HUB_*`**:
   - `MOLU_HUB_TRANSPORT`: `stdio` | `streamable-http` (default: `stdio`)
   - `MOLU_HUB_HTTP_ADDR`: Dirección y puerto HTTP (default: `:8091`)

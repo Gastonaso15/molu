@@ -3,19 +3,29 @@ package schema
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
 
 // MockSchemaClient for testing
 type MockSchemaClient struct {
-	schemas       Schemas
-	err           error
-	callCount     int
-	failCount     int // number of times to fail before succeeding
+	mu        sync.RWMutex
+	schemas   Schemas
+	err       error
+	callCount int
+	failCount int // number of times to fail before succeeding
+}
+
+func (m *MockSchemaClient) SetSchemas(s Schemas) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.schemas = s
 }
 
 func (m *MockSchemaClient) FetchSchemas(ctx context.Context) (Schemas, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.callCount++
 	if m.failCount > 0 {
 		m.failCount--
@@ -37,10 +47,10 @@ func TestLoadSuccess(t *testing.T) {
 		},
 	}
 	loader := NewSchemaLoader(mockClient, LoaderConfig{
-		RetryFloor:      10 * time.Millisecond,
-		RetryCeiling:    100 * time.Millisecond,
-		MaxAttempts:     3,
-		Timeout:         5 * time.Second,
+		RetryFloor:   10 * time.Millisecond,
+		RetryCeiling: 100 * time.Millisecond,
+		MaxAttempts:  3,
+		Timeout:      5 * time.Second,
 	})
 
 	// Act
@@ -70,15 +80,15 @@ func TestLoadRetryBackoff(t *testing.T) {
 		{Name: "walk", Description: "Walk FSM", InputSchema: map[string]interface{}{"type": "object"}},
 	}
 	mockClient := &MockSchemaClient{
-		schemas: Schemas{Primitives: expectedPrimitives},
-		err:     errors.New("timeout"),
+		schemas:   Schemas{Primitives: expectedPrimitives},
+		err:       errors.New("timeout"),
 		failCount: 2,
 	}
 	loader := NewSchemaLoader(mockClient, LoaderConfig{
-		RetryFloor:      10 * time.Millisecond,
-		RetryCeiling:    200 * time.Millisecond,
-		MaxAttempts:     5,
-		Timeout:         5 * time.Second,
+		RetryFloor:   10 * time.Millisecond,
+		RetryCeiling: 200 * time.Millisecond,
+		MaxAttempts:  5,
+		Timeout:      5 * time.Second,
 	})
 
 	// Act
@@ -107,10 +117,10 @@ func TestLoadMaxAttemptsExceeded(t *testing.T) {
 		failCount: 10, // more than MaxAttempts
 	}
 	loader := NewSchemaLoader(mockClient, LoaderConfig{
-		RetryFloor:      5 * time.Millisecond,
-		RetryCeiling:    50 * time.Millisecond,
-		MaxAttempts:     3,
-		Timeout:         5 * time.Second,
+		RetryFloor:   5 * time.Millisecond,
+		RetryCeiling: 50 * time.Millisecond,
+		MaxAttempts:  3,
+		Timeout:      5 * time.Second,
 	})
 
 	// Act
@@ -132,10 +142,10 @@ func TestLoadContextCancellation(t *testing.T) {
 		failCount: 10, // keep failing
 	}
 	loader := NewSchemaLoader(mockClient, LoaderConfig{
-		RetryFloor:      50 * time.Millisecond,
-		RetryCeiling:    200 * time.Millisecond,
-		MaxAttempts:     10,
-		Timeout:         5 * time.Second,
+		RetryFloor:   50 * time.Millisecond,
+		RetryCeiling: 200 * time.Millisecond,
+		MaxAttempts:  10,
+		Timeout:      5 * time.Second,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 	defer cancel()

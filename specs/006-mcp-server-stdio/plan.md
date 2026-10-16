@@ -27,11 +27,22 @@ type HealthChecker interface {
     Check() *taxonomy.TypedError
 }
 
-// SubstrateExecutor ejecuta operaciones contra xolu (satisfecho por cliente xolu)
+// SubstrateExecutor ejecuta operaciones contra xolu (satisfecho por *xolu.HTTPXoluClient)
 type SubstrateExecutor interface {
     Execute(ctx context.Context, primitive string, args map[string]interface{}) (map[string]interface{}, error)
 }
 ```
+
+El mapeo interno de `SubstrateExecutor` contra los endpoints de `xolu` es:
+- **`get`**: Extrae `entity` e `id` (o `entity:id`) e invoca `GET /api/v1/{entity}/{id}`. Si xolu retorna 404, traduce a error tipado `NOT_FOUND`.
+- **`find`**:
+  - Si los argumentos contienen `query`: ejecuta `POST /api/v1/oql/query` con `{"query": "..."}`.
+  - Si contienen `search`: ejecuta `GET /api/v1/search?q={search}`.
+  - Si contienen `entity` y filtros: ejecuta `GET /api/v1/{entity}?{k}={v}`.
+  - Si el array resultante está vacío, traduce a código tipado `EMPTY`.
+- **`walk`**:
+  - Si contiene `machine_id` / `machine`: ejecuta transición FSM vía `POST /api/v2/fsm/machine/{id}/walk`. Si xolu rechaza la guarda, traduce a `INVALID_TRANSITION`.
+  - Si contiene `node_id` / `node`: navega el grafo vía `GET /api/v1/graph/{node_id}/out` o `POST /api/v1/graph/path`.
 
 ### Configuración del Servidor (`ServerConfig`)
 - `Provider`: `PrimitiveProvider`
@@ -50,7 +61,7 @@ sequenceDiagram
     participant Server as molu (MCP Server stdio)
     participant Health as HealthChecker (Probe)
     participant Loader as PrimitiveProvider (SchemaLoader)
-    participant Xolu as SubstrateExecutor (xolu)
+    participant Xolu as SubstrateExecutor (xolu HTTP API)
 
     Note over Client,Server: Fase 1: Descubrimiento (tools/list)
     Client->>Server: tools/list
@@ -59,7 +70,7 @@ sequenceDiagram
     Server-->>Client: Lista de herramientas con JSON Schemas
 
     Note over Client,Server: Fase 2: Invocación (tools/call)
-    Client->>Server: tools/call {name: "walk", arguments: {...}}
+    Client->>Server: tools/call {name: "get"|"find"|"walk", arguments: {...}}
     
     alt xolu no está disponible
         Server->>Health: Check()
@@ -67,14 +78,37 @@ sequenceDiagram
         Server-->>Client: Error tipado SUBSTRATE_UNAVAILABLE
     else Herramienta no existe
         Server-->>Client: Error tipado NOT_OFFERED
-    else Argumentos inválidos
-        Server->>Loader: ValidateInput("walk", args)
+    else Argumentos violan Schema
+        Server->>Loader: ValidateInput(primitive, args)
         Loader-->>Server: Error CONTRACT_VIOLATION {fields}
         Server-->>Client: Error tipado CONTRACT_VIOLATION
-    else Ejecución válida
-        Server->>Xolu: Execute(ctx, "walk", args)
-        Xolu-->>Server: Resultado de transición FSM
-        Server-->>Client: ToolResult {content: ...}
+    else Ejecución válida "get"
+        Server->>Xolu: Execute(ctx, "get", {entity, id}) -> GET /api/v1/{entity}/{id}
+        alt Recurso no existe (404)
+            Xolu-->>Server: 404 Not Found
+            Server-->>Client: Error tipado NOT_FOUND
+        else Recurso encontrado
+            Xolu-->>Server: 200 OK {entidad con grafos resueltos}
+            Server-->>Client: ToolResult {content: ...}
+        end
+    else Ejecución válida "find"
+        Server->>Xolu: Execute(ctx, "find", args) -> GET /api/v1/{entity}?params | POST /api/v1/oql/query
+        alt Sin resultados
+            Xolu-->>Server: 200 OK [] (vacio)
+            Server-->>Client: Respuesta tipada EMPTY
+        else Coincidencias encontradas
+            Xolu-->>Server: 200 OK [resultados]
+            Server-->>Client: ToolResult {content: ...}
+        end
+    else Ejecución válida "walk"
+        Server->>Xolu: Execute(ctx, "walk", args) -> POST /api/v2/fsm/machine/{id}/walk | GET /api/v1/graph/...
+        alt Guarda FSM rechazada
+            Xolu-->>Server: 400 Bad Request (guard failed)
+            Server-->>Client: Error tipado INVALID_TRANSITION (diagnóstico verbatim)
+        else Transición exitosa
+            Xolu-->>Server: 200 OK {nuevo estado}
+            Server-->>Client: ToolResult {content: ...}
+        end
     end
 ```
 

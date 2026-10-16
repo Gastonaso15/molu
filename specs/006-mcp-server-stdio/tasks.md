@@ -10,10 +10,13 @@
   - Si la herramienta solicitada no existe entre los primitivos conocidos, retornar `NOT_OFFERED`.
   - Hecho cuando: Tests dedicados en `server_test.go` pasen en verde con `go test -v -race ./pkg/mcp/...`.
 
-- [ ] **T3. Validación de contratos en `tools/call` y ejecución.** RF-3
+- [ ] **T3. Validación de contratos en `tools/call` y ejecución de primitivos (`get`, `find`, `walk`).** RF-3
   - Integrar `PrimitiveProvider.ValidateInput(toolName, args)`; si la entrada viola el schema, retornar `CONTRACT_VIOLATION` con los campos infractores.
-  - Si los argumentos son válidos y el sustrato está saludable, delegar ejecución a `SubstrateExecutor`.
-  - Hecho cuando: Tests de validación de schema y camino feliz pasen en verde con `go test -v -race ./pkg/mcp/...`.
+  - Si los argumentos son válidos y el sustrato está saludable, delegar ejecución a `SubstrateExecutor`:
+    - `get`: llamada con `entity` e `id` traduciendo a `GET /api/v1/{entity}/{id}` (y mapeo de 404 a `NOT_FOUND`).
+    - `find`: llamada con filtros de entidad, OQL o search traduciendo a `GET /api/v1/{entity}?filters` o `POST /api/v1/oql/query` (y mapeo de lista vacía a `EMPTY`).
+    - `walk`: llamada con FSM o grafo traduciendo a `POST /api/v2/fsm/machine/{id}/walk` o rutas de grafo (y mapeo de guarda rechazada a `INVALID_TRANSITION`).
+  - Hecho cuando: Tests de validación de schema y camino feliz para los tres primitivos pasen en verde con `go test -v -race ./pkg/mcp/...`.
 
 - [ ] **T4. Refresco dinámico de herramientas y verificación de concurrencia.** RF-6, RF-7, RF-8
   - Implementar `UpdatePrimitives(newPrimitives []schema.PrimitiveSchema)` con `sync.RWMutex` para reemplazo atómico.

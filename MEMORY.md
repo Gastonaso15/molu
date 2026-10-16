@@ -178,11 +178,18 @@ Merge con spec 007 (`658def3`): `RPIProvider` conserva `SetLogger`/`SetMetrics` 
 
 ---243
 
-## Archivos Creados / Modificados (Spec 006, sesión 16-oct-2026)
+## Archivos Creados / Modificados (Spec 006 & Endpoints Xolu, sesión 16-oct-2026)
 
 | Archivo | Descripción |
 | :--- | :--- |
+| `specs/005-catalog-and-hub/spec.md` | Actualizado para alinear contratos de primitivos sin namespace (`get`, `find`, `walk`) con operaciones reales y clarificar que el Hub no invoca a xolu (Eje 1: Qué se ofrece), delegando la ejecución a molu frontal. |
+| `specs/006-mcp-server-stdio/spec.md` | Actualizado RF-3 y HU-2 con el mapeo exacto de los tres primitivos reales contra xolu (`GET /api/v1/{entity}/{id}`, `GET /api/v1/{entity}` / `POST /api/v1/oql/query`, `POST /api/v2/fsm/machine/{id}/walk` / `GET /api/v1/graph/...`) y mapeo a taxonomía tipada (`NOT_FOUND`, `EMPTY`, `INVALID_TRANSITION`). |
+| `specs/006-mcp-server-stdio/plan.md` | Detallado `SubstrateExecutor`, enriquecido diagrama Mermaid con las 3 ramas de despacho a xolu y manejo de respuestas tipadas. |
+| `specs/006-mcp-server-stdio/tasks.md` | T3 actualizada para validar contratos y ejecutar los tres primitivos reales de xolu (`get`, `find`, `walk`). |
 | `pkg/mcp/server.go` | Implementación del servidor MCP: interfaces `PrimitiveProvider`, `HealthChecker`, `SubstrateExecutor`, loop JSON-RPC 2.0 sobre `stdio`, `HandleListTools` con formateo de herramientas sin namespace, `ServeStdio` (RF-1, RF-2). |
 | `pkg/mcp/server_test.go` | Tests unitarios para `initialize` y `tools/list` con esquemas y con catálogo vacío (RF-1, RF-2). |
 | `cmd/molu/main.go` | Conexión e instanciación de `mcp.NewServer()`, inicio de `ServeStdio(ctx)` en background, actualización de primitivos en `SIGHUP`. |
-| `pkg/telemetry/logger.go` | Redirección de logs de consola/fallback de `os.Stdout` a `os.Stderr` para preservar el canal JSON-RPC puro en `stdio`. |
+| `pkg/telemetry/logger.go` | Redirección de logs de consola/fallback de `os.Stdout` a `os.Stderr` para preservar el canal JSON-RPC puro en `stdio`. Protección con `sync.Once` de variables globales de `zerolog` para eliminar data races en pruebas paralelas. |
+| `pkg/telemetry/middleware.go` | Generación de ULID con `crypto/rand.Reader` concurrente (eliminó data race de `ulid.DefaultEntropy`). |
+| `pkg/schema/loader_test.go` & `client_test.go` | `MockSchemaClient` protegido con `sync.RWMutex` y método thread-safe `SetSchemas` (eliminó data race en `TestLoaderConcurrency`). |
+

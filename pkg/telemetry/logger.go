@@ -14,10 +14,10 @@ import (
 
 // Logger interface for structured logging across domains.
 type Logger interface {
-	System()     *zerolog.Logger
+	System() *zerolog.Logger
 	Application() *zerolog.Logger
-	Security()   *zerolog.Logger
-	Network()    *zerolog.Logger
+	Security() *zerolog.Logger
+	Network() *zerolog.Logger
 	WithContext(ctx context.Context) Logger
 	WithFields(fields map[string]any) Logger
 	Level() LogLevel
@@ -36,16 +36,22 @@ type zerologLogger struct {
 	securityFile *os.File
 }
 
+var zerologInitOnce sync.Once
+
+func initZerologGlobals() {
+	zerolog.TimeFieldFormat = time.RFC3339Nano
+	zerolog.TimestampFieldName = "timestamp"
+	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+	zerolog.TimestampFunc = func() time.Time { return NowFunc() }
+}
+
 // NewLogger creates a new multi-domain logger.
 func NewLogger(cfg Config, extraWriters ...io.Writer) Logger {
 	// Parse level
 	lvl := parseLevel(cfg.Level)
 
-	// Configure zerolog
-	zerolog.TimeFieldFormat = time.RFC3339Nano
-	zerolog.TimestampFieldName = "timestamp"
-	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
-	zerolog.TimestampFunc = func() time.Time { return NowFunc() }
+	// Configure zerolog once
+	zerologInitOnce.Do(initZerologGlobals)
 
 	// Base logger with component and timestamp
 	base := zerolog.New(io.Discard).With().
