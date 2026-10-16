@@ -1,0 +1,83 @@
+sequenceDiagram
+    autonumber
+    participant Prometheus as Prometheus Server
+    participant Molu as molu (Front MCP)
+    participant Telemetry as Telemetry Server (puerto 9090)
+    participant Health as Health Check
+    participant Metrics as Metrics Collector
+    participant Xolu as xolu Sustrato
+
+    Note over Prometheus, Xolu: === METRICAS Y HEALTH CHECK ===
+
+    Note over Prometheus, Telemetry: === SCRAPE METRICAS (cada 15-30s) ===
+    Prometheus->>Telemetry: HTTP GET /metrics
+    Telemetry->>Metrics: Recopila contadores e histogramas
+    Metrics-->>Telemetry: Formato Prometheus text
+    Telemetry-->>Prometheus: 200 OK + text/plain
+
+    Note over Telemetry, Metrics: === CONTADORES ===
+    Metrics->>Metrics: molu_requests_total{component, method, tool, code}
+    Metrics->>Metrics: molu_errors_total{component, code}
+    Metrics->>Metrics: molu_latency_seconds_bucket{component, method, le}
+
+    Note over Prometheus, Health: === HEALTH CHECK (K8s liveness/readiness) ===
+    Prometheus->>Health: HTTP GET /healthz (cada 10-30s)
+    Health->>Health: Verifica cache 30s (ultimo ping xolu exitoso)
+    Health->>Xolu: Ping (si cache expirado)
+    Xolu-->>Health: 200 OK / Error
+    Health->>Health: Actualiza estado xolu (available/stale/unavailable)
+    Health-->>Prometheus: 200 OK (status ok) / 503 (degraded/down)
+
+    Note over Health, Xolu: === ESTADOS HEALTH ===
+    alt xolu ping < 30s
+        Health->>Prometheus: 200 OK {status: "ok", checks.xolu.status: "available"}
+    else xolu ping > 30s o nunca
+        Health->>Prometheus: 503 {status: "degraded", checks.xolu.status: "stale"}
+    else proceso apagandose
+        Health->>Prometheus: 503 {status: "down"}
+    end
+
+    Note over Molu, Xolu: === PING PERIODICO XOLU (cada 10s) ===
+    loop Cada 10s
+        Molu->>Xolu: Ping (con headers X-Request-ID, X-Trace-ID)
+        Xolu-->>Molu: 200 OK / Error
+        Molu->>Metrics: ObserveLatency("xolu-client", "ping", latency_ms)
+        alt Ping OK
+            Molu->>Health: SetXoluStatus(true, now)
+            Health->>Health: Cache 30s
+        else Ping Falla
+            Molu->>Health: SetXoluStatus(false, now)  // No actualiza lastSuccessPing
+        end
+    end
+
+    Note over Molu, Xolu: === ARRANQUE CON BACKOFF ===
+    Molu->>Xolu: Ping (intento 1)
+    alt xolu OK
+        Xolu-->>Molu: 200 OK
+        Molu->>Health: SetXoluStatus(true, now)
+        Molu->>Molu: Inicia servidor MCP
+    else xolu caido
+        Xolu-->>Molu: Error/Timeout
+        Molu->>Molu: Espera backoff (1s -> 30s exponencial)
+        Molu->>Xolu: Ping (intento 2)
+        alt ... hasta MAX_ATTEMPTS
+            Xolu-->>Molu: Error
+        else Recuperado
+            Xolu-->>Molu: 200 OK
+            Molu->>Health: SetXoluStatus(true, now)
+            Molu->>Molu: Inicia servidor MCP
+        else Agotado MAX_ATTEMPTS
+            Molu->>Logger: system.log ERROR SUBSTRATE_UNAVAILABLE con RetryMetadata
+            Molu->>Molu: Exit 1
+        end
+    end
+
+    Note over Prometheus, Metrics: === ALERTAS RECOMENDADAS ===
+    Prometheus->>Prometheus: rate(molu_errors_total[5m]) / rate(molu_requests_total[5m]) > 0.05
+    Prometheus->>Prometheus: histogram_quantile(0.99, molu_latency_seconds_bucket) > 1s
+    Prometheus->>Prometheus: increase(molu_errors_total{code="SUBSTRATE_UNAVAILABLE"}[5m]) > 0
+
+    Note over Telemetry, Molu: === PUERTOS ===
+    Telemetry-->>Red: Puerto 9090 (HTTP /metrics, /healthz)
+    Molu-->>Red: Puerto MCP (ej. 8080) transporte stdio/HTTP
+    Xolu-->>Red: Puerto 8080 (HTTP /walk, /find, /get, /ping)

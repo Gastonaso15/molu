@@ -1,0 +1,56 @@
+sequenceDiagram
+    autonumber
+    actor Agent as Agente IA (Cliente MCP)
+    participant Molu as molu (Front MCP)
+    participant MW as Middleware Telemetry
+    participant Logger as Logger (4 dominios)
+    participant Metrics as Metrics (Prometheus)
+    participant Health as Health Check
+    participant Xolu as xolu Sustrato
+
+    Note over Agent, Xolu: === INICIO PETICIÓN MCP ===
+
+    Agent->>Molu: HTTP POST /mcp<br/>{method: "tools/call", params: {name: "walk", ...}}
+    Molu->>MW: Intercepta request
+    MW->>MW: Genera request_id (ULID v2)
+    MW->>MW: Extrae trace_id (W3C traceparent) o genera nuevo
+    MW->>MW: Parsea method/tool del body JSON
+    MW->>MW: Setea headers respuesta: X-Request-ID, X-Trace-ID
+    MW->>Logger: logger.WithContext(ctx) con request_id, trace_id, span_id, method, tool
+    MW->>Molu: Continúa con contexto enriquecido
+
+    Note over Molu, Logger: === LOGGING DOMINIO APLICACIÓN ===
+    Molu->>Logger: logger.Application().Info().Msg("mcp request received")
+    Logger->>Logger: Escribe JSON a application.log<br/>{domain: "application", request_id, trace_id, method: "tools/call", tool: "walk"}
+
+    Note over Molu, Xolu: === INVOCACIÓN XOLU ===
+    Molu->>Xolu: HTTP POST /walk (con headers X-Request-ID, X-Trace-ID)
+    Xolu-->>Molu: 200 OK {output: {...}}
+    Molu->>Logger: logger.Application().Info().Msg("mcp request completed")
+    Logger->>Logger: Escribe application.log con latency_ms, code=OK
+
+    Note over Molu, Metrics: === MÉTRICAS ===
+    Molu->>Metrics: IncRequests(component="xolu-client", method="walk", tool="walk", code="OK")
+    Molu->>Metrics: ObserveLatency(component="xolu-client", method="walk", latency_ms)
+    Metrics->>Metrics: Incrementa molu_requests_total, molu_latency_seconds
+
+    Note over Molu, Health: === HEALTH CHECK PERIÓDICO ===
+    Health->>Xolu: Ping periódico (cada 10s)
+    Xolu-->>Health: 200 OK
+    Health->>Health: SetXoluStatus(true, now)
+    Health->>Health: Cache 30s
+
+    Note over Agent, Molu: === RESPUESTA ===
+    Molu-->>Agent: HTTP 200 OK<br/>{result: {...}}<br/>Headers: X-Request-ID, X-Trace-ID
+
+    Note over Logger: === ARCHIVOS DE LOG ===
+    Logger->>system.log: Arranque, apagado, config
+    Logger->>application.log: Tool calls, validaciones
+    Logger->>network.log: xolu ping/calls, latencia, códigos
+    Logger->>security.log: Auth decisions (flush síncrono)
+
+    Note over Metrics, Health: === ENDPOINTS TELEMETRÍA (puerto 9090) ===
+    Metrics-->>Prometheus: GET /metrics → molu_requests_total, molu_latency_seconds, molu_errors_total
+    Health-->>K8s: GET /healthz → 200 OK (status ok/degraded)
+
+    Note over Agent, Xolu: === FIN PETICIÓN ===

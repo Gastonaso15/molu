@@ -1,0 +1,62 @@
+sequenceDiagram
+    autonumber
+    actor Agent as Agente IA (Cliente MCP)
+    participant Molu as molu (Front MCP)
+    participant MW as Middleware Telemetry
+    participant Logger as Logger (4 dominios)
+    participant Metrics as Metrics (Prometheus)
+    participant Xolu as xolu Sustrato
+
+    Note over Agent, Xolu: === ERROR TAXONOMIA: NOT_FOUND ===
+
+    Agent->>Molu: HTTP POST /mcp {method: "tools/call", params: {name: "walk", ...}}
+    Molu->>MW: Intercepta request
+    MW->>MW: Genera request_id (ULID: 01M50Z7PBGKTWJG65S2PAGVYPN)
+    MW->>MW: trace_id: 0af7651916cd43dd8448eb211c80319c
+    MW->>MW: Setea headers: X-Request-ID, X-Trace-ID
+    MW->>Logger: logger.WithContext(ctx)
+
+    Molu->>Logger: logger.Application().Info().Msg("mcp request received")
+    Logger->>application.log: {domain: "application", request_id, trace_id, method, tool, message: "mcp request received"}
+
+    Molu->>Xolu: HTTP POST /walk Headers: X-Request-ID, X-Trace-ID
+    Xolu-->>Molu: 404 Not Found {code: "XOLU-MOLU-FRONT-NOT_FOUND", message: "object not found", details: {objectId: "obj-123"}}
+
+    Note over Molu, Logger: === LOG ERROR RED ===
+    Molu->>Logger: logger.Network().Error().Str("code", "XOLU-MOLU-FRONT-NOT_FOUND").Err(err).Msg("xolu walk failed")
+    Logger->>network.log: {domain: "network", level: "error", request_id, trace_id, code: "XOLU-MOLU-FRONT-NOT_FOUND", latency_ms: 12, message: "xolu walk failed"}
+
+    Note over Molu, Logger: === LOG APLICACION (ERROR) ===
+    Molu->>Logger: logger.Application().Error().Str("code", "NOT_FOUND").Err(err).Msg("xolu walk failed")
+    Logger->>application.log: {domain: "application", level: "error", request_id, trace_id, code: "XOLU-MOLU-FRONT-NOT_FOUND", latency_ms: 15, message: "xolu walk failed"}
+
+    Note over Molu, Metrics: === METRICAS ERROR ===
+    Molu->>Metrics: IncErrors(component="xolu-client", code="XOLU-MOLU-FRONT-NOT_FOUND")
+    Metrics->>Metrics: molu_errors_total{component="xolu-client", code="XOLU-MOLU-FRONT-NOT_FOUND"}++
+    Molu->>Metrics: IncRequests(component="xolu-client", method="walk", tool="walk", code="XOLU-MOLU-FRONT-NOT_FOUND")
+    Molu->>Metrics: ObserveLatency(component="xolu-client", method="walk", latency_ms=15)
+
+    Note over Molu, Agent: === RESPUESTA CON CORRELACION ===
+    Molu-->>Agent: HTTP 404 Not Found {error: {code: "XOLU-MOLU-FRONT-NOT_FOUND", message: "object not found", details: {objectId: "obj-123", request_id: "01M50Z7PBGKTWJG65S2PAGVYPN"}}} Headers: X-Request-ID, X-Trace-ID
+
+    Note over Agent: === CORRELACION EN CLIENTE ===
+    Agent->>Agent: Extrae request_id de response.error.details.request_id
+    Agent->>Agent: Busca en logs: grep "01M50Z7PBGKTWJG65S2PAGVYPN" *.log
+    Agent->>Agent: Correlaciona application.log + network.log + security.log
+
+    Note over Agent, Xolu: === TRAZA DISTRIBUIDA ===
+    rect rgb(240, 248, 255)
+        Note right of Agent: request_id: 01M50Z7PBGKTWJG65S2PAGVYPN (ULID)
+        Note right of Agent: trace_id: 0af7651916cd43dd8448eb211c80319c (W3C)
+        Note right of Agent: span_id: b7ad6b7169203331
+    end
+
+    Note over Logger: === ARCHIVOS AFECTADOS ===
+    Logger->>application.log: request start + error (request_id, trace_id)
+    Logger->>network.log: xolu call failed (code, latency_ms, request_id, trace_id)
+    Logger->>security.log: (si aplica auth decision)
+
+    Note over Metrics: === METRICAS PROMETHEUS ===
+    Metrics->>Prometheus: molu_errors_total{component="xolu-client", code="XOLU-MOLU-FRONT-NOT_FOUND"}++
+    Metrics->>Prometheus: molu_requests_total{component="xolu-client", method="walk", tool="walk", code="XOLU-MOLU-FRONT-NOT_FOUND"}++
+    Metrics->>Prometheus: molu_latency_seconds{component="xolu-client", method="walk"} bucket++

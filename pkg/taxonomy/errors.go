@@ -1,6 +1,7 @@
 package taxonomy
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -89,4 +90,15 @@ func NextRetryRFC3339(attempt int, floor, ceiling time.Duration) string {
 		}
 	}
 	return time.Now().UTC().Add(backoff).Format(time.RFC3339)
+}
+
+func CodeFromError(err error) string {
+	if err == nil {
+		return "OK"
+	}
+	var typedErr *TypedError
+	if errors.As(err, &typedErr) {
+		return typedErr.Code
+	}
+	return "UNKNOWN"
 }
