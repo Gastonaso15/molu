@@ -35,7 +35,7 @@
 | **001** | `taxonomy-types` — Tipos de taxonomía tipada (6 códigos, prefijos, verbatim) | **Completada** | Iniciar spec 002 (`xolu-probe`) |
 | **002** | `xolu-probe` — Sonda de salud xolu (backoff, gating, SUBSTRATE_UNAVAILABLE) | **Completada** | Iniciar spec 003 (`schema-reader`) |
 | **003** | `schema-reader` — Lectora de schemas xolu (GET /schemas, walk/find/get sin namespace, hot-reload, CONTRACT_VIOLATION) | **Completada (18/18 tasks)** | Iniciar spec 004 (`rpi-admit-score`) |
-| **004** | `rpi-admit-score` — Interfaz RPI (`Admit`/`Score`) y proveedores V1 (`admit-all`, `static-context-rules`) | **En curso**: plan.md y tasks.md creados (solo T-004.2 y T-004.3); T1–T4 hechas (interfaz `RPIProvider` + mock, proveedor `admit-all`). Implementación previa revertida (`457bbd1`, `3aa5903`) | Pendientes de sus responsables: `static-context-rules` (T-004.4), `NOT_OFFERED` (T-004.5), config `MOLU_FRONT_RPI_*` (RF-1), `tools/list` (RF-2, RF-3, RF-8), Criterio 7 y diagrama; cada uno agrega sus tareas a `tasks.md` |
+| **004** | `rpi-admit-score` — Interfaz RPI (`Admit`/`Score`) y proveedores V1 (`admit-all`, `static-context-rules`) | **En curso**: plan.md y tasks.md cubren T-004.2 a T-004.5; T1–T9 hechas (interfaz `RPIProvider` + mock, `admit-all`, `static-context-rules`, `rpi.Offer` + integración `NOT_OFFERED`). Implementación previa revertida (`457bbd1`, `3aa5903`) | Pendientes de sus responsables: config `MOLU_FRONT_RPI_*` (RF-1), `tools/list` (RF-2, RF-3, RF-8), Criterio 7 y diagrama; cada uno agrega sus tareas a `tasks.md` |
 | **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI, `tools/call` stub | **En curso** (spec en borrador; `Registry` y `PublisherAPI` implementados) | Añadir `tools/list` con Admit+Score (depende de spec 004), `tools/call` stub, config `MOLU_HUB_*`, wiring MCP y diagrama |
 | **006** | `mcp-server-stdio` — Servidor MCP Stdio y Despachador de Primitivos en Molu Frontend (ampliada a los 13 primitivos genéricos §5.1) | **En curso (1/8 tasks)** | Continuar con T2 (definición estandarizada y exposición en `tools/list` de los 13 primitivos) |
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Iniciar spec 008 (si aplica) / documentación pendiente T23-T28 |
@@ -129,6 +129,18 @@
 Merge con spec 007 (`658def3`): `RPIProvider` conserva `SetLogger`/`SetMetrics` de la spec 007; `AdmitWithLogging`/`ScoreWithLogging` adaptados a `AdmitContext`; admit-all y `MockRPIProvider` implementan `SetLogger`, `SetMetrics`, `Logger()`, `Metrics()` (plan D6).
 
 `pkg/rpi/providers/static_context_rules.go` no se tocó: conserva las firmas viejas (compila porque no declara la interfaz) y se adapta en T-004.4. `go test ./...` pasa completo. Con `-race` fallan `pkg/schema` (`TestLoaderConcurrency`) y `pkg/telemetry`/`pkg/telemetry_integration`: carreras preexistentes en `main`, no de la spec 004.
+
+## Archivos Creados/Modificados (Spec 004, T-004.4 y T-004.5, sesión 21-oct-2026)
+
+| Archivo | Descripción |
+| :--- | :--- |
+| `specs/004-rpi-admit-score/plan.md` / `tasks.md` | Ampliados a T-004.4 y T-004.5 (T5–T9). Decisiones D7 (`static-context-rules` implementa `Score` 1.0/0.0 por RF-6), D8 (claves `"tenant:rol"`), D9 (`rpi.Offer` en `pkg/rpi`) |
+| `pkg/rpi/providers/static_context_rules.go` | `StaticContextRulesProvider` adaptado a `RPIProvider`: reglas `"tenant:rol"` → nombres, coincidencia exacta y case-sensitive, denegar por defecto, `Score` 1.0/0.0 con orden estable, telemetría como admit-all. `ParseStaticContextRules` lee el JSON de reglas. RF-5, RF-6, RF-9 |
+| `pkg/rpi/providers/static_context_rules_test.go` | Formato de reglas, admisión, tests de rechazo (otra herramienta, tenant, rol, sin roles, tenant vacío, sin reglas, mayúsculas), aislamiento, `Score`, concurrencia (-race) |
+| `pkg/rpi/offer.go` / `offer_test.go` | `rpi.Offer`: herramienta excluida por `Admit` → `taxonomy.NewNotOffered(tenant, tool)`; errores del proveedor sin cambios. RF-4 |
+| `pkg/rpi_integration/not_offered_test.go` | Integración (Criterio 2): herramienta existente en `hub.Registry` rechazada por `static-context-rules` → exactamente `XOLU-MOLU-FRONT-NOT_OFFERED` (también en JSON); con rol permitido o admit-all se ofrece |
+
+`go test -race ./...` pasa completo (Linux). Leer las reglas desde `MOLU_FRONT_RPI_RULES_FILE`/`MOLU_FRONT_RPI_RULES_JSON` y elegir el proveedor (RF-1) queda para su responsable; `ParseStaticContextRules` ya está disponible para eso. Quién llama a `rpi.Offer` en `tools/call` lo decide la tarjeta de ensamblado del Hub.
 
 ## Archivos Creados/Modificados (CI y Herramientas, sesión 15-oct-2026)
 
