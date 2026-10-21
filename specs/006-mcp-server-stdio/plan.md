@@ -4,10 +4,11 @@
 
 | Archivo | Responsabilidad |
 |---------|-----------------|
-| `pkg/mcp/server.go` | **Crear**: `Server` MCP desacoplado que registra herramientas dinámicamente a partir de `PrimitiveSchema`, atiende `tools/list` y despacha `tools/call` validando esquemas (`CONTRACT_VIOLATION`), disponibilidad (`SUBSTRATE_UNAVAILABLE`) y existencia (`NOT_OFFERED`). |
-| `pkg/mcp/server_test.go` | **Crear**: Tests unitarios con mocks: handshake inicial, `tools/list` vacío y con primitivos, `tools/call` exitoso, violación de contrato, sustrato caído, herramienta no ofrecida, refresco atómico de herramientas y concurrencia (-race). |
-| `cmd/molu/main.go` | **Modificar**: Wiring del servidor MCP con `SchemaLoader` y `Probe`, arranque sobre `stdio` (`server.ServeStdio`) y notificación de refresco ante `SIGHUP`. Logs dirigidos exclusivamente a `os.Stderr`. |
-| `docs/diagrams/006-mcp-server-stdio-sequence.mmd` | **Crear**: Diagrama de secuencia Mermaid detallando el flujo de inicialización, listado de primitivos, invocación exitosa y bifurcaciones de error tipado. |
+| `pkg/mcp/server.go` | **Actualizar/Completar**: Servidor MCP que registra y expone dinámicamente los 13 primitivos genéricos en `tools/list` y despacha `tools/call` validando esquemas (`CONTRACT_VIOLATION`), disponibilidad (`SUBSTRATE_UNAVAILABLE`) y existencia (`NOT_OFFERED`). |
+| `pkg/mcp/primitives.go` | **Crear/Extraer**: Definiciones estandarizadas de los 13 esquemas MCP primitivos (§5.1: `describe`, `get`, `list`, `create`, `update`, `query`, `walk`, `machine_state`, `machine_history`, `cal_check`, `cal_openings`, `cal_propose`, `cal_confirm`). |
+| `pkg/mcp/server_test.go` | **Extender**: Tests unitarios con mocks para ciclo de vida MCP, `tools/list` con los 13 primitivos, `tools/call` para cada primitivo, bifurcaciones de error de taxonomía, recarga atómica y concurrencia (-race). |
+| `cmd/molu/main.go` | **Modificar**: Wiring del servidor MCP con `SchemaLoader`, `Probe` y `HTTPXoluClient`, inicialización sobre `stdio` (`server.ServeStdio`) y logs estrictos a `os.Stderr`. |
+| `docs/diagrams/006-mcp-server-stdio-sequence.mmd` | **Actualizar**: Diagrama de secuencia Mermaid detallando el flujo de inicialización, listado de 13 primitivos, invocación exitosa y bifurcaciones de error tipado. |
 
 ---
 
@@ -16,7 +17,7 @@
 ### Interfaces Desacopladas (para inyección y testabilidad)
 
 ```go
-// PrimitiveProvider provee los esquemas de primitivos activos (satisfecho por *schema.SchemaLoader)
+// PrimitiveProvider provee los esquemas de primitivos activos y la validación de contratos
 type PrimitiveProvider interface {
     GetPrimitives() []schema.PrimitiveSchema
     ValidateInput(primitiveName string, input map[string]interface{}) *taxonomy.TypedError
@@ -24,7 +25,7 @@ type PrimitiveProvider interface {
 
 // HealthChecker provee la compuerta de disponibilidad (satisfecho por *exec.Probe)
 type HealthChecker interface {
-    Check() *taxonomy.TypedError
+    Check() error
 }
 
 // SubstrateExecutor ejecuta operaciones contra xolu (satisfecho por *xolu.HTTPXoluClient)
@@ -33,22 +34,21 @@ type SubstrateExecutor interface {
 }
 ```
 
-El mapeo interno de `SubstrateExecutor` contra los endpoints de `xolu` es:
-- **`get`**: Extrae `entity` e `id` (o `entity:id`) e invoca `GET /api/v1/{entity}/{id}`. Si xolu retorna 404, traduce a error tipado `NOT_FOUND`.
-- **`find`**:
-  - Si los argumentos contienen `query`: ejecuta `POST /api/v1/oql/query` con `{"query": "..."}`.
-  - Si contienen `search`: ejecuta `GET /api/v1/search?q={search}`.
-  - Si contienen `entity` y filtros: ejecuta `GET /api/v1/{entity}?{k}={v}`.
-  - Si el array resultante está vacío, traduce a código tipado `EMPTY`.
-- **`walk`**:
-  - Si contiene `machine_id` / `machine`: ejecuta transición FSM vía `POST /api/v2/fsm/machine/{id}/walk`. Si xolu rechaza la guarda, traduce a `INVALID_TRANSITION`.
-  - Si contiene `node_id` / `node`: navega el grafo vía `GET /api/v1/graph/{node_id}/out` o `POST /api/v1/graph/path`.
+### Mapeo de los 13 Primitivos en `SubstrateExecutor`
 
-### Configuración del Servidor (`ServerConfig`)
-- `Provider`: `PrimitiveProvider`
-- `Health`: `HealthChecker`
-- `Executor`: `SubstrateExecutor`
-- `CallTimeout`: `time.Duration`
+1. **`describe`**: Consulta el mapa semántico/catálogo de esquemas local según `scope` ("all", "entities", "machines", "generators", "events") y `name` opcional.
+2. **`get`**: Extrae `entity_type` e `id` e invoca `GET /api/v1/{entity_type}/{id}`. Mapea 404 a `NOT_FOUND`.
+3. **`list`**: Invoca `GET /api/v1/{entity_type}?{filters}&limit={limit}&offset={offset}`. Si la lista está vacía, emite `EMPTY`.
+4. **`create`**: Invoca `POST /api/v1/{entity_type}` con `data`. Si el esquema es inválido, emite `CONTRACT_VIOLATION`.
+5. **`update`**: Invoca `PATCH /api/v1/{entity_type}/{id}` con `changes` y `version`.
+6. **`query`**: Invoca `POST /api/v1/oql/query` (o motor Sulpher) con `query` y `params`. Si no hay resultados, emite `EMPTY`.
+7. **`walk`**: Invoca `POST /api/v2/fsm/machine/{id}/walk` con `input` y `payload`. Si la guarda falla, emite `INVALID_TRANSITION` (diagnóstico verbatim).
+8. **`machine_state`**: Invoca `GET /api/v2/fsm/machine/{id}/state` y fusiona con `/vars`.
+9. **`machine_history`**: Invoca `GET /api/v2/fsm/machine/{id}/history` con `limit`. Si no hay entradas, emite `EMPTY`.
+10. **`cal_check`**: Invoca `POST /api/v1/cal/check` con `calendars`, `start`, `end`.
+11. **`cal_openings`**: Invoca `POST /api/v1/cal/openings` con `calendars`, `duration`, `from`, `to`, `objective`, `limit`. Si no hay ventanas, emite `EMPTY`.
+12. **`cal_propose`**: Invoca `POST /api/v1/cal/propose` con `calendars`, `start`, `end`, `payload`. Retorna `booking_id`.
+13. **`cal_confirm`**: Invoca `POST /api/v1/cal/confirm` con `booking_id`. Si no existe, emite `NOT_FOUND`.
 
 ---
 
@@ -66,11 +66,11 @@ sequenceDiagram
     Note over Client,Server: Fase 1: Descubrimiento (tools/list)
     Client->>Server: tools/list
     Server->>Loader: GetPrimitives()
-    Loader-->>Server: []PrimitiveSchema {walk, find, get}
-    Server-->>Client: Lista de herramientas con JSON Schemas
+    Loader-->>Server: []PrimitiveSchema (13 primitivos genéricos)
+    Server-->>Client: Lista de 13 herramientas con JSON Schemas
 
     Note over Client,Server: Fase 2: Invocación (tools/call)
-    Client->>Server: tools/call {name: "get"|"find"|"walk", arguments: {...}}
+    Client->>Server: tools/call {name: "<primitivo>", arguments: {...}}
     
     alt xolu no está disponible
         Server->>Health: Check()
@@ -82,31 +82,19 @@ sequenceDiagram
         Server->>Loader: ValidateInput(primitive, args)
         Loader-->>Server: Error CONTRACT_VIOLATION {fields}
         Server-->>Client: Error tipado CONTRACT_VIOLATION
-    else Ejecución válida "get"
-        Server->>Xolu: Execute(ctx, "get", {entity, id}) -> GET /api/v1/{entity}/{id}
+    else Ejecución válida hacia xolu
+        Server->>Xolu: Execute(ctx, primitive, args)
         alt Recurso no existe (404)
             Xolu-->>Server: 404 Not Found
             Server-->>Client: Error tipado NOT_FOUND
-        else Recurso encontrado
-            Xolu-->>Server: 200 OK {entidad con grafos resueltos}
-            Server-->>Client: ToolResult {content: ...}
-        end
-    else Ejecución válida "find"
-        Server->>Xolu: Execute(ctx, "find", args) -> GET /api/v1/{entity}?params | POST /api/v1/oql/query
-        alt Sin resultados
-            Xolu-->>Server: 200 OK [] (vacio)
+        else Sin resultados (array vacío)
+            Xolu-->>Server: 200 OK [] (vacío)
             Server-->>Client: Respuesta tipada EMPTY
-        else Coincidencias encontradas
-            Xolu-->>Server: 200 OK [resultados]
-            Server-->>Client: ToolResult {content: ...}
-        end
-    else Ejecución válida "walk"
-        Server->>Xolu: Execute(ctx, "walk", args) -> POST /api/v2/fsm/machine/{id}/walk | GET /api/v1/graph/...
-        alt Guarda FSM rechazada
+        else Guarda FSM rechazada
             Xolu-->>Server: 400 Bad Request (guard failed)
-            Server-->>Client: Error tipado INVALID_TRANSITION (diagnóstico verbatim)
-        else Transición exitosa
-            Xolu-->>Server: 200 OK {nuevo estado}
+            Server-->>Client: Error tipado INVALID_TRANSITION (verbatim)
+        else Operación exitosa
+            Xolu-->>Server: 200 OK {resultado}
             Server-->>Client: ToolResult {content: ...}
         end
     end
@@ -115,43 +103,6 @@ sequenceDiagram
 ---
 
 ## Concurrencia y Resiliencia
-- **Thread-Safety**: El catálogo interno de herramientas MCP se protege mediante `sync.RWMutex` para permitir lecturas concurrentes rápidas (`tools/list` y validación) y swaps atómicos durante recargas (`Refresh`).
-- **Gating de Disponibilidad**: Antes de cualquier invocación a xolu, se evalúa `probe.Check()`. Si la sonda reporta desconexión, no se envía tráfico a la red y se responde de inmediato con `SUBSTRATE_UNAVAILABLE` y los metadatos de retroceso exponencial.
-- **Aislamiento de Stdio**: Todo logging de la aplicación (`slog`) debe estar estrictamente configurado sobre `os.Stderr`. Escribir texto no JSON-RPC en `os.Stdout` corrompe la sesión del cliente MCP y aborta la conexión.
-
----
-
-## Decisiones Técnicas y Alternativas Descartadas
-
-- **Decisión 1: Estricto origen de esquemas en xolu (Sin fallback/mock en producción)**:
-  - *Justificación*: Mandato del usuario y principio rector §2.4 ("prohibido usar padding"). Si xolu no provee esquemas, molu no debe inventar primitivos arbitrarios.
-  - *Alternativa descartada*: Primitivos hardcodeados por defecto en caso de 404 de xolu.
-- **Decisión 2: Desacoplamiento del servidor MCP en `pkg/mcp/server.go`**:
-  - *Justificación*: Permite probar `tools/list` y `tools/call` al 100% con tests unitarios y de concurrencia aislados sin requerir procesos de terminal ni sockets reales.
-  - *Alternativa descartada*: Escribir toda la lógica de handlers directamente dentro de `cmd/molu/main.go`.
-
----
-
-## Matriz de Cobertura de Requisitos
-
-- **RF-1 (Ciclo de vida stdio)**: Cubierto por `pkg/mcp/server.go` y wiring en `cmd/molu/main.go`.
-- **RF-2 (tools/list con primitivos genéricos sin namespace)**: Cubierto por `server.go:HandleListTools()` y `TestServer_ListTools`.
-- **RF-3 (tools/call validación → CONTRACT_VIOLATION)**: Cubierto por `server.go:HandleCallTool()` y `TestServer_CallTool_ContractViolation`.
-- **RF-4 (tools/call gating → SUBSTRATE_UNAVAILABLE)**: Cubierto por `server.go:HandleCallTool()` y `TestServer_CallTool_SubstrateUnavailable`.
-- **RF-5 (tools/call desconocida → NOT_OFFERED)**: Cubierto por `server.go:HandleCallTool()` y `TestServer_CallTool_NotOffered`.
-- **RF-6 (Hot-reload y notificación)**: Cubierto por `server.go:UpdatePrimitives()` y `TestServer_UpdatePrimitives`.
-- **RF-7 (Concurrencia segura y cero races)**: Cubierto por `TestServer_Concurrency` (`go test -v -race`).
-- **RF-8 (Neutralidad de dominio)**: Verificado por compilación y ausencia de referencias a "Seam".
-
----
-
-## Estrategia de Tests
-- **Unitarios (`pkg/mcp/server_test.go`)**:
-  - `TestServer_InitializeAndListTools`: Lista herramientas según esquemas provistos.
-  - `TestServer_CallTool_Success`: Ejecución válida devuelve resultado esperado.
-  - `TestServer_CallTool_ContractViolation`: Campos faltantes o tipos erróneos devuelven código `CONTRACT_VIOLATION`.
-  - `TestServer_CallTool_SubstrateUnavailable`: Sonda en estado caído bloquea y devuelve `SUBSTRATE_UNAVAILABLE`.
-  - `TestServer_CallTool_NotOffered`: Herramienta no registrada devuelve `NOT_OFFERED`.
-  - `TestServer_Concurrency`: Llamadas simultáneas a `ListTools`, `CallTool` y `UpdatePrimitives` bajo `-race`.
-- **Integración (`cmd/molu/main.go`)**:
-  - Verificación en vivo mediante MCP Inspector (`make inspector`).
+- **Thread-Safety**: Catálogo interno protegido mediante `sync.RWMutex` para consultas concurrentes de `tools/list` y llamadas `tools/call`.
+- **Gating de Disponibilidad**: Verificación con `probe.Check()` previa a cualquier llamada de red.
+- **Aislamiento Stdio**: Todo log de telemetría/sistema dirigido a `os.Stderr`.
