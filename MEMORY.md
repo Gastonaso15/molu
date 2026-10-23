@@ -226,3 +226,15 @@ Plan en `specs/005-catalog-and-hub/tasks.md` (T1–T3). Dependencias cumplidas: 
 **T3 — configuración y wiring**: `MOLU_HUB_RPI_PROVIDER` (`admit-all` | `static-context-rules`), `MOLU_HUB_RPI_RULES_FILE` y `MOLU_HUB_RPI_RULES_JSON` (excluyentes; el proveedor `static-context-rules` exige una de las dos; reglas sin proveedor o proveedor desconocido → error de configuración al arrancar). `hub.NewRPIProvider(name, rulesFile, rulesJSON)` construye el proveedor. **Sin `MOLU_HUB_RPI_PROVIDER` el descubrimiento queda desactivado** y `tools/list` sigue sirviendo los primitivos de xolu (desvío consciente de la spec 005, que propone `admit-all` por defecto, para no cambiar el comportamiento actual). Criterio 7 demostrado en `pkg/hub_integration`: el mismo catálogo y el mismo solicitante dan listas distintas solo por cambiar la config; también cubre `EMPTY` y `CONTRACT_VIOLATION` vía `tools/list` (Criterio 2).
 
 **Pendiente tras T-005.4**: (1) el `Registry` de `cmd/molu` nace vacío y no hay camino MCP para publicar: `PublisherAPI` no está expuesta por ningún transporte (`tools/call` no existe aún), así que con el descubrimiento activado `tools/list` devuelve `EMPTY` hasta que se resuelva; (2) `tools/call` stub `NOT_OFFERED` (RF-7); (3) variables `MOLU_HUB_*` restantes de la spec 005 (transporte, puerto, auth, timeouts, logs); (4) diagrama `docs/diagrams/005-*.mmd`/`.pdf`; (5) documentar las variables nuevas en la guía de variables de entorno (Épica 9). Desbloquea T-007.2, T-008.2 y T-008.3.
+
+---
+
+## Hallazgo: `schema-reader` (Spec 003) no coincide con xolu real (verificado 23-oct-2026)
+
+Probado con xolu **v0.30.44** (la más reciente; `Downloads/xolu-main`, compilada y levantada en local) y `bin/molu`:
+- `GET /ready` → `{"status":"ready"}` (compatible con la sonda).
+- `GET /api/v1/schemas` → `{"count":0,"schemas":[]}`: solo la lista de tipos de entidad con schema registrado (`[{"name":"asset"}, ...]`). `pkg/schema` espera `{"primitives":[...],"stateMachines":[...],"payloadTypes":[...]}`.
+- Consecuencia: contra xolu real molu arranca sin error, pero `tools/list` (sin Hub) devuelve `[]` en vez de `walk`/`find`/`get`. Las pruebas con xolu falso lo ocultaban.
+- Contexto: `docs/molu-part2-mcp-frontend.md` describe un «mapa semántico» armado desde varias rutas de xolu (schemas de entidades, FSM, generadores, eventos) y 13 herramientas fijas; el spec 003 (endpoint único con `primitives`) parece un diseño anterior que el spec 006 reemplaza. **Por confirmar con el equipo** (tarjeta «Ejecución de Primitivos», en progreso). No se tocó `pkg/schema`.
+- Slack (canal del equipo, 19-oct): se eligió la propuesta A (capa externa del servidor MCP exponiendo primero las funciones nativas de xolu); las funciones de Seam se integran después.
+
