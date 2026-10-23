@@ -2,14 +2,17 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/Gastonaso15/molu/pkg/rpi"
 	"github.com/Gastonaso15/molu/pkg/schema"
 	"github.com/Gastonaso15/molu/pkg/taxonomy"
 )
@@ -30,11 +33,19 @@ type SubstrateExecutor interface {
 	Execute(ctx context.Context, primitive string, args map[string]interface{}) (map[string]interface{}, error)
 }
 
+// ToolDiscoverer resolves the catalog tools offered to a requester (e.g.
+// *hub.Discovery). When set, tools/list serves its result instead of the
+// primitives.
+type ToolDiscoverer interface {
+	ListTools(ctx context.Context, actx rpi.AdmitContext) ([]rpi.ScoredTool, error)
+}
+
 // ServerConfig configures the MCP server.
 type ServerConfig struct {
 	Provider    PrimitiveProvider
 	Health      HealthChecker
 	Executor    SubstrateExecutor
+	Discovery   ToolDiscoverer
 	CallTimeout time.Duration
 }
 
@@ -43,6 +54,7 @@ type Server struct {
 	provider    PrimitiveProvider
 	health      HealthChecker
 	executor    SubstrateExecutor
+	discovery   ToolDiscoverer
 	callTimeout time.Duration
 
 	mu         sync.RWMutex
@@ -68,6 +80,7 @@ func NewServer(cfg ServerConfig) *Server {
 		provider:    cfg.Provider,
 		health:      cfg.Health,
 		executor:    cfg.Executor,
+		discovery:   cfg.Discovery,
 		callTimeout: callTimeout,
 		primitives:  initialPrims,
 	}
@@ -142,6 +155,56 @@ func (s *Server) HandleListTools(ctx context.Context) []ToolDescriptor {
 	return tools
 }
 
+// listParams are the tools/list parameters: the requester context for the RPI
+// plus the standard MCP pagination cursor, which is accepted and ignored.
+type listParams struct {
+	Tenant string   `json:"tenant"`
+	Roles  []string `json:"roles"`
+	Query  string   `json:"query"`
+	Cursor string   `json:"cursor"`
+}
+
+// handleDiscoveryList serves tools/list from the Hub catalog filtered by the
+// RPI. Typed errors keep their code and details in the JSON-RPC error data.
+func (s *Server) handleDiscoveryList(ctx context.Context, params json.RawMessage) (interface{}, *jsonRPCError) {
+	var p listParams
+	if trimmed := bytes.TrimSpace(params); len(trimmed) > 0 && string(trimmed) != "null" {
+		if err := json.Unmarshal(trimmed, &p); err != nil {
+			return nil, typedRPCError(taxonomy.NewContractViolation("", "tools/list", []string{"params"}))
+		}
+	}
+
+	scored, err := s.discovery.ListTools(ctx, rpi.AdmitContext{Tenant: p.Tenant, Roles: p.Roles, Query: p.Query})
+	if err != nil {
+		var te *taxonomy.TypedError
+		if errors.As(err, &te) {
+			return nil, typedRPCError(te)
+		}
+		return nil, &jsonRPCError{Code: -32603, Message: err.Error()}
+	}
+
+	tools := make([]ToolDescriptor, 0, len(scored))
+	for _, t := range scored {
+		schemaMap := t.InputSchema
+		if schemaMap == nil {
+			schemaMap = map[string]interface{}{"type": "object"}
+		}
+		tools = append(tools, ToolDescriptor{Name: t.Name, Description: t.Description, InputSchema: schemaMap})
+	}
+	return map[string]interface{}{"tools": tools}, nil
+}
+
+// typedRPCError maps a typed error onto a JSON-RPC error: CONTRACT_VIOLATION is
+// invalid params, every other code a server error. The typed error travels
+// whole in data so clients never lose the code or its details.
+func typedRPCError(te *taxonomy.TypedError) *jsonRPCError {
+	code := -32000
+	if te.Code == taxonomy.PrefixMolu+string(taxonomy.CodeContractViolation) {
+		code = -32602
+	}
+	return &jsonRPCError{Code: code, Message: te.Message, Data: te}
+}
+
 // HandleMessage parses a single JSON-RPC message and writes the response (if applicable).
 func (s *Server) HandleMessage(ctx context.Context, msg []byte, out io.Writer) error {
 	var req jsonRPCRequest
@@ -184,6 +247,10 @@ func (s *Server) HandleMessage(ctx context.Context, msg []byte, out io.Writer) e
 	case "ping":
 		result = map[string]interface{}{}
 	case "tools/list":
+		if s.discovery != nil {
+			result, rpcErr = s.handleDiscoveryList(ctx, req.Params)
+			break
+		}
 		tools := s.HandleListTools(ctx)
 		result = map[string]interface{}{
 			"tools": tools,

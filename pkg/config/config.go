@@ -22,6 +22,12 @@ type Config struct {
 	HubAuthMode  string // MOLU_HUB_AUTH_MODE
 	HubTokenFile string // MOLU_HUB_TOKEN_FILE
 
+	// Descubrimiento del Hub filtrado por RPI (Spec 005). Vacío = desactivado:
+	// tools/list sigue sirviendo los primitivos de xolu.
+	HubRPIProvider  string // MOLU_HUB_RPI_PROVIDER: admit-all | static-context-rules
+	HubRPIRulesFile string // MOLU_HUB_RPI_RULES_FILE
+	HubRPIRulesJSON string // MOLU_HUB_RPI_RULES_JSON
+
 	// Transporte MCP
 	Transport           string // MOLU_FRONT_TRANSPORT: stdio | streamable-http
 	HTTPAddr            string // MOLU_FRONT_HTTP_ADDR
@@ -70,6 +76,10 @@ func LoadFromEnv() (*Config, error) {
 		HubURL:       r.str("MOLU_HUB_URL", ""),
 		HubAuthMode:  r.str("MOLU_HUB_AUTH_MODE", ""),
 		HubTokenFile: r.str("MOLU_HUB_TOKEN_FILE", ""),
+
+		HubRPIProvider:  r.str("MOLU_HUB_RPI_PROVIDER", ""),
+		HubRPIRulesFile: r.str("MOLU_HUB_RPI_RULES_FILE", ""),
+		HubRPIRulesJSON: r.str("MOLU_HUB_RPI_RULES_JSON", ""),
 
 		Transport:           r.str("MOLU_FRONT_TRANSPORT", "stdio"),
 		HTTPAddr:            r.str("MOLU_FRONT_HTTP_ADDR", ":8090"),
@@ -132,6 +142,24 @@ func (c *Config) validate() []error {
 	if c.HubURL != "" {
 		oneOf("MOLU_HUB_AUTH_MODE", c.HubAuthMode, "bearer", "apikey", "jwt")
 		required("MOLU_HUB_TOKEN_FILE", c.HubTokenFile)
+	}
+
+	// Descubrimiento del Hub (RPI)
+	switch c.HubRPIProvider {
+	case "":
+		if c.HubRPIRulesFile != "" || c.HubRPIRulesJSON != "" {
+			errs = append(errs, errors.New("MOLU_HUB_RPI_RULES_FILE/MOLU_HUB_RPI_RULES_JSON requieren MOLU_HUB_RPI_PROVIDER"))
+		}
+	case "admit-all":
+	case "static-context-rules":
+		switch {
+		case c.HubRPIRulesFile != "" && c.HubRPIRulesJSON != "":
+			errs = append(errs, errors.New("MOLU_HUB_RPI_RULES_FILE y MOLU_HUB_RPI_RULES_JSON son excluyentes"))
+		case c.HubRPIRulesFile == "" && c.HubRPIRulesJSON == "":
+			errs = append(errs, errors.New("static-context-rules requiere MOLU_HUB_RPI_RULES_FILE o MOLU_HUB_RPI_RULES_JSON"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("MOLU_HUB_RPI_PROVIDER=%q no es válido (opciones: [admit-all static-context-rules])", c.HubRPIProvider))
 	}
 
 	// Transporte MCP

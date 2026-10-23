@@ -205,3 +205,24 @@ Merge con spec 007 (`658def3`): `RPIProvider` conserva `SetLogger`/`SetMetrics` 
 | `pkg/telemetry/middleware.go` | Generación de ULID con `crypto/rand.Reader` concurrente (eliminó data race de `ulid.DefaultEntropy`). |
 | `pkg/schema/loader_test.go` & `client_test.go` | `MockSchemaClient` protegido con `sync.RWMutex` y método thread-safe `SetSchemas` (eliminó data race en `TestLoaderConcurrency`). |
 
+---
+
+## Spec 005 — T-005.4 «Ensamblar Hub con RPI y Transporte MCP» (sesión 23-oct-2026)
+
+Plan en `specs/005-catalog-and-hub/tasks.md` (T1–T3). Dependencias cumplidas: `rpi.RPIProvider` (T-004.2) y `Registry`/`PublisherAPI` (T-005.2/3).
+
+| Tarea | Estado | Archivos |
+| :--- | :--- | :--- |
+| **T1** `hub.Discovery` (catálogo → Admit → Score) | **Hecha** (`go test -race ./...` en verde) | `pkg/hub/discovery.go`, `pkg/hub/discovery_test.go` |
+| **T2** `tools/list` de MCP consulta `hub.Discovery` | **Hecha** (`go test -race ./...` en verde) | `pkg/mcp/server.go`, `pkg/mcp/server_hub_test.go` |
+| **T3** Wiring en `cmd/molu` + integración Criterio 7 | **Hecha** (`go test -race ./...` en verde; **T-005.4 completa**) | `pkg/config/config.go` (+test), `pkg/hub/rpi_provider.go` (+test), `pkg/hub_integration/tools_list_test.go`, `cmd/molu/main.go` |
+
+`Discovery.ListTools(ctx, AdmitContext)`: tenant vacío → `CONTRACT_VIOLATION` (`fields: ["tenant"]`, sin consultar al proveedor, RF-9); nada admitido o catálogo vacío → `EMPTY` (RF-4); lo no admitido se omite sin rastro (RF-5); orden por score del proveedor (RF-6); errores del proveedor sin cambios.
+
+**Decisiones confirmadas (23-oct-2026)**: `tenant`, `roles` y `query` llegan en los `params` de `tools/list` (spec 005), no por configuración; los primitivos de xolu no cambian en esta tarjeta. `docs/molu-part3-hub.md` dice «un hub por tenant»; si más adelante el tenant pasa a ser fijo por proceso, el cambio es local a T2/T3 y `Discovery` no se toca.
+
+**T2 — contrato de `tools/list` con Hub**: `ServerConfig.Discovery` (interfaz `ToolDiscoverer`, la implementa `*hub.Discovery`). Con Discovery configurado, `tools/list` sirve el catálogo filtrado por RPI en orden de score; sin Discovery, el comportamiento anterior no cambia. `params` aceptan `tenant`, `roles`, `query` y el `cursor` estándar de MCP (ignorado); params mal formados → `CONTRACT_VIOLATION` (`fields: ["params"]`). Los errores tipados viajan completos en `error.data` (código y `details` intactos): `CONTRACT_VIOLATION` → JSON-RPC `-32602`, el resto de los tipados (p. ej. `EMPTY`) → `-32000`; un error no tipado → `-32603`.
+
+**T3 — configuración y wiring**: `MOLU_HUB_RPI_PROVIDER` (`admit-all` | `static-context-rules`), `MOLU_HUB_RPI_RULES_FILE` y `MOLU_HUB_RPI_RULES_JSON` (excluyentes; el proveedor `static-context-rules` exige una de las dos; reglas sin proveedor o proveedor desconocido → error de configuración al arrancar). `hub.NewRPIProvider(name, rulesFile, rulesJSON)` construye el proveedor. **Sin `MOLU_HUB_RPI_PROVIDER` el descubrimiento queda desactivado** y `tools/list` sigue sirviendo los primitivos de xolu (desvío consciente de la spec 005, que propone `admit-all` por defecto, para no cambiar el comportamiento actual). Criterio 7 demostrado en `pkg/hub_integration`: el mismo catálogo y el mismo solicitante dan listas distintas solo por cambiar la config; también cubre `EMPTY` y `CONTRACT_VIOLATION` vía `tools/list` (Criterio 2).
+
+**Pendiente tras T-005.4**: (1) el `Registry` de `cmd/molu` nace vacío y no hay camino MCP para publicar: `PublisherAPI` no está expuesta por ningún transporte (`tools/call` no existe aún), así que con el descubrimiento activado `tools/list` devuelve `EMPTY` hasta que se resuelva; (2) `tools/call` stub `NOT_OFFERED` (RF-7); (3) variables `MOLU_HUB_*` restantes de la spec 005 (transporte, puerto, auth, timeouts, logs); (4) diagrama `docs/diagrams/005-*.mmd`/`.pdf`; (5) documentar las variables nuevas en la guía de variables de entorno (Épica 9). Desbloquea T-007.2, T-008.2 y T-008.3.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Gastonaso15/molu/pkg/config"
 	"github.com/Gastonaso15/molu/pkg/exec"
+	"github.com/Gastonaso15/molu/pkg/hub"
 	"github.com/Gastonaso15/molu/pkg/mcp"
 	"github.com/Gastonaso15/molu/pkg/obs"
 	"github.com/Gastonaso15/molu/pkg/schema"
@@ -115,10 +116,26 @@ func main() {
 		}
 	}
 
+	// Descubrimiento del Hub filtrado por RPI (Spec 005): solo si hay proveedor
+	// configurado; sin él, tools/list sigue sirviendo los primitivos de xolu.
+	var discovery mcp.ToolDiscoverer
+	if cfg.HubRPIProvider != "" {
+		rpiProvider, err := hub.NewRPIProvider(cfg.HubRPIProvider, cfg.HubRPIRulesFile, cfg.HubRPIRulesJSON)
+		if err != nil {
+			logger.System().Error().Err(err).Msg("invalid RPI provider configuration, exiting")
+			os.Exit(1)
+		}
+		rpiProvider.SetLogger(logger)
+		rpiProvider.SetMetrics(metrics)
+		discovery = hub.NewDiscovery(hub.NewRegistry(), rpiProvider)
+		logger.System().Info().Str("rpi_provider", cfg.HubRPIProvider).Msg("Hub discovery enabled")
+	}
+
 	// Inicializar Servidor MCP (Spec 006)
 	mcpServer := mcp.NewServer(mcp.ServerConfig{
 		Provider:    &loaderProvider{loader: schemaLoader},
 		Health:      probe,
+		Discovery:   discovery,
 		CallTimeout: cfg.CallTimeout,
 	})
 

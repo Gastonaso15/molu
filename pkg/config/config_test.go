@@ -108,3 +108,66 @@ func TestHubRequiereCredencial(t *testing.T) {
 		t.Errorf("el error no menciona MOLU_HUB_TOKEN_FILE: %v", err)
 	}
 }
+func TestHubRPISinConfigurarNoActivaDescubrimiento(t *testing.T) {
+	setRequired(t)
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if cfg.HubRPIProvider != "" || cfg.HubRPIRulesFile != "" || cfg.HubRPIRulesJSON != "" {
+		t.Errorf("sin variables MOLU_HUB_RPI_* el Hub debe quedar desactivado, hay %+v",
+			[]string{cfg.HubRPIProvider, cfg.HubRPIRulesFile, cfg.HubRPIRulesJSON})
+	}
+}
+
+func TestHubRPIValida(t *testing.T) {
+	casos := map[string]struct {
+		env     map[string]string
+		errPide string // vacío = debe cargar sin error
+	}{
+		"admit-all": {map[string]string{"MOLU_HUB_RPI_PROVIDER": "admit-all"}, ""},
+		"admit-all ignora reglas": {map[string]string{
+			"MOLU_HUB_RPI_PROVIDER": "admit-all", "MOLU_HUB_RPI_RULES_JSON": `{}`}, ""},
+		"static con JSON inline": {map[string]string{
+			"MOLU_HUB_RPI_PROVIDER": "static-context-rules", "MOLU_HUB_RPI_RULES_JSON": `{"a:b":["walk"]}`}, ""},
+		"static con archivo": {map[string]string{
+			"MOLU_HUB_RPI_PROVIDER": "static-context-rules", "MOLU_HUB_RPI_RULES_FILE": "rules.json"}, ""},
+		"proveedor desconocido": {map[string]string{"MOLU_HUB_RPI_PROVIDER": "ml-ranker"}, "MOLU_HUB_RPI_PROVIDER"},
+		"static sin reglas": {map[string]string{
+			"MOLU_HUB_RPI_PROVIDER": "static-context-rules"}, "MOLU_HUB_RPI_RULES_FILE"},
+		"static con archivo y JSON": {map[string]string{
+			"MOLU_HUB_RPI_PROVIDER": "static-context-rules", "MOLU_HUB_RPI_RULES_FILE": "rules.json",
+			"MOLU_HUB_RPI_RULES_JSON": `{}`}, "excluyentes"},
+	}
+	for nombre, c := range casos {
+		t.Run(nombre, func(t *testing.T) {
+			setRequired(t)
+			for k, v := range c.env {
+				t.Setenv(k, v)
+			}
+			cfg, err := LoadFromEnv()
+			if c.errPide == "" {
+				if err != nil {
+					t.Fatalf("error inesperado: %v", err)
+				}
+				if cfg.HubRPIProvider != c.env["MOLU_HUB_RPI_PROVIDER"] {
+					t.Errorf("HubRPIProvider = %q", cfg.HubRPIProvider)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), c.errPide) {
+				t.Fatalf("se esperaba un error que mencione %q, llegó %v", c.errPide, err)
+			}
+		})
+	}
+}
+
+func TestHubRPIReglasSinProveedorEsError(t *testing.T) {
+	setRequired(t)
+	t.Setenv("MOLU_HUB_RPI_RULES_JSON", `{"a:b":["walk"]}`)
+
+	if _, err := LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "MOLU_HUB_RPI_PROVIDER") {
+		t.Fatalf("reglas sin proveedor deben pedir MOLU_HUB_RPI_PROVIDER, llegó %v", err)
+	}
+}
