@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,8 @@ func NewServer(cfg ServerConfig) *Server {
 	var initialPrims []schema.PrimitiveSchema
 	if cfg.Provider != nil {
 		initialPrims = cfg.Provider.GetPrimitives()
+	} else {
+		initialPrims = StandardPrimitives()
 	}
 	if initialPrims == nil {
 		initialPrims = []schema.PrimitiveSchema{}
@@ -194,6 +197,193 @@ func (s *Server) handleDiscoveryList(ctx context.Context, params json.RawMessage
 	return map[string]interface{}{"tools": tools}, nil
 }
 
+// callToolParams represents parameters for tools/call.
+type callToolParams struct {
+	Name      string                 `json:"name"`
+	Arguments map[string]interface{} `json:"arguments"`
+}
+
+func (s *Server) isToolOffered(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var prims []schema.PrimitiveSchema
+	if s.provider != nil {
+		prims = s.provider.GetPrimitives()
+	} else {
+		prims = s.primitives
+	}
+	for _, p := range prims {
+		if p.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) handleCallTool(ctx context.Context, params json.RawMessage) (interface{}, *jsonRPCError) {
+	var p callToolParams
+	if trimmed := bytes.TrimSpace(params); len(trimmed) > 0 && string(trimmed) != "null" {
+		if err := json.Unmarshal(trimmed, &p); err != nil {
+			return nil, typedRPCError(taxonomy.NewContractViolation("", "tools/call", []string{"params"}))
+		}
+	} else {
+		return nil, typedRPCError(taxonomy.NewContractViolation("", "tools/call", []string{"params"}))
+	}
+
+	// 1. Health check gating (RF-4)
+	if s.health != nil {
+		if err := s.health.Check(); err != nil {
+			var te *taxonomy.TypedError
+			if errors.As(err, &te) {
+				return nil, typedRPCError(te)
+			}
+			return nil, typedRPCError(taxonomy.NewSubstrateUnavailable("", "", 0, 0))
+		}
+	}
+
+	// 2. Check if tool is offered (RF-5)
+	if !s.isToolOffered(p.Name) {
+		return nil, typedRPCError(taxonomy.NewNotOffered("", p.Name))
+	}
+
+	// 3. Contract validation (RF-3 / T4)
+	if s.provider != nil {
+		if te := s.provider.ValidateInput(p.Name, p.Arguments); te != nil {
+			return nil, typedRPCError(te)
+		}
+	} else {
+		res := schema.ValidateInput(StandardPrimitives(), p.Name, p.Arguments)
+		if !res.Valid {
+			return nil, typedRPCError(taxonomy.NewContractViolation("", p.Name, res.InvalidFields))
+		}
+	}
+
+	// 4. Execution and taxonomy mapping (T5)
+	if p.Name == "describe" && s.executor == nil {
+		scope, _ := p.Arguments["scope"].(string)
+		if scope == "" {
+			scope = "all"
+		}
+		descResult := map[string]interface{}{
+			"scope":      scope,
+			"primitives": StandardPrimitives(),
+		}
+		data, _ := json.Marshal(descResult)
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": string(data),
+				},
+			},
+		}, nil
+	}
+
+	if s.executor != nil {
+		execRes, err := s.executor.Execute(ctx, p.Name, p.Arguments)
+		if err != nil {
+			var te *taxonomy.TypedError
+			if errors.As(err, &te) {
+				return nil, typedRPCError(te)
+			}
+
+			msgLower := strings.ToLower(err.Error())
+			isNotFound := strings.Contains(msgLower, "404") || strings.Contains(msgLower, "not found")
+
+			switch p.Name {
+			case "get":
+				if isNotFound {
+					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["id"])))
+				}
+			case "machine_state":
+				if isNotFound {
+					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["machine_id"])))
+				}
+			case "cal_confirm":
+				if isNotFound {
+					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["booking_id"])))
+				}
+			case "walk":
+				if strings.Contains(msgLower, "guard") || strings.Contains(msgLower, "invalid transition") || strings.Contains(msgLower, "rejected") {
+					return nil, typedRPCError(&taxonomy.TypedError{
+						Code:    taxonomy.PrefixXolu + string(taxonomy.CodeInvalidTransition),
+						Message: err.Error(),
+					})
+				}
+			}
+
+			return nil, &jsonRPCError{Code: -32603, Message: err.Error()}
+		}
+
+		// Check for empty results mapping to EMPTY taxonomy
+		switch p.Name {
+		case "list":
+			if isEmptyCollection(execRes, "items", "results") {
+				return nil, typedRPCError(taxonomy.NewEmpty("", "list", map[string]any{"entity_type": p.Arguments["entity_type"]}))
+			}
+		case "query":
+			if isEmptyCollection(execRes, "rows", "results") {
+				return nil, typedRPCError(taxonomy.NewEmpty("", "query", map[string]any{"query": p.Arguments["query"]}))
+			}
+		case "machine_history":
+			if isEmptyCollection(execRes, "history", "transitions", "items") {
+				return nil, typedRPCError(taxonomy.NewEmpty("", "machine_history", map[string]any{"machine_id": p.Arguments["machine_id"]}))
+			}
+		case "cal_openings":
+			if isEmptyCollection(execRes, "openings", "windows", "items") {
+				return nil, typedRPCError(taxonomy.NewEmpty("", "cal_openings", map[string]any{"duration": p.Arguments["duration"]}))
+			}
+		}
+
+		resBytes, _ := json.Marshal(execRes)
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": string(resBytes),
+				},
+			},
+		}, nil
+	}
+
+	return map[string]interface{}{
+		"content": []map[string]interface{}{
+			{
+				"type": "text",
+				"text": `{"status":"ok"}`,
+			},
+		},
+	}, nil
+}
+
+func isEmptyCollection(res map[string]interface{}, candidateKeys ...string) bool {
+	if len(res) == 0 {
+		return true
+	}
+	for _, key := range candidateKeys {
+		if val, ok := res[key]; ok {
+			switch v := val.(type) {
+			case []interface{}:
+				if len(v) == 0 {
+					return true
+				}
+			case []map[string]interface{}:
+				if len(v) == 0 {
+					return true
+				}
+			}
+		}
+	}
+	if count, ok := res["count"].(int); ok && count == 0 {
+		return true
+	}
+	if count, ok := res["count"].(float64); ok && count == 0 {
+		return true
+	}
+	return false
+}
+
 // typedRPCError maps a typed error onto a JSON-RPC error: CONTRACT_VIOLATION is
 // invalid params, every other code a server error. The typed error travels
 // whole in data so clients never lose the code or its details.
@@ -255,6 +445,8 @@ func (s *Server) HandleMessage(ctx context.Context, msg []byte, out io.Writer) e
 		result = map[string]interface{}{
 			"tools": tools,
 		}
+	case "tools/call":
+		result, rpcErr = s.handleCallTool(ctx, req.Params)
 	default:
 		rpcErr = &jsonRPCError{
 			Code:    -32601,

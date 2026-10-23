@@ -214,11 +214,15 @@ type loaderProvider struct {
 }
 
 func (lp *loaderProvider) GetPrimitives() []schema.PrimitiveSchema {
-	return lp.loader.GetPrimitives()
+	prims := lp.loader.GetPrimitives()
+	if len(prims) == 0 {
+		return mcp.StandardPrimitives()
+	}
+	return prims
 }
 
 func (lp *loaderProvider) ValidateInput(primitiveName string, input map[string]interface{}) *taxonomy.TypedError {
-	res := schema.ValidateInput(lp.loader.GetPrimitives(), primitiveName, input)
+	res := schema.ValidateInput(lp.GetPrimitives(), primitiveName, input)
 	if !res.Valid {
 		return taxonomy.NewContractViolation("", primitiveName, res.InvalidFields)
 	}

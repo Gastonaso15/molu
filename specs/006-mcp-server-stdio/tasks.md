@@ -5,21 +5,21 @@
   - Implementar constructor `NewServer(cfg ServerConfig)` y método `HandleListTools(ctx context.Context)`.
   - Hecho cuando: `pkg/mcp/server_test.go` verifique con `go test -v -race ./pkg/mcp/...` que `tools/list` expone los primitivos con formato MCP correcto sin namespace, o lista vacía si no hay esquemas.
 
-- [ ] **T2. Definición estandarizada de los 13 primitivos genéricos (§5.1) y exposición completa en `tools/list`.** RF-2, RF-8
+- [x] **T2. Definición estandarizada de los 13 primitivos genéricos (§5.1) y exposición completa en `tools/list`.** RF-2, RF-8
   - Definir en `pkg/mcp/primitives.go` los schemas JSON Draft 2020-12 completos para los 13 primitivos: `describe`, `get`, `list`, `create`, `update`, `query`, `walk`, `machine_state`, `machine_history`, `cal_check`, `cal_openings`, `cal_propose`, `cal_confirm`.
   - Asegurar que `tools/list` reporte los 13 primitivos sin namespace con descripciones y tipos de entrada exactos.
   - Hecho cuando: Tests unitarios en `server_test.go` verifiquen la presencia y estructura de los 13 primitivos.
 
-- [ ] **T3. Despacho de herramientas (`tools/call`): Gating de salud y herramientas no ofrecidas.** RF-4, RF-5
+- [x] **T3. Despacho de herramientas (`tools/call`): Gating de salud y herramientas no ofrecidas.** RF-4, RF-5
   - Implementar en `server.go` la comprobación previa de salud con `HealthChecker.Check()`; si xolu está caído, retornar `SUBSTRATE_UNAVAILABLE` con `RetryMetadata`.
   - Si la herramienta solicitada no existe entre los 13 primitivos conocidos, retornar `NOT_OFFERED`.
   - Hecho cuando: Tests dedicados en `server_test.go` pasen en verde con `go test -v -race ./pkg/mcp/...`.
 
-- [ ] **T4. Validación de contratos en `tools/call` para los 13 primitivos.** RF-3
+- [x] **T4. Validación de contratos en `tools/call` para los 13 primitivos.** RF-3
   - Integrar `PrimitiveProvider.ValidateInput(toolName, args)`; si la entrada viola el schema (campos obligatorios ausentes, formatos de fecha inválidos, etc.), retornar `CONTRACT_VIOLATION` con `details.fields[]`.
   - Hecho cuando: Tests unitarios cubran violaciones de schema para `create`, `update`, `cal_check`, `get`, `walk`, etc., pasando en verde con `go test -v -race ./pkg/mcp/...`.
 
-- [ ] **T5. Ejecución y despacho de los 13 primitivos hacia `SubstrateExecutor` con mapeo de errores de taxonomía.** RF-3
+- [x] **T5. Ejecución y despacho de los 13 primitivos hacia `SubstrateExecutor` con mapeo de errores de taxonomía.** RF-3
   - Implementar enrutamiento en `server.go` hacia `SubstrateExecutor.Execute(ctx, toolName, args)` para los 13 primitivos:
     - Entidades: `get` (mapeo 404 a `NOT_FOUND`), `list` (mapeo vacío a `EMPTY`), `create`, `update`.
     - FSMs: `walk` (mapeo rechazo guarda a `INVALID_TRANSITION` verbatim), `machine_state` (404 a `NOT_FOUND`), `machine_history` (vacío a `EMPTY`).
