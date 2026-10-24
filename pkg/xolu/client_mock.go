@@ -16,6 +16,7 @@ type MockXoluClient struct {
 	GetFunc      func(ctx context.Context, req GetRequest) (GetResponse, error)
 	PingFunc     func(ctx context.Context) error
 	ReadyFunc    func(ctx context.Context) error
+	ExecuteFunc  func(ctx context.Context, primitive string, args map[string]interface{}) (map[string]interface{}, error)
 	WalkCalls    []WalkRequest
 	FindCalls    []FindRequest
 	GetCalls     []GetRequest
@@ -23,6 +24,16 @@ type MockXoluClient struct {
 	ReadyCalls   int
 	logger       telemetry.Logger
 	metrics      telemetry.Metrics
+}
+
+func (m *MockXoluClient) Execute(ctx context.Context, primitive string, args map[string]interface{}) (map[string]interface{}, error) {
+	m.mu.Lock()
+	fn := m.ExecuteFunc
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, primitive, args)
+	}
+	return map[string]interface{}{"status": "ok"}, nil
 }
 
 func (m *MockXoluClient) Walk(ctx context.Context, req WalkRequest) (WalkResponse, error) {

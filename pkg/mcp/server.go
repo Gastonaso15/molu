@@ -60,6 +60,9 @@ type Server struct {
 
 	mu         sync.RWMutex
 	primitives []schema.PrimitiveSchema
+
+	writeMu sync.Mutex
+	out     io.Writer
 }
 
 // NewServer creates a new MCP Server instance.
@@ -89,16 +92,48 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 }
 
-// UpdatePrimitives atomically replaces the active primitives cache.
+// SetOutput sets the destination writer for notifications and server messages.
+func (s *Server) SetOutput(out io.Writer) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.out = out
+}
+
+// UpdatePrimitives atomically replaces the active primitives cache and emits
+// the notifications/tools/list_changed notification.
 func (s *Server) UpdatePrimitives(prims []schema.PrimitiveSchema) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if prims == nil {
 		s.primitives = []schema.PrimitiveSchema{}
 	} else {
 		s.primitives = make([]schema.PrimitiveSchema, len(prims))
 		copy(s.primitives, prims)
 	}
+	s.mu.Unlock()
+
+	_ = s.NotifyToolsListChanged()
+}
+
+// NotifyToolsListChanged sends a notifications/tools/list_changed notification to the client.
+func (s *Server) NotifyToolsListChanged() error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	if s.out == nil {
+		return nil
+	}
+
+	notif := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "notifications/tools/list_changed",
+	}
+	data, err := json.Marshal(notif)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.out.Write(append(data, '\n'))
+	return err
 }
 
 // JSON-RPC 2.0 structures
@@ -134,13 +169,7 @@ func (s *Server) HandleListTools(ctx context.Context) []ToolDescriptor {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var prims []schema.PrimitiveSchema
-	if s.provider != nil {
-		prims = s.provider.GetPrimitives()
-	} else {
-		prims = s.primitives
-	}
-
+	prims := s.primitives
 	tools := make([]ToolDescriptor, 0, len(prims))
 	for _, p := range prims {
 		schemaMap := p.InputSchema
@@ -207,13 +236,7 @@ func (s *Server) isToolOffered(name string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var prims []schema.PrimitiveSchema
-	if s.provider != nil {
-		prims = s.provider.GetPrimitives()
-	} else {
-		prims = s.primitives
-	}
-	for _, p := range prims {
+	for _, p := range s.primitives {
 		if p.Name == name {
 			return true
 		}
@@ -408,7 +431,9 @@ func (s *Server) HandleMessage(ctx context.Context, msg []byte, out io.Writer) e
 			},
 		}
 		data, _ := json.Marshal(resp)
+		s.writeMu.Lock()
 		_, errW := out.Write(append(data, '\n'))
+		s.writeMu.Unlock()
 		return errW
 	}
 
@@ -469,12 +494,17 @@ func (s *Server) HandleMessage(ctx context.Context, msg []byte, out io.Writer) e
 	if err != nil {
 		return err
 	}
+	s.writeMu.Lock()
 	_, err = out.Write(append(data, '\n'))
+	s.writeMu.Unlock()
 	return err
 }
 
 // Serve reads newline-delimited JSON-RPC messages from in and writes responses to out until EOF or ctx cancel.
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	s.SetOutput(out)
+	defer s.SetOutput(nil)
+
 	scanner := bufio.NewScanner(in)
 	// Support large schemas up to 4MB
 	buf := make([]byte, 64*1024)

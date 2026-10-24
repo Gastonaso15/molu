@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Gastonaso15/molu/pkg/schema"
 	"github.com/Gastonaso15/molu/pkg/taxonomy"
@@ -603,3 +605,142 @@ func TestServer_CallTool_T5_Describe(t *testing.T) {
 		t.Errorf("expected non-empty content in describe result")
 	}
 }
+
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *safeBuffer) Write(p []byte) (n int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *safeBuffer) Bytes() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Bytes()
+}
+
+func (s *safeBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+func TestServer_UpdatePrimitives_Notification(t *testing.T) {
+	srv := NewServer(ServerConfig{})
+	var out safeBuffer
+	srv.SetOutput(&out)
+
+	newPrims := []schema.PrimitiveSchema{
+		{
+			Name:        "describe",
+			Description: "Semantic map",
+			InputSchema: map[string]interface{}{"type": "object"},
+		},
+	}
+
+	srv.UpdatePrimitives(newPrims)
+
+	tools := srv.HandleListTools(context.Background())
+	if len(tools) != 1 || tools[0].Name != "describe" {
+		t.Fatalf("expected 1 tool 'describe', got %v", tools)
+	}
+
+	// Verify notification written to out
+	var notif map[string]interface{}
+	if err := json.Unmarshal(out.Bytes(), &notif); err != nil {
+		t.Fatalf("expected valid JSON notification in output, got %q: %v", out.String(), err)
+	}
+	if notif["jsonrpc"] != "2.0" {
+		t.Errorf("expected jsonrpc '2.0', got %v", notif["jsonrpc"])
+	}
+	if notif["method"] != "notifications/tools/list_changed" {
+		t.Errorf("expected method 'notifications/tools/list_changed', got %v", notif["method"])
+	}
+}
+
+func TestServer_Concurrency(t *testing.T) {
+	mockExec := &mockSubstrateExecutor{}
+	srv := NewServer(ServerConfig{
+		Executor: mockExec,
+	})
+	safeOut := &safeBuffer{}
+	srv.SetOutput(safeOut)
+
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	// Readers: HandleListTools & tools/list via HandleMessage
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					_ = srv.HandleListTools(ctx)
+					req := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
+					_ = srv.HandleMessage(ctx, []byte(req), safeOut)
+				}
+			}
+		}()
+	}
+
+	// Callers: tools/call via HandleMessage
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					reqValid := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"describe","arguments":{"scope":"all"}}}`
+					_ = srv.HandleMessage(ctx, []byte(reqValid), safeOut)
+
+					reqInvalid := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"unknown","arguments":{}}}`
+					_ = srv.HandleMessage(ctx, []byte(reqInvalid), safeOut)
+				}
+			}
+		}()
+	}
+
+	// Writers: UpdatePrimitives
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			toggle := false
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					if toggle {
+						srv.UpdatePrimitives(StandardPrimitives())
+					} else {
+						srv.UpdatePrimitives([]schema.PrimitiveSchema{
+							{
+								Name:        "describe",
+								Description: "Dynamic description",
+								InputSchema: map[string]interface{}{"type": "object"},
+							},
+						})
+					}
+					toggle = !toggle
+					time.Sleep(5 * time.Millisecond)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+

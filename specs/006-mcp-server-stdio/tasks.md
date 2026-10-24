@@ -28,12 +28,12 @@
     - Orientación: `describe` (retorno de esquema/mapa según `scope`).
   - Hecho cuando: Tests unitarios y de integración de cada primitivo y sus códigos de taxonomía pasen en verde con `go test -v -race ./...`.
 
-- [ ] **T6. Refresco dinámico de herramientas y verificación de concurrencia.** RF-6, RF-7, RF-8
+- [x] **T6. Refresco dinámico de herramientas y verificación de concurrencia.** RF-6, RF-7, RF-8
   - Implementar `UpdatePrimitives(newPrimitives []schema.PrimitiveSchema)` con `sync.RWMutex` para reemplazo atómico y emisión de notificación `notifications/tools/list_changed`.
   - Implementar test de concurrencia intensiva `TestServer_Concurrency` ejecutando `ListTools`, `CallTool` y `UpdatePrimitives` en paralelo bajo `-race`.
   - Hecho cuando: `go test -v -race ./pkg/mcp/...` pase sin advertencias ni condiciones de carrera.
 
-- [ ] **T7. Cableado en `cmd/molu/main.go` sobre transporte stdio y verificación punta a punta.** RF-1, RF-6
+- [x] **T7. Cableado en `cmd/molu/main.go` sobre transporte stdio y verificación punta a punta.** RF-1, RF-6
   - Configurar `mcp.NewServer()` conectando `SchemaLoader`, `Probe` y el ejecutor HTTP de xolu.
   - Asegurar aislamiento estricto de `os.Stdout` (redirección total de telemetría/logs a `os.Stderr`).
   - Conectar señal `SIGHUP` para hot-reload.

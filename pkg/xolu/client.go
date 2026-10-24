@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -264,6 +266,110 @@ func (c *HTTPXoluClient) Ready(ctx context.Context) error {
 	return c.Ping(ctx)
 }
 
+// Execute implements mcp.SubstrateExecutor to execute primitive operations against xolu.
+func (c *HTTPXoluClient) Execute(ctx context.Context, primitive string, args map[string]interface{}) (map[string]interface{}, error) {
+	start := time.Now()
+	var method, path string
+	var body any
+
+	switch primitive {
+	case "describe":
+		method = "GET"
+		path = "/api/v1/schemas"
+	case "get":
+		method = "GET"
+		entityType := fmt.Sprintf("%v", args["entity_type"])
+		id := fmt.Sprintf("%v", args["id"])
+		path = fmt.Sprintf("/api/v1/%s/%s", entityType, id)
+	case "list":
+		method = "GET"
+		entityType := fmt.Sprintf("%v", args["entity_type"])
+		path = fmt.Sprintf("/api/v1/%s", entityType)
+	case "create":
+		method = "POST"
+		entityType := fmt.Sprintf("%v", args["entity_type"])
+		path = fmt.Sprintf("/api/v1/%s", entityType)
+		body = args["data"]
+	case "update":
+		method = "PATCH"
+		entityType := fmt.Sprintf("%v", args["entity_type"])
+		id := fmt.Sprintf("%v", args["id"])
+		path = fmt.Sprintf("/api/v1/%s/%s", entityType, id)
+		body = args["changes"]
+	case "query":
+		method = "POST"
+		path = "/api/v1/oql/query"
+		body = args
+	case "walk":
+		method = "POST"
+		machineID := fmt.Sprintf("%v", args["machine_id"])
+		path = fmt.Sprintf("/api/v2/fsm/machine/%s/walk", machineID)
+		body = map[string]interface{}{
+			"input":   args["input"],
+			"payload": args["payload"],
+		}
+	case "machine_state":
+		method = "GET"
+		machineID := fmt.Sprintf("%v", args["machine_id"])
+		path = fmt.Sprintf("/api/v2/fsm/machine/%s/state", machineID)
+	case "machine_history":
+		method = "GET"
+		machineID := fmt.Sprintf("%v", args["machine_id"])
+		path = fmt.Sprintf("/api/v2/fsm/machine/%s/history", machineID)
+	case "cal_check":
+		method = "POST"
+		path = "/api/v1/cal/check"
+		body = args
+	case "cal_openings":
+		method = "POST"
+		path = "/api/v1/cal/openings"
+		body = args
+	case "cal_propose":
+		method = "POST"
+		path = "/api/v1/cal/propose"
+		body = args
+	case "cal_confirm":
+		method = "POST"
+		path = "/api/v1/cal/confirm"
+		body = args
+	default:
+		return nil, fmt.Errorf("unsupported primitive: %s", primitive)
+	}
+
+	var result map[string]interface{}
+	_, err := c.doRequest(ctx, method, path, body, &result)
+
+	latencyMs := float64(time.Since(start).Milliseconds())
+	code := taxonomy.CodeFromError(err)
+
+	if c.metrics != nil {
+		c.metrics.ObserveLatency(telemetry.ComponentXoluClient, primitive, latencyMs)
+		c.metrics.IncRequests(telemetry.ComponentXoluClient, primitive, primitive, code)
+		if err != nil {
+			c.metrics.IncErrors(telemetry.ComponentXoluClient, code)
+		}
+	}
+
+	if c.logger != nil {
+		ctxLog := c.logger.WithContext(ctx)
+		if err != nil {
+			ctxLog.Application().Error().
+				Str("primitive", primitive).
+				Str("code", code).
+				Float64("latency_ms", latencyMs).
+				Msg("xolu primitive execution failed")
+		} else {
+			ctxLog.Application().Info().
+				Str("primitive", primitive).
+				Str("code", code).
+				Float64("latency_ms", latencyMs).
+				Msg("xolu primitive execution completed")
+		}
+	}
+
+	return result, err
+}
+
 func (c *HTTPXoluClient) doRequest(ctx context.Context, method, path string, body any, dest any) (any, error) {
 	url := c.baseURL + path
 
@@ -311,14 +417,18 @@ func (c *HTTPXoluClient) doRequest(ctx context.Context, method, path string, bod
 			Message string         `json:"message"`
 			Details map[string]any `json:"details"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		if err := json.Unmarshal(bodyBytes, &errResp); err == nil && errResp.Code != "" {
 			return nil, &taxonomy.TypedError{
 				Code:    errResp.Code,
 				Message: errResp.Message,
 				Details: errResp.Details,
 			}
 		}
-		return nil, taxonomy.NewContractViolation("", "", []string{"http_error"})
+		if resp.StatusCode == 404 {
+			return nil, fmt.Errorf("404 not found: %s", string(bodyBytes))
+		}
+		return nil, fmt.Errorf("xolu error (%d): %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	if dest != nil {

@@ -135,6 +135,7 @@ func main() {
 	mcpServer := mcp.NewServer(mcp.ServerConfig{
 		Provider:    &loaderProvider{loader: schemaLoader},
 		Health:      probe,
+		Executor:    xoluClient,
 		Discovery:   discovery,
 		CallTimeout: cfg.CallTimeout,
 	})
