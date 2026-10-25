@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"net/url"
+	"sort"
 	"time"
 
 	"github.com/Gastonaso15/molu/pkg/taxonomy"
@@ -337,7 +340,12 @@ func (c *HTTPXoluClient) Execute(ctx context.Context, primitive string, args map
 	}
 
 	var result map[string]interface{}
-	_, err := c.doRequest(ctx, method, path, body, &result)
+	var err error
+	if primitive == "list" {
+		result, err = c.executeList(ctx, args)
+	} else {
+		_, err = c.doRequest(ctx, method, path, body, &result)
+	}
 
 	latencyMs := float64(time.Since(start).Milliseconds())
 	code := taxonomy.CodeFromError(err)
@@ -472,4 +480,86 @@ func parseXoluError(body []byte) (code, message string, details map[string]any) 
 		return nested.Error.Code, nested.Error.Message, nested.Error.Details
 	}
 	return nested.Code, nested.Message, nested.Details
+}
+
+const (
+	// xolu ignores a per_page above 100 and falls back to its default of 10.
+	xoluMaxPerPage   = 100
+	listDefaultLimit = 50
+)
+
+// executeList serves the list primitive. xolu paginates with page/per_page and
+// reads every other query parameter as a field-equality filter, so limit and
+// offset are translated into the pages that cover the window, and the window
+// is cut exactly.
+func (c *HTTPXoluClient) executeList(ctx context.Context, args map[string]interface{}) (map[string]interface{}, error) {
+	limit := intArg(args["limit"], listDefaultLimit)
+	offset := intArg(args["offset"], 0)
+
+	filters := url.Values{}
+	if f, ok := args["filter"].(map[string]interface{}); ok {
+		var bad []string
+		for k, v := range f {
+			if k == "page" || k == "per_page" {
+				bad = append(bad, "filter."+k)
+				continue
+			}
+			filters.Set(k, fmt.Sprint(v))
+		}
+		if len(bad) > 0 {
+			sort.Strings(bad)
+			return nil, taxonomy.NewContractViolation("", "list", bad)
+		}
+	}
+
+	base := fmt.Sprintf("/api/v1/%v", args["entity_type"])
+	end := offset + limit
+	collected := []interface{}{}
+	total := 0
+	for page := offset/xoluMaxPerPage + 1; ; page++ {
+		q := url.Values{}
+		for k, v := range filters {
+			q[k] = v
+		}
+		q.Set("page", fmt.Sprint(page))
+		q.Set("per_page", fmt.Sprint(xoluMaxPerPage))
+
+		var res struct {
+			Data       []interface{}  `json:"data"`
+			Pagination map[string]any `json:"pagination"`
+		}
+		if _, err := c.doRequest(ctx, "GET", base+"?"+q.Encode(), nil, &res); err != nil {
+			return nil, err
+		}
+		if t, ok := res.Pagination["total_items"].(float64); ok {
+			total = int(t)
+		}
+		for i, item := range res.Data {
+			idx := (page-1)*xoluMaxPerPage + i
+			if idx >= offset && idx < end {
+				collected = append(collected, item)
+			}
+		}
+		if len(res.Data) < xoluMaxPerPage || page*xoluMaxPerPage >= end || page*xoluMaxPerPage >= total {
+			break
+		}
+	}
+	return map[string]interface{}{
+		"data":       collected,
+		"pagination": map[string]interface{}{"total_items": total, "offset": offset, "limit": limit},
+	}, nil
+}
+
+func intArg(v interface{}, def int) int {
+	switch n := v.(type) {
+	case float64:
+		if n == math.Trunc(n) {
+			return int(n)
+		}
+	case int:
+		return n
+	case int64:
+		return int(n)
+	}
+	return def
 }

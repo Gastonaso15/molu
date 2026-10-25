@@ -786,3 +786,38 @@ func TestServer_CallTool_NotFoundFromHTTPStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestServer_CallTool_ListEmptyUsesXoluDataEnvelope(t *testing.T) {
+	cases := map[string]struct {
+		res     map[string]interface{}
+		isEmpty bool
+	}{
+		"empty data":     {map[string]interface{}{"data": []interface{}{}}, true},
+		"zero total":     {map[string]interface{}{"data": []interface{}{}, "pagination": map[string]interface{}{"total_items": float64(0)}}, true},
+		"data with item": {map[string]interface{}{"data": []interface{}{map[string]interface{}{"id": 1}}}, false},
+	}
+	for label, tc := range cases {
+		t.Run(label, func(t *testing.T) {
+			srv := NewServer(ServerConfig{Executor: &mockSubstrateExecutor{
+				executeFn: func(context.Context, string, map[string]interface{}) (map[string]interface{}, error) {
+					return tc.res, nil
+				},
+			}})
+			req := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list","arguments":{"entity_type":"asset"}}}`
+			var out bytes.Buffer
+			if err := srv.HandleMessage(context.Background(), []byte(req), &out); err != nil {
+				t.Fatal(err)
+			}
+			var resp jsonRPCResponse
+			json.Unmarshal(out.Bytes(), &resp)
+			gotEmpty := false
+			if resp.Error != nil {
+				data, _ := resp.Error.Data.(map[string]interface{})
+				gotEmpty = data["code"] == string(taxonomy.PrefixMolu+taxonomy.CodeEmpty)
+			}
+			if gotEmpty != tc.isEmpty {
+				t.Fatalf("expected EMPTY=%v, got response %s", tc.isEmpty, out.String())
+			}
+		})
+	}
+}

@@ -255,3 +255,6 @@ Probado con xolu **v0.30.44** (la más reciente; `Downloads/xolu-main`, compilad
   - `describe` devuelve `/api/v1/schemas`, no el mapa semántico.
   - `query` con `LIMIT n` devolvió `XOLU-QL004` en xolu; sin `LIMIT` funciona. Parece una peculiaridad de xolu, sin confirmar.
 - No probados: `create`, `update`, `cal_openings`, `cal_propose`, `cal_confirm` (escriben datos).
+- **Corregido (T9.5 y T9.2):** `list` ahora respeta `limit`, `offset` y `filter` (xolu usa `page`/`per_page` con máximo 100 y toma el resto de parámetros como filtros); `isEmptyCollection` reconoce la clave `data` de xolu. Los fixtures `items` de los tests se cambiaron al formato real. `go test -race ./...` en verde; probado contra xolu real y con un agente (Claude Code `-p` con molu como único servidor MCP).
+- **Hallazgo (T9.6, pendiente de decisión):** el agente no ve el código tipado del error (`NOT_FOUND`, `EMPTY`), solo el mensaje, porque viaja en `error.data` del error JSON-RPC. Hay que decidir si se devuelve como resultado `isError: true`.
+- **Pendiente:** T9.3 (contrato de `cal_check`) y T9.4 (`describe`). Sin commit de T9.1, T9.2 y T9.5.

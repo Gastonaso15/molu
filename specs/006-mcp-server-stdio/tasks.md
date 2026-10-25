@@ -56,7 +56,7 @@ Contexto: los tests de T5 usaban servidores falsos con un formato de error plano
   - `handleCallTool` mapea 404 a `NOT_FOUND` también para `walk` (`machine_id`) y `machine_history`, detectando el estado HTTP y no solo el texto del mensaje.
   - Hecho cuando: `go test -v -race ./pkg/xolu/... ./pkg/mcp/...` pasa con los casos nuevos, y contra xolu real `walk` y `machine_history` sobre una máquina inexistente devuelven `NOT_FOUND`.
 
-- [ ] **T9.2. `EMPTY` para `list` con la clave `data`.** RF-3
+- [x] **T9.2. `EMPTY` para `list` con la clave `data`.** RF-3
   - `isEmptyCollection` debe reconocer `{"data":[],"pagination":{...}}` (clave `data`, y `pagination.total_items == 0`).
   - Hecho cuando: test unitario cubre `list` vacío con el formato real de xolu, y `list` sobre una entidad sin registros devuelve `EMPTY`.
 
@@ -66,3 +66,10 @@ Contexto: los tests de T5 usaban servidores falsos con un formato de error plano
 
 - [ ] **T9.4. Decisión pendiente: contenido de `describe`.** RF-3
   - Hoy devuelve `/api/v1/schemas` (formato que no coincide con `pkg/schema`). Requiere decidir si debe devolver el mapa semántico de la Parte 2.
+
+- [x] **T9.5. `list` honra `limit`, `offset` y `filter`.** RF-3
+  - xolu pagina con `page`/`per_page` (máximo 100; por encima ignora el valor y usa 10) y trata cualquier otro parámetro de consulta como filtro de igualdad, así que `limit=2` devolvía una lista vacía o la página por defecto. `HTTPXoluClient` traduce `limit` (por defecto 50) y `offset` a las páginas que cubren la ventana y la recorta exacta; `filter` pasa como filtros de igualdad; las claves `page` y `per_page` en `filter` devuelven `CONTRACT_VIOLATION`. La respuesta conserva `data` y `pagination` (`total_items`, `offset`, `limit`).
+  - Verificado contra xolu real (16 activos): `limit 2`, `limit 2 offset 2`, `offset` no alineado, `filter`, ventana más allá del final (`EMPTY`) y entidad vacía (`EMPTY`). Un agente (Claude Code en modo no interactivo) lo usó por MCP y obtuvo los 3 activos y el total.
+
+- [ ] **T9.6. Decisión pendiente: cómo ve el agente los errores tipados.** RF-3
+  - Hoy los errores tipados viajan como error JSON-RPC (`error.data.code`). Probado con un agente real: Claude Code solo ve el mensaje de texto, no el código `XOLU-MOLU-FRONT-NOT_FOUND`/`EMPTY`, y el mensaje incluye `tenant ""`, que confunde. En MCP, los fallos de herramienta suelen devolverse como resultado con `isError: true` y el código dentro del texto. Requiere decidir con el equipo si se cambia el transporte del error, porque afecta la taxonomía tipada (mandato 1 de `AGENTS.md`).

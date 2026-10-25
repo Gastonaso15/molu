@@ -26,7 +26,10 @@ func TestServer_E2E_Stdio_WithHTTPXoluClient(t *testing.T) {
 		case r.Method == "GET" && r.URL.Path == "/api/v1/asset/ast-404":
 			http.NotFound(w, r)
 		case r.Method == "GET" && r.URL.Path == "/api/v1/asset":
-			json.NewEncoder(w).Encode(map[string]interface{}{"items": []interface{}{}})
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"data":       []interface{}{},
+				"pagination": map[string]interface{}{"page": 1, "per_page": 100, "total_items": 0},
+			})
 		case r.Method == "POST" && r.URL.Path == "/api/v2/fsm/machine/m-1/walk":
 			json.NewEncoder(w).Encode(map[string]interface{}{"status": "COMPLETED"})
 		case r.Method == "POST" && r.URL.Path == "/api/v2/fsm/machine/m-guard-fail/walk":

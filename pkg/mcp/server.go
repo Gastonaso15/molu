@@ -353,7 +353,7 @@ func (s *Server) handleCallTool(ctx context.Context, params json.RawMessage) (in
 		// Check for empty results mapping to EMPTY taxonomy
 		switch p.Name {
 		case "list":
-			if isEmptyCollection(execRes, "items", "results") {
+			if isEmptyCollection(execRes, "data", "items", "results") {
 				return nil, typedRPCError(taxonomy.NewEmpty("", "list", map[string]any{"entity_type": p.Arguments["entity_type"]}))
 			}
 		case "query":

@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +23,10 @@ func TestHTTPXoluClient_Execute_Entities(t *testing.T) {
 		case r.Method == "GET" && r.URL.Path == "/api/v1/asset/ast-1":
 			json.NewEncoder(w).Encode(map[string]interface{}{"id": "ast-1", "name": "Pump"})
 		case r.Method == "GET" && r.URL.Path == "/api/v1/asset":
-			json.NewEncoder(w).Encode(map[string]interface{}{"items": []interface{}{map[string]interface{}{"id": "ast-1"}}})
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"data":       []interface{}{map[string]interface{}{"id": "ast-1"}},
+				"pagination": map[string]interface{}{"page": 1, "per_page": 100, "total_items": 1},
+			})
 		case r.Method == "POST" && r.URL.Path == "/api/v1/asset":
 			var body map[string]interface{}
 			_ = json.NewDecoder(r.Body).Decode(&body)
@@ -50,8 +56,8 @@ func TestHTTPXoluClient_Execute_Entities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error on list: %v", err)
 	}
-	if _, ok := res["items"]; !ok {
-		t.Errorf("expected items in list response")
+	if items, ok := res["data"].([]interface{}); !ok || len(items) != 1 {
+		t.Errorf("expected one item in the list response data, got %v", res)
 	}
 
 	// 3. create
@@ -287,5 +293,129 @@ func TestHTTPXoluClient_Execute_NestedErrorEnvelope(t *testing.T) {
 	}
 	if te.Code != "XOLU-CAL004" || te.Message != "calendar_id is required" {
 		t.Errorf("xolu code and message must pass verbatim, got %s / %q", te.Code, te.Message)
+	}
+}
+
+// fakeListServer mimics xolu's list endpoint: 16 items, page/per_page
+// pagination (per_page above 100 is ignored and falls back to 10) and any
+// other query parameter treated as a field-equality filter.
+func fakeListServer(t *testing.T, requests *[]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*requests = append(*requests, r.URL.RawQuery)
+		q := r.URL.Query()
+		page, perPage := 1, 10
+		if v, err := strconv.Atoi(q.Get("page")); err == nil && v > 0 {
+			page = v
+		}
+		if v, err := strconv.Atoi(q.Get("per_page")); err == nil && v > 0 && v <= 100 {
+			perPage = v
+		}
+		var all []map[string]interface{}
+		for i := 1; i <= 16; i++ {
+			kind := "a"
+			if i%2 == 0 {
+				kind = "b"
+			}
+			all = append(all, map[string]interface{}{"id": i, "kind": kind})
+		}
+		for key := range q {
+			if key == "page" || key == "per_page" {
+				continue
+			}
+			var kept []map[string]interface{}
+			for _, it := range all {
+				if fmt.Sprint(it[key]) == q.Get(key) {
+					kept = append(kept, it)
+				}
+			}
+			all = kept
+		}
+		from := (page - 1) * perPage
+		if from > len(all) {
+			from = len(all)
+		}
+		to := from + perPage
+		if to > len(all) {
+			to = len(all)
+		}
+		data := all[from:to]
+		if data == nil {
+			data = []map[string]interface{}{}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"data":       data,
+			"pagination": map[string]interface{}{"page": page, "per_page": perPage, "total_items": len(all)},
+		})
+	}))
+}
+
+func listIDs(t *testing.T, res map[string]interface{}) []int {
+	t.Helper()
+	items, _ := res["data"].([]interface{})
+	ids := make([]int, len(items))
+	for i, it := range items {
+		ids[i] = int(it.(map[string]interface{})["id"].(float64))
+	}
+	return ids
+}
+
+func TestHTTPXoluClient_Execute_ListHonorsLimitOffsetAndFilter(t *testing.T) {
+	var requests []string
+	ts := fakeListServer(t, &requests)
+	defer ts.Close()
+	client := NewHTTPXoluClient(ts.URL, 2*time.Second)
+	ctx := context.Background()
+
+	cases := []struct {
+		label string
+		args  map[string]interface{}
+		want  []int
+	}{
+		{"limit 2", map[string]interface{}{"entity_type": "assets", "limit": float64(2)}, []int{1, 2}},
+		{"limit 2 offset 2", map[string]interface{}{"entity_type": "assets", "limit": float64(2), "offset": float64(2)}, []int{3, 4}},
+		{"offset not aligned to limit", map[string]interface{}{"entity_type": "assets", "limit": float64(4), "offset": float64(3)}, []int{4, 5, 6, 7}},
+		{"window spans xolu pages", map[string]interface{}{"entity_type": "assets", "limit": float64(12), "offset": float64(2)}, []int{3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}},
+		{"limit past the end", map[string]interface{}{"entity_type": "assets", "limit": float64(10), "offset": float64(12)}, []int{13, 14, 15, 16}},
+		{"filter", map[string]interface{}{"entity_type": "assets", "filter": map[string]interface{}{"kind": "b"}, "limit": float64(3)}, []int{2, 4, 6}},
+		{"default limit is 50", map[string]interface{}{"entity_type": "assets"}, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}},
+		{"integer limit", map[string]interface{}{"entity_type": "assets", "limit": 3}, []int{1, 2, 3}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			res, err := client.Execute(ctx, "list", tc.args)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := listIDs(t, res); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("expected ids %v, got %v", tc.want, got)
+			}
+		})
+	}
+
+	// No request may carry a limit or offset query parameter: xolu would read
+	// them as field filters and answer an empty page.
+	for _, q := range requests {
+		if strings.Contains(q, "limit=") || strings.Contains(q, "offset=") {
+			t.Fatalf("limit/offset leaked to xolu as filters: %q", q)
+		}
+	}
+}
+
+func TestHTTPXoluClient_Execute_ListRejectsFilterOnPaginationKeys(t *testing.T) {
+	var requests []string
+	ts := fakeListServer(t, &requests)
+	defer ts.Close()
+	client := NewHTTPXoluClient(ts.URL, 2*time.Second)
+
+	_, err := client.Execute(context.Background(), "list", map[string]interface{}{
+		"entity_type": "assets", "filter": map[string]interface{}{"page": "2"},
+	})
+	te, ok := err.(*taxonomy.TypedError)
+	if !ok || te.Code != taxonomy.PrefixMolu+string(taxonomy.CodeContractViolation) {
+		t.Fatalf("expected CONTRACT_VIOLATION, got %T: %v", err, err)
+	}
+	if len(requests) != 0 {
+		t.Fatalf("xolu must not be called, got %v", requests)
 	}
 }
