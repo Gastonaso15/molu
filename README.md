@@ -114,6 +114,7 @@ La especificación completa del sistema está organizada en tres partes en el di
 - Cobertura: `make coverage`
 - Arrancar local: `make run-molu`
 - MCP Inspector: `make inspector`
+- xolu local con datos de demo: `make xolu-up` (apagar con `make xolu-down`). Detalles y variables en [`scripts/levantar-xolu.sh`](./scripts/levantar-xolu.sh).
 
 ## Licencia
 

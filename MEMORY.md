@@ -258,3 +258,7 @@ Probado con xolu **v0.30.44** (la más reciente; `Downloads/xolu-main`, compilad
   - `query` con `LIMIT n` devolvió `XOLU-QL004` en xolu; sin `LIMIT` funciona.
   - T9.3 sigue abierta tras verificar el commit `1f1edab` contra xolu real: `cal_confirm` usa `room-a` por defecto, `PT30M` se interpreta como 1 h, solo se usa el primer calendario y no hay tests (detalle en `tasks.md`). Un 500 de xolu se informa como `SUBSTRATE_UNAVAILABLE`.
   - `CONTRACT_VIOLATION` nombra el campo ausente como `(root)` en vez de `id`.
+
+## Herramientas de desarrollo (25-oct-2026)
+- `scripts/levantar-xolu.sh` (+ `make xolu-up` / `make xolu-down`): compila y arranca un xolu local en el puerto 9191 con `XOLU_API_V2_ENABLED` y `XOLU_CAL_ENABLED`, y carga una semilla de Seam (por defecto la 01, Constructec). Opciones: `--seed 01..06`, `--reset`, `--no-seed`, `--port`, `stop`, `status`. Estado en `.dev-xolu/` (ignorado por git).
+- Necesita el código de xolu y las semillas de Seam, que no están en este repo: los busca en `../SEAM-CURE/` o se indican con `XOLU_SRC` (o `XOLU_BIN`) y `SEEDS_DIR`. Probado solo con la semilla 01 y esa disposición de carpetas.

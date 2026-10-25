@@ -1,4 +1,4 @@
-.PHONY: all build test coverage clean run-molu inspector
+.PHONY: all build test coverage clean run-molu inspector xolu-up xolu-down
 
 XOLU_URL ?= http://localhost:9090
 AUTH_MODE ?= bearer
@@ -30,3 +30,11 @@ inspector: build
 		-e MOLU_FRONT_XOLU_AUTH_MODE="$(AUTH_MODE)" \
 		-e MOLU_FRONT_XOLU_TOKEN_FILE="$(CURDIR)/$(TOKEN_FILE)" \
 		./bin/molu
+
+# xolu local con datos de demo de Seam (ver scripts/levantar-xolu.sh).
+# Ejemplo: make xolu-up && make inspector XOLU_URL=http://127.0.0.1:9191
+xolu-up:
+	./scripts/levantar-xolu.sh
+
+xolu-down:
+	./scripts/levantar-xolu.sh stop

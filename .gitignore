@@ -17,6 +17,9 @@
 *.dev
 
 
+# xolu local de desarrollo (scripts/levantar-xolu.sh)
+/.dev-xolu/
+
 # IDEs y editores
 .vscode/
 .idea/
