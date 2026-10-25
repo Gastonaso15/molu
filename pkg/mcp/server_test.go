@@ -190,17 +190,7 @@ func TestServer_CallTool_SubstrateUnavailable(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
-	if resp.Error == nil {
-		t.Fatalf("expected error response, got result: %v", resp.Result)
-	}
-	if resp.Error.Code != -32000 {
-		t.Errorf("expected JSON-RPC code -32000, got %d", resp.Error.Code)
-	}
-
-	dataMap, ok := resp.Error.Data.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected error.data to be object, got %T: %v", resp.Error.Data, resp.Error.Data)
-	}
+	dataMap := toolFailure(t, resp)
 	if dataMap["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeSubstrateUnavailable) {
 		t.Errorf("expected code %s, got %v", taxonomy.PrefixMolu+taxonomy.CodeSubstrateUnavailable, dataMap["code"])
 	}
@@ -225,17 +215,7 @@ func TestServer_CallTool_NotOffered(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
-	if resp.Error == nil {
-		t.Fatalf("expected error response, got result: %v", resp.Result)
-	}
-	if resp.Error.Code != -32000 {
-		t.Errorf("expected JSON-RPC code -32000, got %d", resp.Error.Code)
-	}
-
-	dataMap, ok := resp.Error.Data.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected error.data to be object, got %T", resp.Error.Data)
-	}
+	dataMap := toolFailure(t, resp)
 	if dataMap["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeNotOffered) {
 		t.Errorf("expected code %s, got %v", taxonomy.PrefixMolu+taxonomy.CodeNotOffered, dataMap["code"])
 	}
@@ -295,17 +275,7 @@ func TestServer_CallTool_ContractViolation(t *testing.T) {
 			if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
 				t.Fatalf("failed to parse response: %v", err)
 			}
-			if resp.Error == nil {
-				t.Fatalf("expected error response, got result: %v", resp.Result)
-			}
-			if resp.Error.Code != -32602 {
-				t.Errorf("expected JSON-RPC code -32602 (Invalid params), got %d", resp.Error.Code)
-			}
-
-			dataMap, ok := resp.Error.Data.(map[string]interface{})
-			if !ok {
-				t.Fatalf("expected error.data to be object, got %T: %v", resp.Error.Data, resp.Error.Data)
-			}
+			dataMap := toolFailure(t, resp)
 			if dataMap["code"] != tc.expectedCode {
 				t.Errorf("expected code %s, got %v", tc.expectedCode, dataMap["code"])
 			}
@@ -365,10 +335,7 @@ func TestServer_CallTool_T5_Entities(t *testing.T) {
 	}
 	var resp jsonRPCResponse
 	json.Unmarshal(out.Bytes(), &resp)
-	if resp.Error == nil {
-		t.Fatalf("expected NOT_FOUND error, got nil")
-	}
-	data := resp.Error.Data.(map[string]interface{})
+	data := toolFailure(t, resp)
 	if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeNotFound) {
 		t.Errorf("expected NOT_FOUND code, got %v", data["code"])
 	}
@@ -383,10 +350,7 @@ func TestServer_CallTool_T5_Entities(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	json.Unmarshal(out.Bytes(), &resp)
-	if resp.Error == nil {
-		t.Fatalf("expected EMPTY error, got nil")
-	}
-	data = resp.Error.Data.(map[string]interface{})
+	data = toolFailure(t, resp)
 	if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeEmpty) {
 		t.Errorf("expected EMPTY code, got %v", data["code"])
 	}
@@ -442,15 +406,12 @@ func TestServer_CallTool_T5_FSM(t *testing.T) {
 	}
 	var resp jsonRPCResponse
 	json.Unmarshal(out.Bytes(), &resp)
-	if resp.Error == nil {
-		t.Fatalf("expected INVALID_TRANSITION error, got nil")
-	}
-	data := resp.Error.Data.(map[string]interface{})
+	data := toolFailure(t, resp)
 	if data["code"] != string(taxonomy.PrefixXolu+taxonomy.CodeInvalidTransition) {
 		t.Errorf("expected verbatim XOLU-INVALID_TRANSITION code, got %v", data["code"])
 	}
-	if !strings.Contains(resp.Error.Message, "guard condition failed") {
-		t.Errorf("expected verbatim message, got %v", resp.Error.Message)
+	if !strings.Contains(data["message"].(string), "guard condition failed") {
+		t.Errorf("expected verbatim message, got %v", data["message"])
 	}
 
 	// 2. machine_state -> 404 maps to NOT_FOUND
@@ -463,10 +424,7 @@ func TestServer_CallTool_T5_FSM(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	json.Unmarshal(out.Bytes(), &resp)
-	if resp.Error == nil {
-		t.Fatalf("expected NOT_FOUND error, got nil")
-	}
-	data = resp.Error.Data.(map[string]interface{})
+	data = toolFailure(t, resp)
 	if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeNotFound) {
 		t.Errorf("expected NOT_FOUND code, got %v", data["code"])
 	}
@@ -481,10 +439,7 @@ func TestServer_CallTool_T5_FSM(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	json.Unmarshal(out.Bytes(), &resp)
-	if resp.Error == nil {
-		t.Fatalf("expected EMPTY error, got nil")
-	}
-	data = resp.Error.Data.(map[string]interface{})
+	data = toolFailure(t, resp)
 	if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeEmpty) {
 		t.Errorf("expected EMPTY code, got %v", data["code"])
 	}
@@ -507,10 +462,7 @@ func TestServer_CallTool_T5_QueryAndCalendars(t *testing.T) {
 	}
 	var resp jsonRPCResponse
 	json.Unmarshal(out.Bytes(), &resp)
-	if resp.Error == nil {
-		t.Fatalf("expected EMPTY error, got nil")
-	}
-	data := resp.Error.Data.(map[string]interface{})
+	data := toolFailure(t, resp)
 	if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeEmpty) {
 		t.Errorf("expected EMPTY code, got %v", data["code"])
 	}
@@ -541,10 +493,7 @@ func TestServer_CallTool_T5_QueryAndCalendars(t *testing.T) {
 	}
 	resp = jsonRPCResponse{}
 	json.Unmarshal(out.Bytes(), &resp)
-	if resp.Error == nil {
-		t.Fatalf("expected EMPTY error, got nil")
-	}
-	data = resp.Error.Data.(map[string]interface{})
+	data = toolFailure(t, resp)
 	if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeEmpty) {
 		t.Errorf("expected EMPTY code, got %v", data["code"])
 	}
@@ -574,10 +523,7 @@ func TestServer_CallTool_T5_QueryAndCalendars(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	json.Unmarshal(out.Bytes(), &resp)
-	if resp.Error == nil {
-		t.Fatalf("expected NOT_FOUND error, got nil")
-	}
-	data = resp.Error.Data.(map[string]interface{})
+	data = toolFailure(t, resp)
 	if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeNotFound) {
 		t.Errorf("expected NOT_FOUND code, got %v", data["code"])
 	}
@@ -773,15 +719,12 @@ func TestServer_CallTool_NotFoundFromHTTPStatus(t *testing.T) {
 			}
 			var resp jsonRPCResponse
 			json.Unmarshal(out.Bytes(), &resp)
-			if resp.Error == nil {
-				t.Fatal("expected NOT_FOUND, got success")
-			}
-			data, _ := resp.Error.Data.(map[string]interface{})
+			data := toolFailure(t, resp)
 			if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeNotFound) {
-				t.Fatalf("expected NOT_FOUND, got %v (%s)", data["code"], resp.Error.Message)
+				t.Fatalf("expected NOT_FOUND, got %v (%v)", data["code"], data["message"])
 			}
-			if !strings.Contains(resp.Error.Message, "m-9") {
-				t.Errorf("NOT_FOUND must name the machine, got %q", resp.Error.Message)
+			if msg, _ := data["message"].(string); !strings.Contains(msg, "m-9") {
+				t.Errorf("NOT_FOUND must name the machine, got %q", msg)
 			}
 		})
 	}
@@ -811,13 +754,35 @@ func TestServer_CallTool_ListEmptyUsesXoluDataEnvelope(t *testing.T) {
 			var resp jsonRPCResponse
 			json.Unmarshal(out.Bytes(), &resp)
 			gotEmpty := false
-			if resp.Error != nil {
-				data, _ := resp.Error.Data.(map[string]interface{})
-				gotEmpty = data["code"] == string(taxonomy.PrefixMolu+taxonomy.CodeEmpty)
+			if r, ok := resp.Result.(map[string]interface{}); ok && r["isError"] == true {
+				gotEmpty = toolFailure(t, resp)["code"] == string(taxonomy.PrefixMolu+taxonomy.CodeEmpty)
 			}
 			if gotEmpty != tc.isEmpty {
 				t.Fatalf("expected EMPTY=%v, got response %s", tc.isEmpty, out.String())
 			}
 		})
 	}
+}
+
+// toolFailure returns the typed error carried by an isError tools/call result.
+// An untyped failure carries only its message.
+func toolFailure(t *testing.T, resp jsonRPCResponse) map[string]interface{} {
+	t.Helper()
+	if resp.Error != nil {
+		t.Fatalf("a tool failure must be an isError result, got JSON-RPC error %+v", resp.Error)
+	}
+	res, ok := resp.Result.(map[string]interface{})
+	if !ok || res["isError"] != true {
+		t.Fatalf("expected an isError result, got %v", resp.Result)
+	}
+	content, _ := res["content"].([]interface{})
+	if len(content) != 1 {
+		t.Fatalf("expected one content item, got %v", res["content"])
+	}
+	text, _ := content[0].(map[string]interface{})["text"].(string)
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		return map[string]interface{}{"message": text}
+	}
+	return data
 }

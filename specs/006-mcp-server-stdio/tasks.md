@@ -60,9 +60,14 @@ Contexto: los tests de T5 usaban servidores falsos con un formato de error plano
   - `isEmptyCollection` debe reconocer `{"data":[],"pagination":{...}}` (clave `data`, y `pagination.total_items == 0`).
   - Hecho cuando: test unitario cubre `list` vacío con el formato real de xolu, y `list` sobre una entidad sin registros devuelve `EMPTY`.
 
-- [ ] **T9.3. Contrato de `cal_check` (y revisar `cal_openings`, `cal_propose`, `cal_confirm`).** RF-3
-  - El cuerpo de molu usa `calendars[]`, xolu espera `calendar_id`. Verificar contra `pkg/server/v2_cal_handlers.go` de xolu y alinear schema y cuerpo.
-  - Hecho cuando: `cal_check` contra xolu real con un calendario existente no devuelve 400.
+- [ ] **T9.3. Contrato de `cal_check`, `cal_openings`, `cal_propose` y `cal_confirm`.** RF-3
+  - Gastonaso15 adaptó el cuerpo a la API de xolu (commit `1f1edab`). Verificado el 25-oct-2026 contra xolu real con un calendario de prueba (`sala-test`): `cal_check`, `cal_openings` y `cal_propose` ya llegan al endpoint, pero quedan defectos, por lo que no se marca como hecha:
+    - `cal_confirm` fija `calendar_id` en `"room-a"` cuando no se pasa uno, así que confirma contra un calendario que no es el de la reserva y devuelve `NOT_FOUND`. El schema de molu solo pide `booking_id`; hay que decidir cómo se obtiene el calendario (parámetro opcional o consulta previa). Además xolu responde 500 `XOLU-ST006: binding requires a live bearer` al confirmar con el calendario correcto, y molu lo informaría como `SUBSTRATE_UNAVAILABLE`.
+    - `duration` ISO 8601: `time.ParseDuration` no entiende `PT30M`; solo se reconoce el literal `PT1H`, y cualquier otra duración cae en silencio a 1 hora. `PT30M` y `PT15M` en una ventana de 40 min devuelven `EMPTY` cuando deberían caber.
+    - Solo se usa el primer calendario de `calendars[]`; los demás se ignoran sin aviso (`cal_check` con un segundo calendario inexistente responde `feasible: true`).
+    - `cal_check` sobre un calendario inexistente devuelve un error sin tipo (`404 not found: XOLU-CAL004`) y no `NOT_FOUND`.
+    - Los cambios no traen tests.
+  - Hecho cuando: tests con el formato real de xolu cubren los cuatro primitivos y las correcciones de arriba, y la secuencia `cal_openings` → `cal_propose` → `cal_confirm` funciona contra xolu real.
 
 - [ ] **T9.4. Decisión pendiente: contenido de `describe`.** RF-3
   - Hoy devuelve `/api/v1/schemas` (formato que no coincide con `pkg/schema`). Requiere decidir si debe devolver el mapa semántico de la Parte 2.
@@ -71,5 +76,7 @@ Contexto: los tests de T5 usaban servidores falsos con un formato de error plano
   - xolu pagina con `page`/`per_page` (máximo 100; por encima ignora el valor y usa 10) y trata cualquier otro parámetro de consulta como filtro de igualdad, así que `limit=2` devolvía una lista vacía o la página por defecto. `HTTPXoluClient` traduce `limit` (por defecto 50) y `offset` a las páginas que cubren la ventana y la recorta exacta; `filter` pasa como filtros de igualdad; las claves `page` y `per_page` en `filter` devuelven `CONTRACT_VIOLATION`. La respuesta conserva `data` y `pagination` (`total_items`, `offset`, `limit`).
   - Verificado contra xolu real (16 activos): `limit 2`, `limit 2 offset 2`, `offset` no alineado, `filter`, ventana más allá del final (`EMPTY`) y entidad vacía (`EMPTY`). Un agente (Claude Code en modo no interactivo) lo usó por MCP y obtuvo los 3 activos y el total.
 
-- [ ] **T9.6. Decisión pendiente: cómo ve el agente los errores tipados.** RF-3
-  - Hoy los errores tipados viajan como error JSON-RPC (`error.data.code`). Probado con un agente real: Claude Code solo ve el mensaje de texto, no el código `XOLU-MOLU-FRONT-NOT_FOUND`/`EMPTY`, y el mensaje incluye `tenant ""`, que confunde. En MCP, los fallos de herramienta suelen devolverse como resultado con `isError: true` y el código dentro del texto. Requiere decidir con el equipo si se cambia el transporte del error, porque afecta la taxonomía tipada (mandato 1 de `AGENTS.md`).
+- [x] **T9.6. Los fallos de `tools/call` se devuelven como resultado `isError`.** RF-3
+  - Probado con un agente real (Claude Code `-p`): con el error en `error.data` del error JSON-RPC, el agente solo veía el mensaje y no el código tipado. Decisión (confirmada el 25-oct-2026): una vez validados los `params`, todo fallo de `tools/call` (`NOT_OFFERED`, `CONTRACT_VIOLATION` de argumentos, `SUBSTRATE_UNAVAILABLE`, `NOT_FOUND`, `EMPTY`, `INVALID_TRANSITION` y errores sin tipo) se devuelve como resultado `{"isError":true,"content":[{"type":"text","text":...}]}`. Un error tipado viaja completo como JSON en `text` (`code`, `message`, `details`); uno sin tipo lleva su mensaje.
+  - Siguen siendo errores JSON-RPC los fallos de protocolo: `params` de `tools/call` mal formados (-32602), método desconocido (-32601), JSON inválido (-32700) y los errores de `tools/list` con Hub (spec 005), que no son llamadas a herramienta.
+  - Hecho cuando: `go test -v -race ./pkg/mcp/...` pasa con `server_iserror_test.go`, y un agente lee `XOLU-MOLU-FRONT-NOT_FOUND`, `-EMPTY` y `-CONTRACT_VIOLATION` (verificado).

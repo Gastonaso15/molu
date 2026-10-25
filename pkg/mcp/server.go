@@ -254,6 +254,20 @@ func (s *Server) handleCallTool(ctx context.Context, params json.RawMessage) (in
 		return nil, typedRPCError(taxonomy.NewContractViolation("", "tools/call", []string{"params"}))
 	}
 
+	// Past this point the request is well-formed, so a failure is the tool's
+	// outcome and not a protocol error. MCP clients show an isError result to
+	// the agent, which is the only way it can read the typed code.
+	result, rpcErr := s.executeTool(ctx, p)
+	if rpcErr != nil {
+		return toolErrorResult(rpcErr), nil
+	}
+	return result, nil
+}
+
+// executeTool runs a validated tools/call request: health gating, offer check,
+// contract validation and execution. Failures come back as JSON-RPC errors and
+// handleCallTool turns them into isError results.
+func (s *Server) executeTool(ctx context.Context, p callToolParams) (interface{}, *jsonRPCError) {
 	// 1. Health check gating (RF-4)
 	if s.health != nil {
 		if err := s.health.Check(); err != nil {
@@ -416,6 +430,22 @@ func isEmptyCollection(res map[string]interface{}, candidateKeys ...string) bool
 		return true
 	}
 	return false
+}
+
+// toolErrorResult renders a failed tool call as an MCP result with isError set.
+// A typed error travels whole as JSON text so the agent reads its code and
+// details; any other failure carries its plain message.
+func toolErrorResult(e *jsonRPCError) map[string]interface{} {
+	text := e.Message
+	if te, ok := e.Data.(*taxonomy.TypedError); ok {
+		if data, err := json.Marshal(te); err == nil {
+			text = string(data)
+		}
+	}
+	return map[string]interface{}{
+		"isError": true,
+		"content": []map[string]interface{}{{"type": "text", "text": text}},
+	}
 }
 
 // typedRPCError maps a typed error onto a JSON-RPC error: CONTRACT_VIOLATION is

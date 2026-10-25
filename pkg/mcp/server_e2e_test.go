@@ -128,10 +128,7 @@ func TestServer_E2E_Stdio_WithHTTPXoluClient(t *testing.T) {
 	// 4. tools/call list: empty result maps to EMPTY taxonomy
 	emptyListReq := `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list","arguments":{"entity_type":"asset"}}}`
 	emptyListResp := sendAndReceive(emptyListReq)
-	if emptyListResp["error"] == nil {
-		t.Fatalf("expected EMPTY taxonomy error, got result: %v", emptyListResp["result"])
-	}
-	errData := emptyListResp["error"].(map[string]interface{})["data"].(map[string]interface{})
+	errData := e2eToolFailure(t, emptyListResp)
 	if errData["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeEmpty) {
 		t.Errorf("expected EMPTY code, got %v", errData["code"])
 	}
@@ -139,10 +136,7 @@ func TestServer_E2E_Stdio_WithHTTPXoluClient(t *testing.T) {
 	// 5. tools/call get 404: maps to NOT_FOUND taxonomy
 	notFoundReq := `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get","arguments":{"entity_type":"asset","id":"ast-404"}}}`
 	notFoundResp := sendAndReceive(notFoundReq)
-	if notFoundResp["error"] == nil {
-		t.Fatalf("expected NOT_FOUND error, got result: %v", notFoundResp["result"])
-	}
-	errData = notFoundResp["error"].(map[string]interface{})["data"].(map[string]interface{})
+	errData = e2eToolFailure(t, notFoundResp)
 	if errData["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeNotFound) {
 		t.Errorf("expected NOT_FOUND code, got %v", errData["code"])
 	}
@@ -162,10 +156,7 @@ func TestServer_E2E_Stdio_WithHTTPXoluClient(t *testing.T) {
 	// 7. tools/call walk: guard rejection maps to INVALID_TRANSITION verbatim
 	guardFailReq := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"walk","arguments":{"machine_id":"m-guard-fail","input":"START"}}}`
 	guardFailResp := sendAndReceive(guardFailReq)
-	if guardFailResp["error"] == nil {
-		t.Fatalf("expected INVALID_TRANSITION error, got result: %v", guardFailResp["result"])
-	}
-	errData = guardFailResp["error"].(map[string]interface{})["data"].(map[string]interface{})
+	errData = e2eToolFailure(t, guardFailResp)
 	if errData["code"] != "XOLU-INVALID_TRANSITION" {
 		t.Errorf("expected verbatim XOLU-INVALID_TRANSITION, got %v", errData["code"])
 	}
@@ -195,4 +186,22 @@ func TestServer_E2E_Stdio_WithHTTPXoluClient(t *testing.T) {
 	cancel()
 	_ = stdinWriter.Close()
 	_ = stdoutWriter.Close()
+}
+
+// e2eToolFailure returns the typed error inside an isError tools/call result.
+func e2eToolFailure(t *testing.T, resp map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	if resp["error"] != nil {
+		t.Fatalf("a tool failure must be an isError result, got JSON-RPC error %v", resp["error"])
+	}
+	res, _ := resp["result"].(map[string]interface{})
+	if res["isError"] != true {
+		t.Fatalf("expected an isError result, got %v", resp["result"])
+	}
+	text := res["content"].([]interface{})[0].(map[string]interface{})["text"].(string)
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("content text must be the typed error as JSON: %v (%q)", err, text)
+	}
+	return data
 }
