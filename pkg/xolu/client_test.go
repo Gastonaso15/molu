@@ -135,13 +135,13 @@ func TestHTTPXoluClient_Execute_CalendarsAndDescribe(t *testing.T) {
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/api/v1/schemas":
 			json.NewEncoder(w).Encode(map[string]interface{}{"entities": []interface{}{"asset"}})
-		case r.Method == "POST" && r.URL.Path == "/api/v1/cal/check":
+		case r.Method == "POST" && r.URL.Path == "/api/v2/cal/check":
 			json.NewEncoder(w).Encode(map[string]interface{}{"available": true})
-		case r.Method == "POST" && r.URL.Path == "/api/v1/cal/openings":
+		case r.Method == "POST" && r.URL.Path == "/api/v2/cal/openings":
 			json.NewEncoder(w).Encode(map[string]interface{}{"openings": []interface{}{map[string]interface{}{"start": "2026-10-23T10:00:00Z"}}})
-		case r.Method == "POST" && r.URL.Path == "/api/v1/cal/propose":
+		case r.Method == "POST" && r.URL.Path == "/api/v2/cal/propose":
 			json.NewEncoder(w).Encode(map[string]interface{}{"booking_id": "bk-456"})
-		case r.Method == "POST" && r.URL.Path == "/api/v1/cal/confirm":
+		case r.Method == "POST" && r.URL.Path == "/api/v2/cal/confirm":
 			json.NewEncoder(w).Encode(map[string]interface{}{"confirmed": true})
 		default:
 			http.NotFound(w, r)

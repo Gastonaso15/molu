@@ -244,3 +244,14 @@ Probado con xolu **v0.30.44** (la más reciente; `Downloads/xolu-main`, compilad
 - Contexto: `docs/molu-part2-mcp-frontend.md` describe un «mapa semántico» armado desde varias rutas de xolu (schemas de entidades, FSM, generadores, eventos) y 13 herramientas fijas; el spec 003 (endpoint único con `primitives`) parece un diseño anterior que el spec 006 reemplaza. **Por confirmar con el equipo** (tarjeta «Ejecución de Primitivos», en progreso). No se tocó `pkg/schema`.
 - Slack (canal del equipo, 19-oct): se eligió la propuesta A (capa externa del servidor MCP exponiendo primero las funciones nativas de xolu); las funciones de Seam se integran después.
 
+
+## Verificación de `tools/call` contra xolu real v0.30.44 (24/25-oct-2026)
+- **Requisito de xolu:** `/api/v2` está apagado por defecto. Para FSM hay que arrancar xolu con `XOLU_API_V2_ENABLED=true` y para calendario además `XOLU_CAL_ENABLED=true`.
+- **Corregido:** las rutas `cal_*` de `HTTPXoluClient.Execute` eran `/api/v1/cal/*` y las reales son `/api/v2/cal/*` (`pkg/xolu/client.go`, `client_test.go`, `specs/006-.../spec.md` y `plan.md`). Tests de `pkg/xolu` y `pkg/mcp` en verde. Sin commit todavía.
+- **Pendiente (verificado contra xolu real):**
+  - `cal_check` llega al endpoint real pero xolu responde 400 `XOLU-CAL004 calendar_id is required`: el cuerpo de molu usa `calendars[]`, xolu espera `calendar_id`.
+  - xolu devuelve los errores como `{"error":{"code","message","status"}}` (anidado); `doRequest` busca `code` en la raíz, así que `XOLU-FSM002` (máquina no encontrada) sale como `-32603` en vez de `NOT_FOUND` en `walk` y `machine_history`.
+  - `list` vacío no da `EMPTY`: xolu responde `{"data":[],"pagination":...}` y `isEmptyCollection` no mira `data`.
+  - `describe` devuelve `/api/v1/schemas`, no el mapa semántico.
+  - `query` con `LIMIT n` devolvió `XOLU-QL004` en xolu; sin `LIMIT` funciona. Parece una peculiaridad de xolu, sin confirmar.
+- No probados: `create`, `update`, `cal_openings`, `cal_propose`, `cal_confirm` (escriben datos).

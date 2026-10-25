@@ -318,19 +318,19 @@ func (c *HTTPXoluClient) Execute(ctx context.Context, primitive string, args map
 		path = fmt.Sprintf("/api/v2/fsm/machine/%s/history", machineID)
 	case "cal_check":
 		method = "POST"
-		path = "/api/v1/cal/check"
+		path = "/api/v2/cal/check"
 		body = args
 	case "cal_openings":
 		method = "POST"
-		path = "/api/v1/cal/openings"
+		path = "/api/v2/cal/openings"
 		body = args
 	case "cal_propose":
 		method = "POST"
-		path = "/api/v1/cal/propose"
+		path = "/api/v2/cal/propose"
 		body = args
 	case "cal_confirm":
 		method = "POST"
-		path = "/api/v1/cal/confirm"
+		path = "/api/v2/cal/confirm"
 		body = args
 	default:
 		return nil, fmt.Errorf("unsupported primitive: %s", primitive)

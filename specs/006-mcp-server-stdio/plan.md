@@ -45,10 +45,10 @@ type SubstrateExecutor interface {
 7. **`walk`**: Invoca `POST /api/v2/fsm/machine/{id}/walk` con `input` y `payload`. Si la guarda falla, emite `INVALID_TRANSITION` (diagnóstico verbatim).
 8. **`machine_state`**: Invoca `GET /api/v2/fsm/machine/{id}/state` y fusiona con `/vars`.
 9. **`machine_history`**: Invoca `GET /api/v2/fsm/machine/{id}/history` con `limit`. Si no hay entradas, emite `EMPTY`.
-10. **`cal_check`**: Invoca `POST /api/v1/cal/check` con `calendars`, `start`, `end`.
-11. **`cal_openings`**: Invoca `POST /api/v1/cal/openings` con `calendars`, `duration`, `from`, `to`, `objective`, `limit`. Si no hay ventanas, emite `EMPTY`.
-12. **`cal_propose`**: Invoca `POST /api/v1/cal/propose` con `calendars`, `start`, `end`, `payload`. Retorna `booking_id`.
-13. **`cal_confirm`**: Invoca `POST /api/v1/cal/confirm` con `booking_id`. Si no existe, emite `NOT_FOUND`.
+10. **`cal_check`**: Invoca `POST /api/v2/cal/check` con `calendars`, `start`, `end`.
+11. **`cal_openings`**: Invoca `POST /api/v2/cal/openings` con `calendars`, `duration`, `from`, `to`, `objective`, `limit`. Si no hay ventanas, emite `EMPTY`.
+12. **`cal_propose`**: Invoca `POST /api/v2/cal/propose` con `calendars`, `start`, `end`, `payload`. Retorna `booking_id`.
+13. **`cal_confirm`**: Invoca `POST /api/v2/cal/confirm` con `booking_id`. Si no existe, emite `NOT_FOUND`.
 
 ---
 

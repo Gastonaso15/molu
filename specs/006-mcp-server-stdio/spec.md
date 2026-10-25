@@ -184,7 +184,7 @@ Verificación preliminar (*dry-run*) de disponibilidad contra uno o más calenda
     }
   }
   ```
-- **Despacho**: API de calendario de xolu (`POST /api/v1/cal/check`). Retorna disponibilidad o diagnóstico del calendario bloqueante.
+- **Despacho**: API de calendario de xolu (`POST /api/v2/cal/check`). Retorna disponibilidad o diagnóstico del calendario bloqueante.
 
 ### 11. `cal_openings` (§5.1.11)
 Encuentra ventanas libres a través de uno o más calendarios según duración, rango y objetivo.
@@ -210,7 +210,7 @@ Encuentra ventanas libres a través de uno o más calendarios según duración, 
     }
   }
   ```
-- **Despacho**: API de calendario de xolu (`POST /api/v1/cal/openings`). Si no hay ventanas, emite `EMPTY`.
+- **Despacho**: API de calendario de xolu (`POST /api/v2/cal/openings`). Si no hay ventanas, emite `EMPTY`.
 
 ### 12. `cal_propose` (§5.1.12)
 Crea una reserva propuesta en el plano tentativo (*proposed plane*, aún no confirmada).
@@ -230,7 +230,7 @@ Crea una reserva propuesta en el plano tentativo (*proposed plane*, aún no conf
     }
   }
   ```
-- **Despacho**: API de calendario de xolu (`POST /api/v1/cal/propose`). Retorna el `booking_id`.
+- **Despacho**: API de calendario de xolu (`POST /api/v2/cal/propose`). Retorna el `booking_id`.
 
 ### 13. `cal_confirm` (§5.1.13)
 Mueve una reserva del plano propuesto al plano vinculante (*binding plane*).
@@ -244,7 +244,7 @@ Mueve una reserva del plano propuesto al plano vinculante (*binding plane*).
     }
   }
   ```
-- **Despacho**: API de calendario de xolu (`POST /api/v1/cal/confirm`). Si el `booking_id` no existe, emite `NOT_FOUND`.
+- **Despacho**: API de calendario de xolu (`POST /api/v2/cal/confirm`). Si el `booking_id` no existe, emite `NOT_FOUND`.
 
 ---
 
