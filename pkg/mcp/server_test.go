@@ -744,3 +744,45 @@ func TestServer_Concurrency(t *testing.T) {
 	wg.Wait()
 }
 
+
+type statusError struct{ status int }
+
+func (e *statusError) Error() string   { return "xolu error" }
+func (e *statusError) HTTPStatus() int { return e.status }
+
+func TestServer_CallTool_NotFoundFromHTTPStatus(t *testing.T) {
+	cases := []struct {
+		primitive string
+		args      string
+	}{
+		{"walk", `{"machine_id":"m-9","input":"GO"}`},
+		{"machine_history", `{"machine_id":"m-9"}`},
+		{"machine_state", `{"machine_id":"m-9"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.primitive, func(t *testing.T) {
+			srv := NewServer(ServerConfig{Executor: &mockSubstrateExecutor{
+				executeFn: func(context.Context, string, map[string]interface{}) (map[string]interface{}, error) {
+					return nil, &statusError{status: 404}
+				},
+			}})
+			req := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + tc.primitive + `","arguments":` + tc.args + `}}`
+			var out bytes.Buffer
+			if err := srv.HandleMessage(context.Background(), []byte(req), &out); err != nil {
+				t.Fatal(err)
+			}
+			var resp jsonRPCResponse
+			json.Unmarshal(out.Bytes(), &resp)
+			if resp.Error == nil {
+				t.Fatal("expected NOT_FOUND, got success")
+			}
+			data, _ := resp.Error.Data.(map[string]interface{})
+			if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeNotFound) {
+				t.Fatalf("expected NOT_FOUND, got %v (%s)", data["code"], resp.Error.Message)
+			}
+			if !strings.Contains(resp.Error.Message, "m-9") {
+				t.Errorf("NOT_FOUND must name the machine, got %q", resp.Error.Message)
+			}
+		})
+	}
+}

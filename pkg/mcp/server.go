@@ -313,6 +313,10 @@ func (s *Server) handleCallTool(ctx context.Context, params json.RawMessage) (in
 
 			msgLower := strings.ToLower(err.Error())
 			isNotFound := strings.Contains(msgLower, "404") || strings.Contains(msgLower, "not found")
+			var statusErr interface{ HTTPStatus() int }
+			if errors.As(err, &statusErr) && statusErr.HTTPStatus() == 404 {
+				isNotFound = true
+			}
 
 			switch p.Name {
 			case "get":
@@ -327,7 +331,14 @@ func (s *Server) handleCallTool(ctx context.Context, params json.RawMessage) (in
 				if isNotFound {
 					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["booking_id"])))
 				}
+			case "machine_history":
+				if isNotFound {
+					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["machine_id"])))
+				}
 			case "walk":
+				if isNotFound {
+					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["machine_id"])))
+				}
 				if strings.Contains(msgLower, "guard") || strings.Contains(msgLower, "invalid transition") || strings.Contains(msgLower, "rejected") {
 					return nil, typedRPCError(&taxonomy.TypedError{
 						Code:    taxonomy.PrefixXolu + string(taxonomy.CodeInvalidTransition),

@@ -43,3 +43,26 @@
   - Actualizar `docs/diagrams/006-mcp-server-stdio-sequence.mmd` con el flujo completo de los 13 primitivos.
   - Actualizar `MEMORY.md` y `README.md`.
   - Hecho cuando: Diagrama y documentación reflejen el estado real del servidor MCP.
+
+## Correcciones de `tools/call` contra xolu real (verificadas el 24-oct-2026 con xolu v0.30.44)
+
+Contexto: los tests de T5 usaban servidores falsos con un formato de error plano (`{"code":...}`) y rutas inventadas. Contra xolu real, que responde `{"error":{"code","message","status"}}`, varios primitivos fallan. Para FSM y calendario xolu requiere `XOLU_API_V2_ENABLED=true` y `XOLU_CAL_ENABLED=true`.
+
+- [x] **T9.0. Rutas de calendario `/api/v2/cal/*`.** RF-3
+  - `cal_check`, `cal_openings`, `cal_propose` y `cal_confirm` apuntaban a `/api/v1/cal/*`. Corregido en `pkg/xolu/client.go`, su test, `spec.md` y `plan.md`.
+
+- [x] **T9.1. Sobre de error anidado de xolu y `NOT_FOUND` en FSM.** RF-3
+  - `doRequest` entiende `{"error":{"code","message","status"}}`: un 404 se expone como `*xolu.HTTPError` (con `HTTPStatus()`), y otros errores con `code` salen como `*taxonomy.TypedError` con el código de xolu verbatim.
+  - `handleCallTool` mapea 404 a `NOT_FOUND` también para `walk` (`machine_id`) y `machine_history`, detectando el estado HTTP y no solo el texto del mensaje.
+  - Hecho cuando: `go test -v -race ./pkg/xolu/... ./pkg/mcp/...` pasa con los casos nuevos, y contra xolu real `walk` y `machine_history` sobre una máquina inexistente devuelven `NOT_FOUND`.
+
+- [ ] **T9.2. `EMPTY` para `list` con la clave `data`.** RF-3
+  - `isEmptyCollection` debe reconocer `{"data":[],"pagination":{...}}` (clave `data`, y `pagination.total_items == 0`).
+  - Hecho cuando: test unitario cubre `list` vacío con el formato real de xolu, y `list` sobre una entidad sin registros devuelve `EMPTY`.
+
+- [ ] **T9.3. Contrato de `cal_check` (y revisar `cal_openings`, `cal_propose`, `cal_confirm`).** RF-3
+  - El cuerpo de molu usa `calendars[]`, xolu espera `calendar_id`. Verificar contra `pkg/server/v2_cal_handlers.go` de xolu y alinear schema y cuerpo.
+  - Hecho cuando: `cal_check` contra xolu real con un calendario existente no devuelve 400.
+
+- [ ] **T9.4. Decisión pendiente: contenido de `describe`.** RF-3
+  - Hoy devuelve `/api/v1/schemas` (formato que no coincide con `pkg/schema`). Requiere decidir si debe devolver el mapa semántico de la Parte 2.

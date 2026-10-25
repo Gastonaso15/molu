@@ -3,8 +3,10 @@ package xolu
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -246,5 +248,44 @@ func TestHTTPXoluClient_Execute_Errors(t *testing.T) {
 	te, ok = err.(*taxonomy.TypedError)
 	if !ok || te.Code != string(taxonomy.PrefixMolu+taxonomy.CodeSubstrateUnavailable) {
 		t.Errorf("expected SUBSTRATE_UNAVAILABLE on 500, got %v", err)
+	}
+}
+
+// Real xolu v0.30.44 wraps errors as {"error":{"code","message","status"}}.
+func TestHTTPXoluClient_Execute_NestedErrorEnvelope(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v2/fsm/machine/m-404/walk", "/api/v2/fsm/machine/m-404/history":
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error":{"code":"XOLU-FSM002","message":"machine not found","status":404}}`))
+		case "/api/v2/cal/check":
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"code":"XOLU-CAL004","message":"calendar_id is required","status":400}}`))
+		}
+	}))
+	defer ts.Close()
+
+	client := NewHTTPXoluClient(ts.URL, 2*time.Second)
+	ctx := context.Background()
+
+	for _, prim := range []string{"walk", "machine_history"} {
+		_, err := client.Execute(ctx, prim, map[string]interface{}{"machine_id": "m-404", "input": "GO"})
+		var se interface{ HTTPStatus() int }
+		if !errors.As(err, &se) || se.HTTPStatus() != 404 {
+			t.Fatalf("%s: expected an error exposing HTTP status 404, got %T: %v", prim, err, err)
+		}
+		if !strings.Contains(err.Error(), "XOLU-FSM002") || !strings.Contains(err.Error(), "machine not found") {
+			t.Errorf("%s: error must keep xolu's code and message, got %q", prim, err.Error())
+		}
+	}
+
+	_, err := client.Execute(ctx, "cal_check", map[string]interface{}{"calendars": []interface{}{"a"}})
+	te, ok := err.(*taxonomy.TypedError)
+	if !ok {
+		t.Fatalf("expected *taxonomy.TypedError for a 400 with a nested code, got %T: %v", err, err)
+	}
+	if te.Code != "XOLU-CAL004" || te.Message != "calendar_id is required" {
+		t.Errorf("xolu code and message must pass verbatim, got %s / %q", te.Code, te.Message)
 	}
 }

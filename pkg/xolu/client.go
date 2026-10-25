@@ -412,21 +412,13 @@ func (c *HTTPXoluClient) doRequest(ctx context.Context, method, path string, bod
 	}
 
 	if resp.StatusCode >= 400 {
-		var errResp struct {
-			Code    string         `json:"code"`
-			Message string         `json:"message"`
-			Details map[string]any `json:"details"`
-		}
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		if err := json.Unmarshal(bodyBytes, &errResp); err == nil && errResp.Code != "" {
-			return nil, &taxonomy.TypedError{
-				Code:    errResp.Code,
-				Message: errResp.Message,
-				Details: errResp.Details,
-			}
+		code, message, details := parseXoluError(bodyBytes)
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, &HTTPError{Status: resp.StatusCode, Code: code, Message: message, Body: string(bodyBytes)}
 		}
-		if resp.StatusCode == 404 {
-			return nil, fmt.Errorf("404 not found: %s", string(bodyBytes))
+		if code != "" {
+			return nil, &taxonomy.TypedError{Code: code, Message: message, Details: details}
 		}
 		return nil, fmt.Errorf("xolu error (%d): %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -439,4 +431,45 @@ func (c *HTTPXoluClient) doRequest(ctx context.Context, method, path string, bod
 	}
 
 	return nil, nil
+}
+
+// HTTPError is a non-success answer from xolu that callers may need to
+// classify by status, such as a 404 for an object that does not exist.
+type HTTPError struct {
+	Status  int
+	Code    string
+	Message string
+	Body    string
+}
+
+func (e *HTTPError) Error() string {
+	if e.Code != "" {
+		return fmt.Sprintf("%d not found: %s: %s", e.Status, e.Code, e.Message)
+	}
+	return fmt.Sprintf("%d not found: %s", e.Status, e.Body)
+}
+
+func (e *HTTPError) HTTPStatus() int { return e.Status }
+
+// parseXoluError reads xolu's error body. Real xolu wraps the error as
+// {"error":{"code","message","status"}}; the flat {"code","message"} shape is
+// accepted too.
+func parseXoluError(body []byte) (code, message string, details map[string]any) {
+	var nested struct {
+		Error struct {
+			Code    string         `json:"code"`
+			Message string         `json:"message"`
+			Details map[string]any `json:"details"`
+		} `json:"error"`
+		Code    string         `json:"code"`
+		Message string         `json:"message"`
+		Details map[string]any `json:"details"`
+	}
+	if err := json.Unmarshal(body, &nested); err != nil {
+		return "", "", nil
+	}
+	if nested.Error.Code != "" {
+		return nested.Error.Code, nested.Error.Message, nested.Error.Details
+	}
+	return nested.Code, nested.Message, nested.Details
 }
