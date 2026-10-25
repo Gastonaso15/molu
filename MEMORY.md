@@ -262,3 +262,50 @@ Probado con xolu **v0.30.44** (la más reciente; `Downloads/xolu-main`, compilad
 ## Herramientas de desarrollo (25-oct-2026)
 - `scripts/levantar-xolu.sh` (+ `make xolu-up` / `make xolu-down`): compila y arranca un xolu local en el puerto 9191 con `XOLU_API_V2_ENABLED` y `XOLU_CAL_ENABLED`, y carga una semilla de Seam (por defecto la 01, Constructec). Opciones: `--seed 01..06`, `--reset`, `--no-seed`, `--port`, `stop`, `status`. Estado en `.dev-xolu/` (ignorado por git).
 - Necesita el código de xolu y las semillas de Seam, que no están en este repo: los busca en `../SEAM-CURE/` o se indican con `XOLU_SRC` (o `XOLU_BIN`) y `SEEDS_DIR`. Probado solo con la semilla 01 y esa disposición de carpetas.
+
+---
+
+## Extensión: Contadores de Errores Tipados (Spec 007 — Error Metrics) — 25-oct-2026
+
+**Objetivo**: Exponer contadores agregados Prometheus (`molu_errors_total{component="molu-front", code="<CÓDIGO>"}`) para cada uno de los 6 códigos de la taxonomía cuando el servidor MCP los emite.
+
+**Decisión**: Implementado bajo **Spec 007** (telemetry-and-observability) porque la infraestructura de métricas ya existía allí y es coherente con la observabilidad.
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `pkg/mcp/server.go` | +Campo `Metrics telemetry.Metrics` en `ServerConfig` y struct `Server`; +helper `incError(code)` que usa `taxonomy.StripPrefix` para obtener código base; +7 llamadas a `s.incError()` en `executeTool` (uno por cada código taxonomía) |
+| `pkg/mcp/server_test.go` | +7 tests: `TestServer_MetricsConfig`, `TestServer_ErrorMetrics_SubstrateUnavailable`, `TestServer_ErrorMetrics_NotOffered`, `TestServer_ErrorMetrics_ContractViolation`, `TestServer_ErrorMetrics_NotFound`, `TestServer_ErrorMetrics_InvalidTransition`, `TestServer_ErrorMetrics_Empty` |
+| `cmd/molu/main.go` | +Inyección `Metrics: metrics` en `mcp.ServerConfig` |
+
+### Puntos de instrumentación en `executeTool`
+
+1. **Health check falla** → `SUBSTRATE_UNAVAILABLE`
+2. **`!isToolOffered`** → `NOT_OFFERED`
+3. **Validación schema (proveedor/fallback)** → `CONTRACT_VIOLATION`
+4. **Mapeo 404** → `NOT_FOUND` (casos: `get`, `machine_state`, `cal_confirm`, `machine_history`, `walk`)
+5. **Guarda FSM (walk)** → `INVALID_TRANSITION`
+6. **`isEmptyCollection`** → `EMPTY` (casos: `list`, `query`, `machine_history`, `cal_openings`)
+
+### Detalles técnicos
+
+- **Código base**: `taxonomy.StripPrefix(te.Code)` convierte `XOLU-MOLU-FRONT-CONTRACT_VIOLATION` → `CONTRACT_VIOLATION`, `XOLU-INVALID_TRANSITION` → `INVALID_TRANSITION`
+- **Componente**: `telemetry.ComponentMoluFront` (`"molu-front"`)
+- **Solo errores**: Por decisión, no se cuentan peticiones exitosas (`OK`), solo errores
+
+### Tests de validación
+
+Todos los 6 tests de integración pasan:
+```bash
+go test -v ./pkg/mcp/... -run "TestServer_ErrorMetrics"
+# PASS: SubstrateUnavailable, NotOffered, ContractViolation, NotFound, InvalidTransition, Empty
+```
+
+### Suite completa
+```bash
+go test ./...  # Todo en verde
+```
+
+### Pendiente
+- T46: Este registro en MEMORY.md ✓

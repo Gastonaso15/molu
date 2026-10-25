@@ -16,6 +16,7 @@ import (
 	"github.com/Gastonaso15/molu/pkg/rpi"
 	"github.com/Gastonaso15/molu/pkg/schema"
 	"github.com/Gastonaso15/molu/pkg/taxonomy"
+	"github.com/Gastonaso15/molu/pkg/telemetry"
 )
 
 // PrimitiveProvider provides active primitive schemas (e.g. *schema.SchemaLoader).
@@ -48,6 +49,7 @@ type ServerConfig struct {
 	Executor    SubstrateExecutor
 	Discovery   ToolDiscoverer
 	CallTimeout time.Duration
+	Metrics     telemetry.Metrics
 }
 
 // Server is the MCP server over stdio or any io.ReadWriter.
@@ -57,6 +59,7 @@ type Server struct {
 	executor    SubstrateExecutor
 	discovery   ToolDiscoverer
 	callTimeout time.Duration
+	metrics     telemetry.Metrics
 
 	mu         sync.RWMutex
 	primitives []schema.PrimitiveSchema
@@ -88,6 +91,7 @@ func NewServer(cfg ServerConfig) *Server {
 		executor:    cfg.Executor,
 		discovery:   cfg.Discovery,
 		callTimeout: callTimeout,
+		metrics:     cfg.Metrics,
 		primitives:  initialPrims,
 	}
 }
@@ -273,26 +277,34 @@ func (s *Server) executeTool(ctx context.Context, p callToolParams) (interface{}
 		if err := s.health.Check(); err != nil {
 			var te *taxonomy.TypedError
 			if errors.As(err, &te) {
+				s.incError(te.Code)
 				return nil, typedRPCError(te)
 			}
-			return nil, typedRPCError(taxonomy.NewSubstrateUnavailable("", "", 0, 0))
+			te = taxonomy.NewSubstrateUnavailable("", "", 0, 0)
+			s.incError(te.Code)
+			return nil, typedRPCError(te)
 		}
 	}
 
 	// 2. Check if tool is offered (RF-5)
 	if !s.isToolOffered(p.Name) {
-		return nil, typedRPCError(taxonomy.NewNotOffered("", p.Name))
+		te := taxonomy.NewNotOffered("", p.Name)
+		s.incError(te.Code)
+		return nil, typedRPCError(te)
 	}
 
 	// 3. Contract validation (RF-3 / T4)
 	if s.provider != nil {
 		if te := s.provider.ValidateInput(p.Name, p.Arguments); te != nil {
+			s.incError(te.Code)
 			return nil, typedRPCError(te)
 		}
 	} else {
 		res := schema.ValidateInput(StandardPrimitives(), p.Name, p.Arguments)
 		if !res.Valid {
-			return nil, typedRPCError(taxonomy.NewContractViolation("", p.Name, res.InvalidFields))
+			te := taxonomy.NewContractViolation("", p.Name, res.InvalidFields)
+			s.incError(te.Code)
+			return nil, typedRPCError(te)
 		}
 	}
 
@@ -322,6 +334,7 @@ func (s *Server) executeTool(ctx context.Context, p callToolParams) (interface{}
 		if err != nil {
 			var te *taxonomy.TypedError
 			if errors.As(err, &te) {
+				s.incError(te.Code)
 				return nil, typedRPCError(te)
 			}
 
@@ -335,29 +348,41 @@ func (s *Server) executeTool(ctx context.Context, p callToolParams) (interface{}
 			switch p.Name {
 			case "get":
 				if isNotFound {
-					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["id"])))
+					te = taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["id"]))
+					s.incError(te.Code)
+					return nil, typedRPCError(te)
 				}
 			case "machine_state":
 				if isNotFound {
-					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["machine_id"])))
+					te = taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["machine_id"]))
+					s.incError(te.Code)
+					return nil, typedRPCError(te)
 				}
 			case "cal_confirm":
 				if isNotFound {
-					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["booking_id"])))
+					te = taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["booking_id"]))
+					s.incError(te.Code)
+					return nil, typedRPCError(te)
 				}
 			case "machine_history":
 				if isNotFound {
-					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["machine_id"])))
+					te = taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["machine_id"]))
+					s.incError(te.Code)
+					return nil, typedRPCError(te)
 				}
 			case "walk":
 				if isNotFound {
-					return nil, typedRPCError(taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["machine_id"])))
+					te = taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["machine_id"]))
+					s.incError(te.Code)
+					return nil, typedRPCError(te)
 				}
 				if strings.Contains(msgLower, "guard") || strings.Contains(msgLower, "invalid transition") || strings.Contains(msgLower, "rejected") {
-					return nil, typedRPCError(&taxonomy.TypedError{
+					te = &taxonomy.TypedError{
 						Code:    taxonomy.PrefixXolu + string(taxonomy.CodeInvalidTransition),
 						Message: err.Error(),
-					})
+					}
+					s.incError(te.Code)
+					return nil, typedRPCError(te)
 				}
 			}
 
@@ -368,19 +393,27 @@ func (s *Server) executeTool(ctx context.Context, p callToolParams) (interface{}
 		switch p.Name {
 		case "list":
 			if isEmptyCollection(execRes, "data", "items", "results") {
-				return nil, typedRPCError(taxonomy.NewEmpty("", "list", map[string]any{"entity_type": p.Arguments["entity_type"]}))
+				te := taxonomy.NewEmpty("", "list", map[string]any{"entity_type": p.Arguments["entity_type"]})
+				s.incError(te.Code)
+				return nil, typedRPCError(te)
 			}
 		case "query":
 			if isEmptyCollection(execRes, "rows", "results") {
-				return nil, typedRPCError(taxonomy.NewEmpty("", "query", map[string]any{"query": p.Arguments["query"]}))
+				te := taxonomy.NewEmpty("", "query", map[string]any{"query": p.Arguments["query"]})
+				s.incError(te.Code)
+				return nil, typedRPCError(te)
 			}
 		case "machine_history":
 			if isEmptyCollection(execRes, "history", "transitions", "items") {
-				return nil, typedRPCError(taxonomy.NewEmpty("", "machine_history", map[string]any{"machine_id": p.Arguments["machine_id"]}))
+				te := taxonomy.NewEmpty("", "machine_history", map[string]any{"machine_id": p.Arguments["machine_id"]})
+				s.incError(te.Code)
+				return nil, typedRPCError(te)
 			}
 		case "cal_openings":
 			if isEmptyCollection(execRes, "openings", "windows", "items") {
-				return nil, typedRPCError(taxonomy.NewEmpty("", "cal_openings", map[string]any{"duration": p.Arguments["duration"]}))
+				te := taxonomy.NewEmpty("", "cal_openings", map[string]any{"duration": p.Arguments["duration"]})
+				s.incError(te.Code)
+				return nil, typedRPCError(te)
 			}
 		}
 
@@ -574,4 +607,13 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 // ServeStdio serves the MCP protocol on os.Stdin and os.Stdout.
 func (s *Server) ServeStdio(ctx context.Context) error {
 	return s.Serve(ctx, os.Stdin, os.Stdout)
+}
+
+// incError increments the error counter for the given taxonomy code.
+// It strips the prefix (XOLU-MOLU-FRONT- or XOLU-) to get the base code.
+func (s *Server) incError(code string) {
+	if s.metrics != nil {
+		baseCode := taxonomy.StripPrefix(code)
+		s.metrics.IncErrors(telemetry.ComponentMoluFront, string(baseCode))
+	}
 }

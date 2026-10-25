@@ -89,3 +89,55 @@
 
 - [x] **T30. Actualizar MEMORY.md con hito spec 007 completado.** RF-1..RF-14
   - Hecho cuando: `MEMORY.md` refleja spec 007, decisiones ADR-007, y estado de implementación.
+
+---
+
+## Extensión: Contadores de Errores Tipados en MCP Server (Error Metrics)
+
+- [x] **T31. Test rojo: ServerConfig acepta Metrics y helper StripPrefix.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_MetricsConfig"` falla porque `ServerConfig.Metrics` no existe.
+
+- [x] **T32. Implementar: añadir Metrics a ServerConfig y helper para código base.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_MetricsConfig"` pasa en verde.
+
+- [x] **T33. Test rojo: SUBSTRATE_UNAVAILABLE incrementa molu_errors_total.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_SubstrateUnavailable"` falla.
+
+- [x] **T34. Implementar: incrementar contador en health check fallido.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_SubstrateUnavailable"` pasa.
+
+- [x] **T35. Test rojo: NOT_OFFERED incrementa molu_errors_total.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_NotOffered"` falla.
+
+- [x] **T36. Implementar: incrementar contador en herramienta no ofrecida.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_NotOffered"` pasa.
+
+- [x] **T37. Test rojo: CONTRACT_VIOLATION incrementa molu_errors_total.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_ContractViolation"` falla.
+
+- [x] **T38. Implementar: incrementar contador en validación de contrato.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_ContractViolation"` pasa.
+
+- [x] **T39. Test rojo: NOT_FOUND incrementa molu_errors_total.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_NotFound"` falla.
+
+- [x] **T40. Implementar: incrementar contador en mapeo 404.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_NotFound"` pasa.
+
+- [x] **T41. Test rojo: INVALID_TRANSITION incrementa molu_errors_total.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_InvalidTransition"` falla.
+
+- [x] **T42. Implementar: incrementar contador en rechazo de guarda FSM.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_InvalidTransition"` pasa.
+
+- [x] **T43. Test rojo: EMPTY incrementa molu_errors_total.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_Empty"` falla.
+
+- [x] **T44. Implementar: incrementar contador en resultado vacío.** RF-11
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_ErrorMetrics_Empty"` pasa.
+
+- [x] **T45. Integrar en cmd/molu/main.go: inyectar metrics en ServerConfig.** RF-11
+  - Hecho cuando: `go build ./cmd/molu/...` compila y `make run-molu` arranca sin errores.
+
+- [x] **T46. Actualizar MEMORY.md con extensión Error Metrics completada.** RF-1..RF-14
+  - Hecho cuando: `MEMORY.md` refleja T31–T45, decisión de usar Spec 007, y estado de implementación.

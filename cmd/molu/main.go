@@ -138,6 +138,7 @@ func main() {
 		Executor:    xoluClient,
 		Discovery:   discovery,
 		CallTimeout: cfg.CallTimeout,
+		Metrics:     metrics,
 	})
 
 	primitives := schemaLoader.GetPrimitives()

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/Gastonaso15/molu/pkg/schema"
 	"github.com/Gastonaso15/molu/pkg/taxonomy"
+	"github.com/Gastonaso15/molu/pkg/telemetry"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type mockPrimitiveProvider struct {
@@ -785,4 +789,283 @@ func toolFailure(t *testing.T, resp jsonRPCResponse) map[string]interface{} {
 		return map[string]interface{}{"message": text}
 	}
 	return data
+}
+
+// fetchMetrics returns the Prometheus metrics output as a string.
+func fetchMetrics(t *testing.T, reg *prometheus.Registry) string {
+	t.Helper()
+	handler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec.Body.String()
+}
+
+func TestServer_MetricsConfig(t *testing.T) {
+	// T31: ServerConfig acepta Metrics field
+	reg := prometheus.NewRegistry()
+	metrics := telemetry.NewMetricsWithRegistry(reg)
+	_ = ServerConfig{
+		Provider: &mockPrimitiveProvider{},
+		Metrics:  metrics,
+	}
+
+	// Helper: taxonomy.StripPrefix devuelve código base sin prefijos
+	prefixed := taxonomy.PrefixMolu + string(taxonomy.CodeContractViolation)
+	stripped := taxonomy.StripPrefix(prefixed)
+	if stripped != taxonomy.CodeContractViolation {
+		t.Errorf("StripPrefix(%q) = %q, want %q", prefixed, stripped, taxonomy.CodeContractViolation)
+	}
+
+	xoluPrefixed := taxonomy.PrefixXolu + string(taxonomy.CodeInvalidTransition)
+	stripped = taxonomy.StripPrefix(xoluPrefixed)
+	if stripped != taxonomy.CodeInvalidTransition {
+		t.Errorf("StripPrefix(%q) = %q, want %q", xoluPrefixed, stripped, taxonomy.CodeInvalidTransition)
+	}
+
+	// No prefix
+	plain := string(taxonomy.CodeNotFound)
+	stripped = taxonomy.StripPrefix(plain)
+	if stripped != taxonomy.CodeNotFound {
+		t.Errorf("StripPrefix(%q) = %q, want %q", plain, stripped, taxonomy.CodeNotFound)
+	}
+}
+
+func TestServer_ErrorMetrics_SubstrateUnavailable(t *testing.T) {
+	// T33: Test rojo - SUBSTRATE_UNAVAILABLE incrementa molu_errors_total
+	reg := prometheus.NewRegistry()
+	metrics := telemetry.NewMetricsWithRegistry(reg)
+
+	healthErr := taxonomy.NewSubstrateUnavailable("2026-10-23T12:00:00Z", "2026-10-23T12:00:05Z", 2, 5)
+	health := &mockHealthChecker{
+		checkFn: func() error {
+			return healthErr
+		},
+	}
+	srv := NewServer(ServerConfig{
+		Health:  health,
+		Metrics: metrics,
+	})
+
+	var out bytes.Buffer
+	callReq := `{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"walk","arguments":{"machine_id":"m1","input":"advance"}}}`
+	err := srv.HandleMessage(context.Background(), []byte(callReq), &out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var resp jsonRPCResponse
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	dataMap := toolFailure(t, resp)
+	if dataMap["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeSubstrateUnavailable) {
+		t.Errorf("expected code %s, got %v", taxonomy.PrefixMolu+taxonomy.CodeSubstrateUnavailable, dataMap["code"])
+	}
+
+	// Verify metrics counter incremented
+	body := fetchMetrics(t, reg)
+	// Prometheus label order may vary; check both key parts present
+	if !strings.Contains(body, `molu_errors_total{`) ||
+		!strings.Contains(body, `component="molu-front"`) ||
+		!strings.Contains(body, `code="SUBSTRATE_UNAVAILABLE"`) ||
+		!strings.Contains(body, ` 1`) {
+		t.Errorf("expected metric molu_errors_total with component=molu-front, code=SUBSTRATE_UNAVAILABLE, value=1 not found in:\n%s", body)
+	}
+}
+
+func TestServer_ErrorMetrics_NotOffered(t *testing.T) {
+	// T35: Test rojo - NOT_OFFERED incrementa molu_errors_total
+	reg := prometheus.NewRegistry()
+	metrics := telemetry.NewMetricsWithRegistry(reg)
+
+	health := &mockHealthChecker{
+		checkFn: func() error { return nil },
+	}
+	srv := NewServer(ServerConfig{
+		Health:  health,
+		Metrics: metrics,
+	})
+
+	var out bytes.Buffer
+	callReq := `{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"unknown_tool","arguments":{}}}`
+	err := srv.HandleMessage(context.Background(), []byte(callReq), &out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var resp jsonRPCResponse
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	dataMap := toolFailure(t, resp)
+	if dataMap["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeNotOffered) {
+		t.Errorf("expected code %s, got %v", taxonomy.PrefixMolu+taxonomy.CodeNotOffered, dataMap["code"])
+	}
+
+	// Verify metrics counter incremented
+	body := fetchMetrics(t, reg)
+	if !strings.Contains(body, `molu_errors_total{`) ||
+		!strings.Contains(body, `component="molu-front"`) ||
+		!strings.Contains(body, `code="NOT_OFFERED"`) ||
+		!strings.Contains(body, ` 1`) {
+		t.Errorf("expected metric molu_errors_total with component=molu-front, code=NOT_OFFERED, value=1 not found in:\n%s", body)
+	}
+}
+
+func TestServer_ErrorMetrics_ContractViolation(t *testing.T) {
+	// T37: Test rojo - CONTRACT_VIOLATION incrementa molu_errors_total
+	reg := prometheus.NewRegistry()
+	metrics := telemetry.NewMetricsWithRegistry(reg)
+
+	srv := NewServer(ServerConfig{
+		Metrics: metrics,
+	})
+
+	var out bytes.Buffer
+	callReq := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create","arguments":{}}}`
+	err := srv.HandleMessage(context.Background(), []byte(callReq), &out)
+	if err != nil {
+		t.Fatalf("unexpected handle error: %v", err)
+	}
+
+	var resp jsonRPCResponse
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	dataMap := toolFailure(t, resp)
+	if dataMap["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeContractViolation) {
+		t.Errorf("expected code %s, got %v", taxonomy.PrefixMolu+taxonomy.CodeContractViolation, dataMap["code"])
+	}
+
+	// Verify metrics counter incremented
+	body := fetchMetrics(t, reg)
+	if !strings.Contains(body, `molu_errors_total{`) ||
+		!strings.Contains(body, `component="molu-front"`) ||
+		!strings.Contains(body, `code="CONTRACT_VIOLATION"`) ||
+		!strings.Contains(body, ` 1`) {
+		t.Errorf("expected metric molu_errors_total with component=molu-front, code=CONTRACT_VIOLATION, value=1 not found in:\n%s", body)
+	}
+}
+
+func TestServer_ErrorMetrics_NotFound(t *testing.T) {
+	// T39: Test rojo - NOT_FOUND incrementa molu_errors_total
+	reg := prometheus.NewRegistry()
+	metrics := telemetry.NewMetricsWithRegistry(reg)
+
+	mockExec := &mockSubstrateExecutor{
+		executeFn: func(ctx context.Context, primitive string, args map[string]interface{}) (map[string]interface{}, error) {
+			return nil, errors.New("404 entity not found")
+		},
+	}
+	srv := NewServer(ServerConfig{
+		Executor: mockExec,
+		Metrics:  metrics,
+	})
+
+	var out bytes.Buffer
+	callReq := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get","arguments":{"entity_type":"asset","id":"ast-99"}}}`
+	err := srv.HandleMessage(context.Background(), []byte(callReq), &out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var resp jsonRPCResponse
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	data := toolFailure(t, resp)
+	if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeNotFound) {
+		t.Errorf("expected NOT_FOUND code, got %v", data["code"])
+	}
+
+	// Verify metrics counter incremented
+	body := fetchMetrics(t, reg)
+	if !strings.Contains(body, `molu_errors_total{`) ||
+		!strings.Contains(body, `component="molu-front"`) ||
+		!strings.Contains(body, `code="NOT_FOUND"`) ||
+		!strings.Contains(body, ` 1`) {
+		t.Errorf("expected metric molu_errors_total with component=molu-front, code=NOT_FOUND, value=1 not found in:\n%s", body)
+	}
+}
+
+func TestServer_ErrorMetrics_InvalidTransition(t *testing.T) {
+	// T41: Test rojo - INVALID_TRANSITION incrementa molu_errors_total
+	reg := prometheus.NewRegistry()
+	metrics := telemetry.NewMetricsWithRegistry(reg)
+
+	mockExec := &mockSubstrateExecutor{
+		executeFn: func(ctx context.Context, primitive string, args map[string]interface{}) (map[string]interface{}, error) {
+			return nil, &taxonomy.TypedError{
+				Code:    taxonomy.PrefixXolu + string(taxonomy.CodeInvalidTransition),
+				Message: "guard condition failed: payload.temp > 100",
+			}
+		},
+	}
+	srv := NewServer(ServerConfig{
+		Executor: mockExec,
+		Metrics:  metrics,
+	})
+
+	var out bytes.Buffer
+	callReq := `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"walk","arguments":{"machine_id":"m-1","input":"START"}}}`
+	err := srv.HandleMessage(context.Background(), []byte(callReq), &out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var resp jsonRPCResponse
+	json.Unmarshal(out.Bytes(), &resp)
+	data := toolFailure(t, resp)
+	if data["code"] != string(taxonomy.PrefixXolu+taxonomy.CodeInvalidTransition) {
+		t.Errorf("expected verbatim XOLU-INVALID_TRANSITION code, got %v", data["code"])
+	}
+
+	// Verify metrics counter incremented (uses base code INVALID_TRANSITION)
+	body := fetchMetrics(t, reg)
+	if !strings.Contains(body, `molu_errors_total{`) ||
+		!strings.Contains(body, `component="molu-front"`) ||
+		!strings.Contains(body, `code="INVALID_TRANSITION"`) ||
+		!strings.Contains(body, ` 1`) {
+		t.Errorf("expected metric molu_errors_total with component=molu-front, code=INVALID_TRANSITION, value=1 not found in:\n%s", body)
+	}
+}
+
+func TestServer_ErrorMetrics_Empty(t *testing.T) {
+	// T43: Test rojo - EMPTY incrementa molu_errors_total
+	reg := prometheus.NewRegistry()
+	metrics := telemetry.NewMetricsWithRegistry(reg)
+
+	mockExec := &mockSubstrateExecutor{
+		executeFn: func(ctx context.Context, primitive string, args map[string]interface{}) (map[string]interface{}, error) {
+			return map[string]interface{}{"items": []interface{}{}}, nil
+		},
+	}
+	srv := NewServer(ServerConfig{
+		Executor: mockExec,
+		Metrics:  metrics,
+	})
+
+	var out bytes.Buffer
+	callReq := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list","arguments":{"entity_type":"asset"}}}`
+	err := srv.HandleMessage(context.Background(), []byte(callReq), &out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var resp jsonRPCResponse
+	json.Unmarshal(out.Bytes(), &resp)
+	data := toolFailure(t, resp)
+	if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeEmpty) {
+		t.Errorf("expected EMPTY code, got %v", data["code"])
+	}
+
+	// Verify metrics counter incremented
+	body := fetchMetrics(t, reg)
+	if !strings.Contains(body, `molu_errors_total{`) ||
+		!strings.Contains(body, `component="molu-front"`) ||
+		!strings.Contains(body, `code="EMPTY"`) ||
+		!strings.Contains(body, ` 1`) {
+		t.Errorf("expected metric molu_errors_total with component=molu-front, code=EMPTY, value=1 not found in:\n%s", body)
+	}
 }
