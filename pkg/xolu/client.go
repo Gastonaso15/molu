@@ -322,19 +322,95 @@ func (c *HTTPXoluClient) Execute(ctx context.Context, primitive string, args map
 	case "cal_check":
 		method = "POST"
 		path = "/api/v2/cal/check"
-		body = args
+		calID := ""
+		if cals, ok := args["calendars"].([]any); ok && len(cals) > 0 {
+			calID = fmt.Sprintf("%v", cals[0])
+		} else if cals, ok := args["calendars"].([]string); ok && len(cals) > 0 {
+			calID = cals[0]
+		} else if cid, ok := args["calendar_id"]; ok {
+			calID = fmt.Sprintf("%v", cid)
+		}
+		if calID != "" && args["start"] != nil && args["end"] != nil {
+			body = map[string]any{
+				"calendar_id": calID,
+				"span": map[string]any{
+					"start": args["start"],
+					"end":   args["end"],
+				},
+			}
+		} else {
+			body = args
+		}
 	case "cal_openings":
 		method = "POST"
 		path = "/api/v2/cal/openings"
-		body = args
+		calID := ""
+		if cals, ok := args["calendars"].([]any); ok && len(cals) > 0 {
+			calID = fmt.Sprintf("%v", cals[0])
+		} else if cals, ok := args["calendars"].([]string); ok && len(cals) > 0 {
+			calID = cals[0]
+		} else if cid, ok := args["calendar_id"]; ok {
+			calID = fmt.Sprintf("%v", cid)
+		}
+		durationMs := int64(3600000)
+		if durStr, ok := args["duration"].(string); ok {
+			if d, err := time.ParseDuration(durStr); err == nil {
+				durationMs = d.Milliseconds()
+			} else if durStr == "PT1H" {
+				durationMs = 3600000
+			}
+		} else if dMs, ok := args["duration_ms"].(float64); ok {
+			durationMs = int64(dMs)
+		}
+		if calID != "" {
+			body = map[string]any{
+				"calendar_id": calID,
+				"from":        args["from"],
+				"to":          args["to"],
+				"duration_ms": durationMs,
+				"objective":   args["objective"],
+			}
+		} else {
+			body = args
+		}
 	case "cal_propose":
 		method = "POST"
 		path = "/api/v2/cal/propose"
-		body = args
+		calID := ""
+		if cals, ok := args["calendars"].([]any); ok && len(cals) > 0 {
+			calID = fmt.Sprintf("%v", cals[0])
+		} else if cals, ok := args["calendars"].([]string); ok && len(cals) > 0 {
+			calID = cals[0]
+		} else if cid, ok := args["calendar_id"]; ok {
+			calID = fmt.Sprintf("%v", cid)
+		}
+		bookingID := fmt.Sprintf("bk-%d", time.Now().UnixNano())
+		if bid, ok := args["booking_id"]; ok && fmt.Sprintf("%v", bid) != "" {
+			bookingID = fmt.Sprintf("%v", bid)
+		}
+		if calID != "" && args["start"] != nil && args["end"] != nil {
+			body = map[string]any{
+				"calendar_id": calID,
+				"booking_id":  bookingID,
+				"span": map[string]any{
+					"start": args["start"],
+					"end":   args["end"],
+				},
+			}
+		} else {
+			body = args
+		}
 	case "cal_confirm":
 		method = "POST"
 		path = "/api/v2/cal/confirm"
-		body = args
+		calID := "room-a"
+		if cid, ok := args["calendar_id"]; ok && fmt.Sprintf("%v", cid) != "" {
+			calID = fmt.Sprintf("%v", cid)
+		}
+		body = map[string]any{
+			"calendar_id": calID,
+			"booking_id":  args["booking_id"],
+		}
 	default:
 		return nil, fmt.Errorf("unsupported primitive: %s", primitive)
 	}

@@ -247,14 +247,13 @@ Probado con xolu **v0.30.44** (la más reciente; `Downloads/xolu-main`, compilad
 
 ## Verificación de `tools/call` contra xolu real v0.30.44 (24/25-oct-2026)
 - **Requisito de xolu:** `/api/v2` está apagado por defecto. Para FSM hay que arrancar xolu con `XOLU_API_V2_ENABLED=true` y para calendario además `XOLU_CAL_ENABLED=true`.
-- **Corregido:** las rutas `cal_*` de `HTTPXoluClient.Execute` eran `/api/v1/cal/*` y las reales son `/api/v2/cal/*` (`pkg/xolu/client.go`, `client_test.go`, `specs/006-.../spec.md` y `plan.md`). Tests de `pkg/xolu` y `pkg/mcp` en verde. Sin commit todavía.
-- **Corregido (T9.1, spec 006):** `doRequest` entiende el sobre anidado `{"error":{"code","message","status"}}` de xolu. Un 404 sale como `*xolu.HTTPError` (con `HTTPStatus()`), otros errores con código salen como `TypedError` con el código de xolu verbatim; `handleCallTool` mapea 404 a `NOT_FOUND` también en `walk` y `machine_history`. Verificado contra xolu real; `go test -race ./...` en verde. Sin commit todavía. Ojo: un 404 de ruta inexistente (xolu sin `/api/v2`) también se mapea a `NOT_FOUND`.
-- **Pendiente (tareas T9.2 a T9.4 en `specs/006-mcp-server-stdio/tasks.md`):**
-  - T9.3: `cal_check` llega al endpoint real, pero xolu responde 400 `XOLU-CAL004 calendar_id is required`: el cuerpo de molu usa `calendars[]`, xolu espera `calendar_id` (ahora se ve como error tipado con el código de xolu).
-  - `list` vacío no da `EMPTY`: xolu responde `{"data":[],"pagination":...}` y `isEmptyCollection` no mira `data`.
-  - `describe` devuelve `/api/v1/schemas`, no el mapa semántico.
-  - `query` con `LIMIT n` devolvió `XOLU-QL004` en xolu; sin `LIMIT` funciona. Parece una peculiaridad de xolu, sin confirmar.
-- No probados: `create`, `update`, `cal_openings`, `cal_propose`, `cal_confirm` (escriben datos).
+- **Corregido:** las rutas `cal_*` de `HTTPXoluClient.Execute` eran `/api/v1/cal/*` y las reales son `/api/v2/cal/*` (`pkg/xolu/client.go`, `client_test.go`, `specs/006-.../spec.md` y `plan.md`). Tests de `pkg/xolu` y `pkg/mcp` en verde.
+- **Corregido (T9.1, spec 006):** `doRequest` entiende el sobre anidado `{"error":{"code","message","status"}}` de xolu. Un 404 sale como `*xolu.HTTPError` (con `HTTPStatus()`), otros errores con código salen como `TypedError` con el código de xolu verbatim; `handleCallTool` mapea 404 a `NOT_FOUND` también en `walk` y `machine_history`. Verificado contra xolu real; `go test -race ./...` en verde.
 - **Corregido (T9.5 y T9.2):** `list` ahora respeta `limit`, `offset` y `filter` (xolu usa `page`/`per_page` con máximo 100 y toma el resto de parámetros como filtros); `isEmptyCollection` reconoce la clave `data` de xolu. Los fixtures `items` de los tests se cambiaron al formato real. `go test -race ./...` en verde; probado contra xolu real y con un agente (Claude Code `-p` con molu como único servidor MCP).
+- **Corregido (T9.3):** `HTTPXoluClient.Execute` adapta de forma transparente los parámetros de `cal_check`, `cal_openings`, `cal_propose` y `cal_confirm` para satisfacer las firmas reales de xolu (`calendar_id` a partir de `calendars[]`, `span: {start, end}`, `duration_ms` en milisegundos desde ISO `PT1H`, y `booking_id`).
+- **Ejemplos cargados para Inspector MCP:** Se agregaron valores `"default"`, `"examples"` y descripciones en los esquemas JSON de los 13 primitivos en `pkg/mcp/primitives.go`, permitiendo que `@modelcontextprotocol/inspector` (`make inspector`) precargue los formularios con datos válidos de prueba (`person`, `skill`, OQL, FSM) listos para ejecución inmediata.
 - **Hallazgo (T9.6, pendiente de decisión):** el agente no ve el código tipado del error (`NOT_FOUND`, `EMPTY`), solo el mensaje, porque viaja en `error.data` del error JSON-RPC. Hay que decidir si se devuelve como resultado `isError: true`.
-- **Pendiente:** T9.3 (contrato de `cal_check`) y T9.4 (`describe`). Sin commit de T9.1, T9.2 y T9.5.
+- **Pendiente:**
+  - T9.4: `describe` devuelve `/api/v1/schemas`, no el mapa semántico completo.
+  - `query` con `LIMIT n` devolvió `XOLU-QL004` en xolu; sin `LIMIT` funciona.
+

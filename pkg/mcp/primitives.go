@@ -22,6 +22,12 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 					"name": map[string]interface{}{
 						"type":        "string",
 						"description": "Optional. Restrict to one entity type, machine definition, generator, or event definition by name.",
+						"default":     "",
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"scope": "all",
 					},
 				},
 			},
@@ -33,8 +39,24 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"type":     "object",
 				"required": []interface{}{"entity_type", "id"},
 				"properties": map[string]interface{}{
-					"entity_type": map[string]interface{}{"type": "string"},
-					"id":          map[string]interface{}{"type": []interface{}{"string", "integer"}},
+					"entity_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Entity type name (e.g. 'person', 'skill', 'deals')",
+						"default":     "person",
+						"examples":    []interface{}{"person", "skill"},
+					},
+					"id": map[string]interface{}{
+						"type":        []interface{}{"string", "integer"},
+						"description": "Identifier of the entity (e.g. 1)",
+						"default":     1,
+						"examples":    []interface{}{1, 2},
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"entity_type": "person",
+						"id":          1,
+					},
 				},
 			},
 		},
@@ -45,10 +67,37 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"type":     "object",
 				"required": []interface{}{"entity_type"},
 				"properties": map[string]interface{}{
-					"entity_type": map[string]interface{}{"type": "string"},
-					"filter":      map[string]interface{}{"type": "object", "description": "Field-value equality filters."},
-					"limit":       map[string]interface{}{"type": "integer", "default": 50, "minimum": 1, "maximum": 500},
-					"offset":      map[string]interface{}{"type": "integer", "default": 0, "minimum": 0},
+					"entity_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Entity type name (e.g. 'person', 'skill', 'deals')",
+						"default":     "person",
+						"examples":    []interface{}{"person", "skill"},
+					},
+					"filter": map[string]interface{}{
+						"type":        "object",
+						"description": "Field-value equality filters.",
+						"default":     map[string]interface{}{},
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of records to return.",
+						"default":     10,
+						"minimum":     1,
+						"maximum":     500,
+					},
+					"offset": map[string]interface{}{
+						"type":        "integer",
+						"description": "Pagination offset.",
+						"default":     0,
+						"minimum":     0,
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"entity_type": "person",
+						"limit":       10,
+						"offset":      0,
+					},
 				},
 			},
 		},
@@ -59,8 +108,28 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"type":     "object",
 				"required": []interface{}{"entity_type", "data"},
 				"properties": map[string]interface{}{
-					"entity_type": map[string]interface{}{"type": "string"},
-					"data":        map[string]interface{}{"type": "object", "description": "Field values for the new entity."},
+					"entity_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Entity type name (e.g. 'person', 'skill')",
+						"default":     "person",
+					},
+					"data": map[string]interface{}{
+						"type":        "object",
+						"description": "Field values for the new entity.",
+						"default": map[string]interface{}{
+							"name":  "Charlie",
+							"level": 4,
+						},
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"entity_type": "person",
+						"data": map[string]interface{}{
+							"name":  "Charlie",
+							"level": 4,
+						},
+					},
 				},
 			},
 		},
@@ -71,10 +140,37 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"type":     "object",
 				"required": []interface{}{"entity_type", "id", "changes"},
 				"properties": map[string]interface{}{
-					"entity_type": map[string]interface{}{"type": "string"},
-					"id":          map[string]interface{}{"type": []interface{}{"string", "integer"}},
-					"changes":     map[string]interface{}{"type": "object"},
-					"version":     map[string]interface{}{"type": "integer", "description": "Optimistic concurrency version."},
+					"entity_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Entity type name (e.g. 'person')",
+						"default":     "person",
+					},
+					"id": map[string]interface{}{
+						"type":        []interface{}{"string", "integer"},
+						"description": "Identifier of the entity to update",
+						"default":     1,
+					},
+					"changes": map[string]interface{}{
+						"type":        "object",
+						"description": "Fields to update",
+						"default": map[string]interface{}{
+							"level": 7,
+						},
+					},
+					"version": map[string]interface{}{
+						"type":        "integer",
+						"description": "Optimistic concurrency version.",
+						"default":     1,
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"entity_type": "person",
+						"id":          1,
+						"changes": map[string]interface{}{
+							"level": 7,
+						},
+					},
 				},
 			},
 		},
@@ -85,9 +181,27 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"type":     "object",
 				"required": []interface{}{"language", "query"},
 				"properties": map[string]interface{}{
-					"language": map[string]interface{}{"type": "string", "enum": []interface{}{"oql", "sulpher"}},
-					"query":    map[string]interface{}{"type": "string"},
-					"params":   map[string]interface{}{"type": "object", "description": "Optional bind parameters."},
+					"language": map[string]interface{}{
+						"type":    "string",
+						"enum":    []interface{}{"oql", "sulpher"},
+						"default": "oql",
+					},
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Query text in OQL or Sulpher syntax",
+						"default":     "SELECT name, level FROM person WHERE level >= 5",
+					},
+					"params": map[string]interface{}{
+						"type":        "object",
+						"description": "Optional bind parameters.",
+						"default":     map[string]interface{}{},
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"language": "oql",
+						"query":    "SELECT name, level FROM person WHERE level >= 5",
+					},
 				},
 			},
 		},
@@ -98,9 +212,28 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"type":     "object",
 				"required": []interface{}{"machine_id", "input"},
 				"properties": map[string]interface{}{
-					"machine_id": map[string]interface{}{"type": []interface{}{"string", "integer"}},
-					"input":      map[string]interface{}{"type": "string"},
-					"payload":    map[string]interface{}{"type": "object", "description": "Fields available to guards as payload.<field>."},
+					"machine_id": map[string]interface{}{
+						"type":        []interface{}{"string", "integer"},
+						"description": "Identifier or name of the FSM machine.",
+						"default":     "1",
+					},
+					"input": map[string]interface{}{
+						"type":        "string",
+						"description": "Transition input event to trigger.",
+						"default":     "advance",
+					},
+					"payload": map[string]interface{}{
+						"type":        "object",
+						"description": "Fields available to guards as payload.<field>.",
+						"default":     map[string]interface{}{},
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"machine_id": "1",
+						"input":      "advance",
+						"payload":    map[string]interface{}{},
+					},
 				},
 			},
 		},
@@ -111,7 +244,16 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"type":     "object",
 				"required": []interface{}{"machine_id"},
 				"properties": map[string]interface{}{
-					"machine_id": map[string]interface{}{"type": []interface{}{"string", "integer"}},
+					"machine_id": map[string]interface{}{
+						"type":        []interface{}{"string", "integer"},
+						"description": "Identifier or name of the FSM machine.",
+						"default":     "1",
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"machine_id": "1",
+					},
 				},
 			},
 		},
@@ -122,8 +264,24 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"type":     "object",
 				"required": []interface{}{"machine_id"},
 				"properties": map[string]interface{}{
-					"machine_id": map[string]interface{}{"type": []interface{}{"string", "integer"}},
-					"limit":      map[string]interface{}{"type": "integer", "default": 20, "minimum": 1, "maximum": 500},
+					"machine_id": map[string]interface{}{
+						"type":        []interface{}{"string", "integer"},
+						"description": "Identifier or name of the FSM machine.",
+						"default":     "1",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of history events to return.",
+						"default":     20,
+						"minimum":     1,
+						"maximum":     500,
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"machine_id": "1",
+						"limit":      20,
+					},
 				},
 			},
 		},
@@ -138,9 +296,25 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 						"type":        "array",
 						"items":       map[string]interface{}{"type": "string"},
 						"description": "Calendar identifiers to intersect.",
+						"default":     []interface{}{"room-a"},
 					},
-					"start": map[string]interface{}{"type": "string", "format": "date-time"},
-					"end":   map[string]interface{}{"type": "string", "format": "date-time"},
+					"start": map[string]interface{}{
+						"type":    "string",
+						"format":  "date-time",
+						"default": "2026-10-25T10:00:00Z",
+					},
+					"end": map[string]interface{}{
+						"type":    "string",
+						"format":  "date-time",
+						"default": "2026-10-25T11:00:00Z",
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"calendars": []interface{}{"room-a"},
+						"start":     "2026-10-25T10:00:00Z",
+						"end":       "2026-10-25T11:00:00Z",
+					},
 				},
 			},
 		},
@@ -152,18 +326,45 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"required": []interface{}{"calendars", "duration", "from", "to"},
 				"properties": map[string]interface{}{
 					"calendars": map[string]interface{}{
-						"type":  "array",
-						"items": map[string]interface{}{"type": "string"},
+						"type":    "array",
+						"items":   map[string]interface{}{"type": "string"},
+						"default": []interface{}{"room-a"},
 					},
-					"duration": map[string]interface{}{"type": "string", "description": "ISO 8601 duration (e.g. PT1H)."},
-					"from":     map[string]interface{}{"type": "string", "format": "date-time"},
-					"to":       map[string]interface{}{"type": "string", "format": "date-time"},
+					"duration": map[string]interface{}{
+						"type":        "string",
+						"description": "ISO 8601 duration (e.g. PT1H).",
+						"default":     "PT1H",
+					},
+					"from": map[string]interface{}{
+						"type":    "string",
+						"format":  "date-time",
+						"default": "2026-10-25T08:00:00Z",
+					},
+					"to": map[string]interface{}{
+						"type":    "string",
+						"format":  "date-time",
+						"default": "2026-10-25T18:00:00Z",
+					},
 					"objective": map[string]interface{}{
 						"type":    "string",
 						"enum":    []interface{}{"earliest", "first-fit", "emptiest", "longest-clear-margin"},
 						"default": "earliest",
 					},
-					"limit": map[string]interface{}{"type": "integer", "default": 10, "minimum": 1, "maximum": 100},
+					"limit": map[string]interface{}{
+						"type":    "integer",
+						"default": 10,
+						"minimum": 1,
+						"maximum": 100,
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"calendars": []interface{}{"room-a"},
+						"duration":  "PT1H",
+						"from":      "2026-10-25T08:00:00Z",
+						"to":        "2026-10-25T18:00:00Z",
+						"objective": "earliest",
+					},
 				},
 			},
 		},
@@ -175,12 +376,34 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"required": []interface{}{"calendars", "start", "end"},
 				"properties": map[string]interface{}{
 					"calendars": map[string]interface{}{
-						"type":  "array",
-						"items": map[string]interface{}{"type": "string"},
+						"type":    "array",
+						"items":   map[string]interface{}{"type": "string"},
+						"default": []interface{}{"room-a"},
 					},
-					"start":   map[string]interface{}{"type": "string", "format": "date-time"},
-					"end":     map[string]interface{}{"type": "string", "format": "date-time"},
-					"payload": map[string]interface{}{"type": "object", "description": "Optional application-defined metadata for the booking."},
+					"start": map[string]interface{}{
+						"type":    "string",
+						"format":  "date-time",
+						"default": "2026-10-25T14:00:00Z",
+					},
+					"end": map[string]interface{}{
+						"type":    "string",
+						"format":  "date-time",
+						"default": "2026-10-25T15:00:00Z",
+					},
+					"payload": map[string]interface{}{
+						"type":        "object",
+						"description": "Optional application-defined metadata for the booking.",
+						"default": map[string]interface{}{
+							"title": "Sprint Planning",
+						},
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"calendars": []interface{}{"room-a"},
+						"start":     "2026-10-25T14:00:00Z",
+						"end":       "2026-10-25T15:00:00Z",
+					},
 				},
 			},
 		},
@@ -191,7 +414,16 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"type":     "object",
 				"required": []interface{}{"booking_id"},
 				"properties": map[string]interface{}{
-					"booking_id": map[string]interface{}{"type": []interface{}{"string", "integer"}},
+					"booking_id": map[string]interface{}{
+						"type":        []interface{}{"string", "integer"},
+						"description": "Identifier of the booking to confirm.",
+						"default":     "bk-1001",
+					},
+				},
+				"examples": []interface{}{
+					map[string]interface{}{
+						"booking_id": "bk-1001",
+					},
 				},
 			},
 		},
