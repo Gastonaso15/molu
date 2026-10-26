@@ -309,3 +309,31 @@ go test ./...  # Todo en verde
 
 ### Pendiente
 - T46: Este registro en MEMORY.md ✓
+
+---
+
+## Entorno Local y Herramientas de Desarrollo
+
+### Actualización de Datos Precargados para MCP Inspector (Semilla 01 — Constructec)
+- **Alineación con datos reales de la semilla 01 (`seed-01-constructec.py`)**:
+  - Se actualizaron los esquemas JSON de los 13 primitivos en `pkg/mcp/primitives.go` para que `@modelcontextprotocol/inspector` precargue valores válidos y reales del sustrato:
+    - `describe`: `scope: "all"`, `name: ""` (con ejemplos de scope `entities` y `name: "assets"`).
+    - `get`: `entity_type: "assets"`, `id: 1` (devuelve Excavadora CAT 320 GC — EXC-001).
+    - `list`: `entity_type: "assets"`, `filter: {"status": "active"}`.
+    - `create`: `entity_type: "brands"`, `data: {"code": "VOL", "name": "Volvo"}`.
+    - `update`: `entity_type: "assets"`, `id: 1`, `changes: {"criticality": "Alta"}`.
+    - `query`: `language: "oql"`, `query: "SELECT id, name, status, criticality FROM assets WHERE status = 'active'"`.
+    - `walk`: `machine_id: "1"`, `input: "qr_scan"` (transiciona la FSM entre `disponible` y `en_uso`).
+    - `machine_state`: `machine_id: "1"`.
+    - `machine_history`: `machine_id: "1"`, `limit: 20`.
+    - `cal_check`: `calendars: ["VH-001"]`, `start: "2026-10-26T10:00:00Z"`, `end: "2026-10-26T11:00:00Z"`.
+    - `cal_openings`: `calendars: ["VH-001"]`, `duration: "PT1H"`, `from: "2026-10-26T08:00:00Z"`, `to: "2026-10-26T18:00:00Z"`, `objective: "earliest"`.
+    - `cal_propose`: `calendars: ["VH-001"]`, `booking_id: "bk-1001"`, `payload: {"title": "Mantenimiento Preventivo VH-001"}`.
+    - `cal_confirm`: `booking_id: "bk-1001"`.
+  - En `pkg/xolu/client.go`:
+    - `cal_propose`: Inyecta `bearer: 1` por defecto cuando no se especifica (requerido por el motor de calendarios de xolu para permitir la confirmación a `binding`).
+    - `cal_confirm`: Resuelve o adopta `"VH-001"` por defecto en lugar del valor previo genérico.
+  - En `scripts/levantar-xolu.sh`:
+    - Auto-inicialización de definiciones FSM v2 (`Ciclo de Vida — Vehículo` id: 1 con triggers `qr_scan`/`custom_driver`, y `Ciclo de Vida — Maquinaria Pesada` id: 2) e instancias de máquinas asociadas.
+    - Registro de calendarios (`VH-001` y `room-a`) y propuesta inicial de reserva `bk-1001` para que `cal_confirm` sea ejecutable inmediatamente en la UI del inspector tras resetear xolu.
+

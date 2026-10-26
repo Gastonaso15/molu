@@ -31,11 +31,11 @@ STATE="${STATE:-$REPO/.dev-xolu}"
 
 # Carpetas hermanas del repo donde suelen estar las versiones descargadas.
 latest() { ls -d "$@" 2>/dev/null | sort -V | tail -1 || true; }
-XOLU_SRC="${XOLU_SRC:-$(latest "$REPO"/../SEAM-CURE/xolu-v*/)}"
-SEEDS_DIR="${SEEDS_DIR:-$(latest "$REPO"/../SEAM-CURE/seam-v*/seeds/)}"
+XOLU_SRC="${XOLU_SRC:-$(latest "$REPO"/../xolu*/ "$REPO"/../SEAM-CURE/xolu*/)}"
+SEEDS_DIR="${SEEDS_DIR:-$(latest "$REPO"/../seam*/seeds/ "$REPO"/../SEAM-CURE/seam*/seeds/)}"
 XOLU_BIN="${XOLU_BIN:-}"
 
-PORT=9191
+PORT=9090
 SEED=01
 RESET=false
 DO_SEED=true
@@ -110,11 +110,22 @@ if [ -z "$XOLU_BIN" ] && [ ! -x "$BIN" ]; then
   (cd "$XOLU_SRC" && go build -o "$BIN" ./cmd/xolu)
 fi
 
-if $DO_SEED && ! "$VENV/bin/python" -c 'import bcrypt, requests' 2>/dev/null; then
-  say "Creando entorno de Python con bcrypt y requests"
-  rm -rf "$VENV"
-  python3 -m venv "$VENV"
-  "$VENV/bin/pip" install -q bcrypt requests
+PYTHON_CMD=""
+if $DO_SEED; then
+  if python3 -c "import bcrypt, requests" >/dev/null 2>&1; then
+    PYTHON_CMD="python3"
+  elif [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c "import bcrypt, requests" >/dev/null 2>&1; then
+    PYTHON_CMD="$VENV/bin/python"
+  else
+    say "Creando entorno de Python con bcrypt y requests"
+    python3 -m venv --system-site-packages "$VENV" 2>/dev/null || python3 -m venv "$VENV"
+    if [ -x "$VENV/bin/pip" ]; then
+      "$VENV/bin/pip" install -q bcrypt requests || true
+    fi
+    PYTHON_CMD="$VENV/bin/python"
+    "$PYTHON_CMD" -c "import bcrypt, requests" >/dev/null 2>&1 \
+      || die "hace falta bcrypt y requests en Python (pip install bcrypt requests)"
+  fi
 fi
 
 if $RESET; then
@@ -130,9 +141,10 @@ else
   say "Arrancando xolu en $URL"
   XOLU_API_V2_ENABLED=true XOLU_CAL_ENABLED=true \
   XOLU_AUTH_TYPE=none XOLU_METRICS_ENABLED=false \
-    nohup "$BIN" --host 127.0.0.1 --port "$PORT" --base-dir "$DATA" --no-ascii \
+    nohup setsid "$BIN" --host 127.0.0.1 --port "$PORT" --base-dir "$DATA" --no-ascii \
     >"$LOG" 2>&1 &
   echo $! >"$PIDFILE"
+  disown $! 2>/dev/null || true
 fi
 
 for _ in $(seq 1 40); do
@@ -148,11 +160,68 @@ if $DO_SEED; then
     say "La semilla $SEED ya estaba cargada (usa --reset para recargar)"
   else
     say "Cargando semilla $SEED ($(basename "$SEED_FILE"))"
-    "$VENV/bin/python" -I "$SEED_FILE" --url "$URL" >"$STATE/seed-$PORT.log" 2>&1 \
+    "$PYTHON_CMD" -I "$SEED_FILE" --url "$URL" >"$STATE/seed-$PORT.log" 2>&1 \
       || { tail -15 "$STATE/seed-$PORT.log" >&2; die "falló la semilla (log: $STATE/seed-$PORT.log)"; }
     touch "$MARK"
     sed -n '/Entities created:/,$p' "$STATE/seed-$PORT.log"
   fi
+
+  # Inicializa definiciones y máquinas FSM v2 y calendarios para pruebas de MCP
+  if ! curl -sf "$URL/api/v2/fsm/machine/1/state" >/dev/null 2>&1; then
+    curl -sf -X POST "$URL/api/v2/fsm/def" -H "Content-Type: application/json" -d '{
+      "name": "Ciclo de Vida — Vehículo",
+      "description": "Estados operativos de vehículos livianos de flota",
+      "initial": "disponible",
+      "determinism": "strict",
+      "states": {
+        "disponible": {"terminal": false},
+        "en_uso": {"terminal": false},
+        "en_servicio": {"terminal": false},
+        "dado_de_baja": {"terminal": true}
+      },
+      "transitions": [
+        {"from": "disponible", "input": "qr_scan", "to": "en_uso"},
+        {"from": "disponible", "input": "custom_driver", "to": "en_servicio"},
+        {"from": "en_uso", "input": "qr_scan", "to": "disponible"},
+        {"from": "en_uso", "input": "custom_driver", "to": "en_servicio"},
+        {"from": "en_servicio", "input": "custom_driver", "to": "disponible"},
+        {"from": "en_servicio", "input": "api_call", "to": "dado_de_baja"}
+      ]
+    }' >/dev/null 2>&1 || true
+
+    curl -sf -X POST "$URL/api/v2/fsm/machine" -H "Content-Type: application/json" -d '{"definition": 1}' >/dev/null 2>&1 || true
+
+    curl -sf -X POST "$URL/api/v2/fsm/def" -H "Content-Type: application/json" -d '{
+      "name": "Ciclo de Vida — Maquinaria Pesada",
+      "description": "Estados operativos de maquinaria pesada y agrícola",
+      "initial": "operativo",
+      "determinism": "strict",
+      "states": {
+        "operativo": {"terminal": false},
+        "mantenimiento_prog": {"terminal": false},
+        "en_reparacion": {"terminal": false},
+        "fuera_de_servicio": {"terminal": true}
+      },
+      "transitions": [
+        {"from": "operativo", "input": "maint_due", "to": "mantenimiento_prog"},
+        {"from": "operativo", "input": "custom_driver", "to": "en_reparacion"},
+        {"from": "mantenimiento_prog", "input": "custom_driver", "to": "operativo"},
+        {"from": "en_reparacion", "input": "custom_driver", "to": "operativo"},
+        {"from": "en_reparacion", "input": "api_call", "to": "fuera_de_servicio"}
+      ]
+    }' >/dev/null 2>&1 || true
+
+    curl -sf -X POST "$URL/api/v2/fsm/machine" -H "Content-Type: application/json" -d '{"definition": 2}' >/dev/null 2>&1 || true
+  fi
+
+  curl -sf -X POST "$URL/api/v2/cal/calendars" -H "Content-Type: application/json" -d '{"calendar_id":"VH-001"}' >/dev/null 2>&1 || true
+  curl -sf -X POST "$URL/api/v2/cal/calendars" -H "Content-Type: application/json" -d '{"calendar_id":"room-a"}' >/dev/null 2>&1 || true
+  curl -sf -X POST "$URL/api/v2/cal/propose" -H "Content-Type: application/json" -d '{
+    "calendar_id": "VH-001",
+    "booking_id": "bk-1001",
+    "bearer": 1,
+    "span": {"start": "2026-10-26T14:00:00Z", "end": "2026-10-26T15:00:00Z"}
+  }' >/dev/null 2>&1 || true
 fi
 
 cat <<EOF

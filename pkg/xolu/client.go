@@ -388,10 +388,17 @@ func (c *HTTPXoluClient) Execute(ctx context.Context, primitive string, args map
 		if bid, ok := args["booking_id"]; ok && fmt.Sprintf("%v", bid) != "" {
 			bookingID = fmt.Sprintf("%v", bid)
 		}
+		bearer := uint64(1)
+		if b, ok := args["bearer"].(float64); ok {
+			bearer = uint64(b)
+		} else if b, ok := args["bearer"].(int); ok {
+			bearer = uint64(b)
+		}
 		if calID != "" && args["start"] != nil && args["end"] != nil {
 			body = map[string]any{
 				"calendar_id": calID,
 				"booking_id":  bookingID,
+				"bearer":      bearer,
 				"span": map[string]any{
 					"start": args["start"],
 					"end":   args["end"],
@@ -403,9 +410,13 @@ func (c *HTTPXoluClient) Execute(ctx context.Context, primitive string, args map
 	case "cal_confirm":
 		method = "POST"
 		path = "/api/v2/cal/confirm"
-		calID := "room-a"
+		calID := "VH-001"
 		if cid, ok := args["calendar_id"]; ok && fmt.Sprintf("%v", cid) != "" {
 			calID = fmt.Sprintf("%v", cid)
+		} else if cals, ok := args["calendars"].([]any); ok && len(cals) > 0 {
+			calID = fmt.Sprintf("%v", cals[0])
+		} else if cals, ok := args["calendars"].([]string); ok && len(cals) > 0 {
+			calID = cals[0]
 		}
 		body = map[string]any{
 			"calendar_id": calID,

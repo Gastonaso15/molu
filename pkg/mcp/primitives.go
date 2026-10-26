@@ -41,20 +41,24 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"properties": map[string]interface{}{
 					"entity_type": map[string]interface{}{
 						"type":        "string",
-						"description": "Entity type name (e.g. 'person', 'skill', 'deals')",
-						"default":     "person",
-						"examples":    []interface{}{"person", "skill"},
+						"description": "Entity type name (e.g. 'assets', 'locations', 'brands', 'models')",
+						"default":     "assets",
+						"examples":    []interface{}{"assets", "locations", "brands", "models", "regions"},
 					},
 					"id": map[string]interface{}{
 						"type":        []interface{}{"string", "integer"},
 						"description": "Identifier of the entity (e.g. 1)",
 						"default":     1,
-						"examples":    []interface{}{1, 2},
+						"examples":    []interface{}{1, 2, 3},
 					},
 				},
 				"examples": []interface{}{
 					map[string]interface{}{
-						"entity_type": "person",
+						"entity_type": "assets",
+						"id":          1,
+					},
+					map[string]interface{}{
+						"entity_type": "locations",
 						"id":          1,
 					},
 				},
@@ -69,14 +73,16 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"properties": map[string]interface{}{
 					"entity_type": map[string]interface{}{
 						"type":        "string",
-						"description": "Entity type name (e.g. 'person', 'skill', 'deals')",
-						"default":     "person",
-						"examples":    []interface{}{"person", "skill"},
+						"description": "Entity type name (e.g. 'assets', 'locations', 'brands', 'models')",
+						"default":     "assets",
+						"examples":    []interface{}{"assets", "locations", "brands", "models"},
 					},
 					"filter": map[string]interface{}{
 						"type":        "object",
 						"description": "Field-value equality filters.",
-						"default":     map[string]interface{}{},
+						"default": map[string]interface{}{
+							"status": "active",
+						},
 					},
 					"limit": map[string]interface{}{
 						"type":        "integer",
@@ -94,7 +100,15 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				},
 				"examples": []interface{}{
 					map[string]interface{}{
-						"entity_type": "person",
+						"entity_type": "assets",
+						"filter": map[string]interface{}{
+							"status": "active",
+						},
+						"limit":  10,
+						"offset": 0,
+					},
+					map[string]interface{}{
+						"entity_type": "locations",
 						"limit":       10,
 						"offset":      0,
 					},
@@ -110,24 +124,32 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"properties": map[string]interface{}{
 					"entity_type": map[string]interface{}{
 						"type":        "string",
-						"description": "Entity type name (e.g. 'person', 'skill')",
-						"default":     "person",
+						"description": "Entity type name (e.g. 'brands', 'locations', 'assets')",
+						"default":     "brands",
 					},
 					"data": map[string]interface{}{
 						"type":        "object",
 						"description": "Field values for the new entity.",
 						"default": map[string]interface{}{
-							"name":  "Charlie",
-							"level": 4,
+							"code": "VOL",
+							"name": "Volvo",
 						},
 					},
 				},
 				"examples": []interface{}{
 					map[string]interface{}{
-						"entity_type": "person",
+						"entity_type": "brands",
 						"data": map[string]interface{}{
-							"name":  "Charlie",
-							"level": 4,
+							"code": "VOL",
+							"name": "Volvo",
+						},
+					},
+					map[string]interface{}{
+						"entity_type": "locations",
+						"data": map[string]interface{}{
+							"short_name":  "SUC-OESTE",
+							"description": "Sucursal Logística Oeste",
+							"region_id":   1,
 						},
 					},
 				},
@@ -142,8 +164,8 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"properties": map[string]interface{}{
 					"entity_type": map[string]interface{}{
 						"type":        "string",
-						"description": "Entity type name (e.g. 'person')",
-						"default":     "person",
+						"description": "Entity type name (e.g. 'assets', 'locations')",
+						"default":     "assets",
 					},
 					"id": map[string]interface{}{
 						"type":        []interface{}{"string", "integer"},
@@ -154,7 +176,7 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 						"type":        "object",
 						"description": "Fields to update",
 						"default": map[string]interface{}{
-							"level": 7,
+							"criticality": "Alta",
 						},
 					},
 					"version": map[string]interface{}{
@@ -165,10 +187,10 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				},
 				"examples": []interface{}{
 					map[string]interface{}{
-						"entity_type": "person",
+						"entity_type": "assets",
 						"id":          1,
 						"changes": map[string]interface{}{
-							"level": 7,
+							"criticality": "Alta",
 						},
 					},
 				},
@@ -189,7 +211,7 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 					"query": map[string]interface{}{
 						"type":        "string",
 						"description": "Query text in OQL or Sulpher syntax",
-						"default":     "SELECT name, level FROM person WHERE level >= 5",
+						"default":     "SELECT id, name, status, criticality FROM assets WHERE status = 'active'",
 					},
 					"params": map[string]interface{}{
 						"type":        "object",
@@ -200,7 +222,11 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"examples": []interface{}{
 					map[string]interface{}{
 						"language": "oql",
-						"query":    "SELECT name, level FROM person WHERE level >= 5",
+						"query":    "SELECT id, name, status, criticality FROM assets WHERE status = 'active'",
+					},
+					map[string]interface{}{
+						"language": "oql",
+						"query":    "SELECT id, short_name, description FROM locations",
 					},
 				},
 			},
@@ -214,13 +240,13 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"properties": map[string]interface{}{
 					"machine_id": map[string]interface{}{
 						"type":        []interface{}{"string", "integer"},
-						"description": "Identifier or name of the FSM machine.",
+						"description": "Identifier or name of the FSM machine (e.g. '1' for Vehículo, '2' for Maquinaria).",
 						"default":     "1",
 					},
 					"input": map[string]interface{}{
 						"type":        "string",
-						"description": "Transition input event to trigger.",
-						"default":     "advance",
+						"description": "Transition input event to trigger (e.g. 'qr_scan', 'custom_driver').",
+						"default":     "qr_scan",
 					},
 					"payload": map[string]interface{}{
 						"type":        "object",
@@ -231,7 +257,12 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"examples": []interface{}{
 					map[string]interface{}{
 						"machine_id": "1",
-						"input":      "advance",
+						"input":      "qr_scan",
+						"payload":    map[string]interface{}{},
+					},
+					map[string]interface{}{
+						"machine_id": "2",
+						"input":      "custom_driver",
 						"payload":    map[string]interface{}{},
 					},
 				},
@@ -246,13 +277,16 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"properties": map[string]interface{}{
 					"machine_id": map[string]interface{}{
 						"type":        []interface{}{"string", "integer"},
-						"description": "Identifier or name of the FSM machine.",
+						"description": "Identifier or name of the FSM machine (e.g. '1' for Vehículo, '2' for Maquinaria).",
 						"default":     "1",
 					},
 				},
 				"examples": []interface{}{
 					map[string]interface{}{
 						"machine_id": "1",
+					},
+					map[string]interface{}{
+						"machine_id": "2",
 					},
 				},
 			},
@@ -266,7 +300,7 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				"properties": map[string]interface{}{
 					"machine_id": map[string]interface{}{
 						"type":        []interface{}{"string", "integer"},
-						"description": "Identifier or name of the FSM machine.",
+						"description": "Identifier or name of the FSM machine (e.g. '1' for Vehículo, '2' for Maquinaria).",
 						"default":     "1",
 					},
 					"limit": map[string]interface{}{
@@ -295,25 +329,25 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 					"calendars": map[string]interface{}{
 						"type":        "array",
 						"items":       map[string]interface{}{"type": "string"},
-						"description": "Calendar identifiers to intersect.",
-						"default":     []interface{}{"room-a"},
+						"description": "Calendar identifiers to intersect (e.g. 'VH-001', 'room-a').",
+						"default":     []interface{}{"VH-001"},
 					},
 					"start": map[string]interface{}{
 						"type":    "string",
 						"format":  "date-time",
-						"default": "2026-10-25T10:00:00Z",
+						"default": "2026-10-26T10:00:00Z",
 					},
 					"end": map[string]interface{}{
 						"type":    "string",
 						"format":  "date-time",
-						"default": "2026-10-25T11:00:00Z",
+						"default": "2026-10-26T11:00:00Z",
 					},
 				},
 				"examples": []interface{}{
 					map[string]interface{}{
-						"calendars": []interface{}{"room-a"},
-						"start":     "2026-10-25T10:00:00Z",
-						"end":       "2026-10-25T11:00:00Z",
+						"calendars": []interface{}{"VH-001"},
+						"start":     "2026-10-26T10:00:00Z",
+						"end":       "2026-10-26T11:00:00Z",
 					},
 				},
 			},
@@ -328,7 +362,7 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 					"calendars": map[string]interface{}{
 						"type":    "array",
 						"items":   map[string]interface{}{"type": "string"},
-						"default": []interface{}{"room-a"},
+						"default": []interface{}{"VH-001"},
 					},
 					"duration": map[string]interface{}{
 						"type":        "string",
@@ -338,12 +372,12 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 					"from": map[string]interface{}{
 						"type":    "string",
 						"format":  "date-time",
-						"default": "2026-10-25T08:00:00Z",
+						"default": "2026-10-26T08:00:00Z",
 					},
 					"to": map[string]interface{}{
 						"type":    "string",
 						"format":  "date-time",
-						"default": "2026-10-25T18:00:00Z",
+						"default": "2026-10-26T18:00:00Z",
 					},
 					"objective": map[string]interface{}{
 						"type":    "string",
@@ -359,10 +393,10 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				},
 				"examples": []interface{}{
 					map[string]interface{}{
-						"calendars": []interface{}{"room-a"},
+						"calendars": []interface{}{"VH-001"},
 						"duration":  "PT1H",
-						"from":      "2026-10-25T08:00:00Z",
-						"to":        "2026-10-25T18:00:00Z",
+						"from":      "2026-10-26T08:00:00Z",
+						"to":        "2026-10-26T18:00:00Z",
 						"objective": "earliest",
 					},
 				},
@@ -378,31 +412,31 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 					"calendars": map[string]interface{}{
 						"type":    "array",
 						"items":   map[string]interface{}{"type": "string"},
-						"default": []interface{}{"room-a"},
+						"default": []interface{}{"VH-001"},
 					},
 					"start": map[string]interface{}{
 						"type":    "string",
 						"format":  "date-time",
-						"default": "2026-10-25T14:00:00Z",
+						"default": "2026-10-26T14:00:00Z",
 					},
 					"end": map[string]interface{}{
 						"type":    "string",
 						"format":  "date-time",
-						"default": "2026-10-25T15:00:00Z",
+						"default": "2026-10-26T15:00:00Z",
 					},
 					"payload": map[string]interface{}{
 						"type":        "object",
 						"description": "Optional application-defined metadata for the booking.",
 						"default": map[string]interface{}{
-							"title": "Sprint Planning",
+							"title": "Mantenimiento Preventivo VH-001",
 						},
 					},
 				},
 				"examples": []interface{}{
 					map[string]interface{}{
-						"calendars": []interface{}{"room-a"},
-						"start":     "2026-10-25T14:00:00Z",
-						"end":       "2026-10-25T15:00:00Z",
+						"calendars": []interface{}{"VH-001"},
+						"start":     "2026-10-26T14:00:00Z",
+						"end":       "2026-10-26T15:00:00Z",
 					},
 				},
 			},
