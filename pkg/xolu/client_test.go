@@ -141,8 +141,10 @@ func TestHTTPXoluClient_Execute_CalendarsAndDescribe(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == "GET" && r.URL.Path == "/api/v1/schemas":
-			json.NewEncoder(w).Encode(map[string]interface{}{"entities": []interface{}{"asset"}})
+		case r.Method == "GET" && r.URL.Path == "/api/v1/entities":
+			json.NewEncoder(w).Encode(map[string]interface{}{"count": 1, "entities": []interface{}{
+				map[string]interface{}{"entity_type": "asset", "count": 1, "has_schema": false},
+			}})
 		case r.Method == "POST" && r.URL.Path == "/api/v2/cal/check":
 			json.NewEncoder(w).Encode(map[string]interface{}{"available": true})
 		case r.Method == "POST" && r.URL.Path == "/api/v2/cal/openings":

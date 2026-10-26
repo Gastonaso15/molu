@@ -277,8 +277,7 @@ func (c *HTTPXoluClient) Execute(ctx context.Context, primitive string, args map
 
 	switch primitive {
 	case "describe":
-		method = "GET"
-		path = "/api/v1/schemas"
+		// Served by executeDescribe, which reads several xolu routes.
 	case "get":
 		method = "GET"
 		entityType := fmt.Sprintf("%v", args["entity_type"])
@@ -430,6 +429,8 @@ func (c *HTTPXoluClient) Execute(ctx context.Context, primitive string, args map
 	var err error
 	if primitive == "list" {
 		result, err = c.executeList(ctx, args)
+	} else if primitive == "describe" {
+		result, err = c.executeDescribe(ctx, args)
 	} else {
 		_, err = c.doRequest(ctx, method, path, body, &result)
 	}

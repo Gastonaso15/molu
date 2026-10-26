@@ -254,10 +254,27 @@ Probado con xolu **v0.30.44** (la más reciente; `Downloads/xolu-main`, compilad
 - **Ejemplos cargados para Inspector MCP:** Se agregaron valores `"default"`, `"examples"` y descripciones en los esquemas JSON de los 13 primitivos en `pkg/mcp/primitives.go`, permitiendo que `@modelcontextprotocol/inspector` (`make inspector`) precargue los formularios con datos válidos de prueba (`person`, `skill`, OQL, FSM) listos para ejecución inmediata.
 - **Resuelto (T9.6, decisión del 25-oct):** los fallos de `tools/call` se devuelven como resultado MCP `isError: true` con el error tipado como JSON en `content[0].text`, porque en `error.data` el agente solo veía el mensaje. Siguen como error JSON-RPC los fallos de protocolo (`params` mal formados, método desconocido, JSON inválido) y los errores de `tools/list` con Hub. Cambio en `pkg/mcp/server.go` (`executeTool`, `toolErrorResult`); tests nuevos en `server_iserror_test.go` y asserts viejos migrados. Verificado con un agente: lee los tres códigos. Sin commit.
 - **Pendiente:**
-  - T9.4: `describe` devuelve `/api/v1/schemas`, no el mapa semántico completo.
   - `query` con `LIMIT n` devolvió `XOLU-QL004` en xolu; sin `LIMIT` funciona.
   - T9.3 sigue abierta tras verificar el commit `1f1edab` contra xolu real: `cal_confirm` usa `room-a` por defecto, `PT30M` se interpreta como 1 h, solo se usa el primer calendario y no hay tests (detalle en `tasks.md`). Un 500 de xolu se informa como `SUBSTRATE_UNAVAILABLE`.
   - `CONTRACT_VIOLATION` nombra el campo ausente como `(root)` en vez de `id`.
+
+## `describe` con `scope` y `name` (Spec 006, T9.4; sesión 26-oct-2026)
+Hecha, sin commit. `describe` ya no devuelve `/api/v1/schemas` (vacío con las semillas); arma el mapa semántico de la Parte 2 leyendo xolu en vivo. Detalle de comportamiento y límites en `specs/006-mcp-server-stdio/tasks.md` (T9.4).
+
+| Archivo | Cambio |
+|---------|--------|
+| `pkg/xolu/describe.go` | Nuevo. `executeDescribe` (scopes `entities`, `machines`, `generators`, `events`, por defecto `all`; `name` sin distinguir mayúsculas; `unavailable` para grupos que xolu no ofrece en `all`; `NOT_FOUND` y `CONTRACT_VIOLATION` tipados). Rutas: `/api/v1/entities`, `/api/v1/schema/{entity}`, `/api/v2/fsm/def[/{id}]`, `/api/v2/gen/seq`, `/api/v2/event/def` |
+| `pkg/xolu/describe_test.go` | Nuevo. 11 tests con un xolu falso con las formas reales (TDD: primero en rojo) |
+| `pkg/xolu/client.go` | `Execute`: `describe` se despacha a `executeDescribe` |
+| `pkg/xolu/client_test.go` | El falso xolu de `TestHTTPXoluClient_Execute_CalendarsAndDescribe` sirve `/api/v1/entities` en vez de `/api/v1/schemas` |
+| `specs/006-mcp-server-stdio/tasks.md` | T9.4 marcada `[x]` |
+
+- Verificado por MCP contra xolu real v0.30.44: `scope` por defecto (20 entidades, 2 máquinas), `name`, `NOT_FOUND`, `CONTRACT_VIOLATION`, y esquema incrustado tras promover `regions`. `go test -race ./...` en verde.
+- Hallazgo: el `schema-reader` (spec 003, `pkg/schema`) sigue sin coincidir con xolu y **no se tocó**; `describe` ya no depende de él. Decisión sobre la spec 003 sigue por confirmar con el equipo.
+- Límite: las semillas de Seam no registran esquemas, por lo que `describe` muestra `has_schema: false`. xolu rechaza `POST /api/v1/schema/{entity}` si la entidad ya tiene filas (409 `XOLU-ST009`): hay que registrar antes de sembrar, o promover con `POST /api/v1/entities/promote/strict/{entity}` con el esquema en el cuerpo. Se pide al equipo de Seam (mensaje redactado para Horacio, 26-oct-2026; sin enviar ni respuesta).
+- **T9.7 (misma sesión): `describe` con `name` incluye `suggestion`** para entidades sin esquema, tomada de la ruta de xolu `GET /api/v1/entity/{type}/schema-suggestion` (descubierta en `pkg/server/schema_promotion_handlers.go` de xolu; solo SQLite). Va marcada `inferred: true` y nunca como `schema`; no se pide sin `name` (una petición por entidad); si xolu no puede, `suggestion_unavailable`; un 5xx se propaga. Ejemplo real: `assets` → 26 campos, 18 obligatorios. Archivos: `pkg/xolu/describe.go` (`addSuggestions`) y 4 tests nuevos en `pkg/xolu/describe_test.go`. Es una conjetura: los `enum` salen de los valores vistos y un campo presente en pocas filas sale opcional. Con T9.7 el problema de los campos queda cubierto sin depender de Seam; los esquemas registrados siguen siendo lo ideal.
+- Pendiente menor: con `name` y un grupo no disponible (p. ej. `/api/v2` apagado) sin coincidencias, el resultado es `NOT_FOUND` y no menciona qué grupo no se pudo leer.
+- `gofmt -l pkg/` lista muchos archivos que ya estaban sin formatear (no son de esta tarea); los nuevos y `client.go` están limpios.
 
 ## Herramientas de desarrollo (25-oct-2026)
 - `scripts/levantar-xolu.sh` (+ `make xolu-up` / `make xolu-down`): compila y arranca un xolu local con `XOLU_API_V2_ENABLED` y `XOLU_CAL_ENABLED`, y carga una semilla de Seam (por defecto la 01, Constructec). Opciones: `--seed 01..06`, `--reset`, `--no-seed`, `--port`, `stop`, `status`. Estado en `.dev-xolu/` (ignorado por git).

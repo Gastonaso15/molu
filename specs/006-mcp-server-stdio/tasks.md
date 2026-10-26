@@ -69,8 +69,21 @@ Contexto: los tests de T5 usaban servidores falsos con un formato de error plano
     - Los cambios no traen tests.
   - Hecho cuando: tests con el formato real de xolu cubren los cuatro primitivos y las correcciones de arriba, y la secuencia `cal_openings` → `cal_propose` → `cal_confirm` funciona contra xolu real.
 
-- [ ] **T9.4. Decisión pendiente: contenido de `describe`.** RF-3
-  - Hoy devuelve `/api/v1/schemas` (formato que no coincide con `pkg/schema`). Requiere decidir si debe devolver el mapa semántico de la Parte 2.
+- [x] **T9.4. `describe` devuelve el mapa semántico de la Parte 2 (§4) con `scope` y `name`.** RF-3
+  - Antes devolvía `/api/v1/schemas`, que en xolu solo lista las entidades con esquema registrado (ninguna con las semillas) y no coincide con `pkg/schema`. Ahora `HTTPXoluClient.Execute` lo sirve con `executeDescribe` (`pkg/xolu/describe.go`), que lee xolu en vivo:
+    - `entities`: `GET /api/v1/entities` (tipo, filas, `has_schema`) y, solo para los que tienen esquema, `GET /api/v1/schema/{entity}` incrustado en `schema`.
+    - `machines`: `GET /api/v2/fsm/def` y `GET /api/v2/fsm/def/{id}` (`spec` completo).
+    - `generators`: `GET /api/v2/gen/seq`. `events`: `GET /api/v2/event/def`.
+  - `scope` por defecto `all`. En `all`, un grupo que xolu no ofrece (404, p. ej. `/api/v2` apagado) se informa en `unavailable` sin fallar; en un `scope` explícito, o ante cualquier otro error (p. ej. 5xx → `SUBSTRATE_UNAVAILABLE`), el error se propaga. `scope` desconocido → `CONTRACT_VIOLATION`.
+  - `name` filtra sin distinguir mayúsculas por `entity_type`, `name` o `id`, y solo pide el detalle de lo que coincide. Sin coincidencias en ningún grupo → `NOT_FOUND`.
+  - Tests: `pkg/xolu/describe_test.go` (11) más el ajuste del falso xolu de `TestHTTPXoluClient_Execute_CalendarsAndDescribe`. `go test -race ./...` en verde. Verificado por MCP contra xolu real v0.30.44 (20 entidades, 2 máquinas; `name`, `NOT_FOUND`, `CONTRACT_VIOLATION`, y un esquema real incrustado tras promover `regions`).
+  - Límite conocido: las semillas no registran esquemas, así que hoy las 20 entidades salen con `has_schema: false` y sin lista de campos (ver T9.7 para cómo se cubre). xolu rechaza registrar un esquema si la entidad ya tiene filas (409 `XOLU-ST009`); hay que registrarlo antes de cargar datos o promover con `POST /api/v1/entities/promote/strict/{entity}` enviando el esquema en el cuerpo.
+
+- [x] **T9.7. `describe` incluye el esquema inferido por xolu cuando la entidad no tiene uno.** RF-3
+  - xolu infiere un esquema desde las filas con `GET /api/v1/entity/{type}/schema-suggestion` (solo lectura, solo con almacenamiento SQLite). Con `name`, cada entidad sin esquema registrado lleva `suggestion`: `{inferred: true, sampled_rows, total_rows, suggested_schema, field_analysis}`. Nunca se presenta como `schema`: es una conjetura de los datos, no un contrato (p. ej. un `enum` sale de los valores vistos, un campo presente en pocas filas sale opcional).
+  - Solo se pide cuando un `name` acota la respuesta: es una petición por entidad y `scope: all` sin `name` serían 20.
+  - Si xolu no puede inferirlo (entidad sin filas, otro almacenamiento, 4xx) la entidad lleva `suggestion_unavailable` con el motivo y `describe` no falla; un fallo del sustrato (5xx) sí se propaga como `SUBSTRATE_UNAVAILABLE`.
+  - Tests: 4 nuevos en `pkg/xolu/describe_test.go` (primero en rojo). `go test -race ./...` en verde. Verificado por MCP contra xolu real: `assets` → 26 campos, 18 obligatorios, `status` ∈ {active, maintenance}; sin `name` no se pide ninguna sugerencia.
 
 - [x] **T9.5. `list` honra `limit`, `offset` y `filter`.** RF-3
   - xolu pagina con `page`/`per_page` (máximo 100; por encima ignora el valor y usa 10) y trata cualquier otro parámetro de consulta como filtro de igualdad, así que `limit=2` devolvía una lista vacía o la página por defecto. `HTTPXoluClient` traduce `limit` (por defecto 50) y `offset` a las páginas que cubren la ventana y la recorta exacta; `filter` pasa como filtros de igualdad; las claves `page` y `per_page` en `filter` devuelven `CONTRACT_VIOLATION`. La respuesta conserva `data` y `pagination` (`total_items`, `offset`, `limit`).
