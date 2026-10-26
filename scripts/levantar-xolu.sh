@@ -110,8 +110,9 @@ if [ -z "$XOLU_BIN" ] && [ ! -x "$BIN" ]; then
   (cd "$XOLU_SRC" && go build -o "$BIN" ./cmd/xolu)
 fi
 
-if $DO_SEED && [ ! -x "$VENV/bin/python" ]; then
+if $DO_SEED && ! "$VENV/bin/python" -c 'import bcrypt, requests' 2>/dev/null; then
   say "Creando entorno de Python con bcrypt y requests"
+  rm -rf "$VENV"
   python3 -m venv "$VENV"
   "$VENV/bin/pip" install -q bcrypt requests
 fi
