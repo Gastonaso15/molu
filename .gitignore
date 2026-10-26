@@ -20,6 +20,9 @@
 # xolu local de desarrollo (scripts/levantar-xolu.sh)
 /.dev-xolu/
 
+# Código de xolu y semillas de Seam descargados (no se versionan)
+/SEAM-CURE/
+
 # IDEs y editores
 .vscode/
 .idea/
