@@ -114,7 +114,12 @@ La especificación completa del sistema está organizada en tres partes en el di
 - Cobertura: `make coverage`
 - Arrancar local: `make run-molu`
 - MCP Inspector: `make inspector`
-- xolu local con datos de demo: `make xolu-up` (apagar con `make xolu-down`). Detalles y variables en [`scripts/levantar-xolu.sh`](./scripts/levantar-xolu.sh).
+- xolu local con datos de demo: `make xolu-up` (apagar con `make xolu-down`). El `makefile` elige el script según el sistema; se puede forzar con `XOLU_SCRIPT=scripts/<script>`:
+  - macOS: [`scripts/levantar-xolu-macos.sh`](./scripts/levantar-xolu-macos.sh) (puerto por defecto 9191)
+  - Windows (Git Bash): [`scripts/levantar-xolu-windows.sh`](./scripts/levantar-xolu-windows.sh) (puerto por defecto 9090)
+  - Linux y otros: [`scripts/levantar-xolu.sh`](./scripts/levantar-xolu.sh) (puerto por defecto 9090)
+
+  Opciones y variables (`XOLU_SRC`, `XOLU_BIN`, `SEEDS_DIR`) en la cabecera de cada script. Con `make inspector` hay que pasar el puerto si no es el 9090: `make inspector XOLU_URL=http://127.0.0.1:9191`.
 
 ## Licencia
 

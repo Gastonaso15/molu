@@ -260,8 +260,15 @@ Probado con xolu **v0.30.44** (la más reciente; `Downloads/xolu-main`, compilad
   - `CONTRACT_VIOLATION` nombra el campo ausente como `(root)` en vez de `id`.
 
 ## Herramientas de desarrollo (25-oct-2026)
-- `scripts/levantar-xolu.sh` (+ `make xolu-up` / `make xolu-down`): compila y arranca un xolu local en el puerto 9191 con `XOLU_API_V2_ENABLED` y `XOLU_CAL_ENABLED`, y carga una semilla de Seam (por defecto la 01, Constructec). Opciones: `--seed 01..06`, `--reset`, `--no-seed`, `--port`, `stop`, `status`. Estado en `.dev-xolu/` (ignorado por git).
-- Necesita el código de xolu y las semillas de Seam, que no están en este repo: los busca en `../SEAM-CURE/` o se indican con `XOLU_SRC` (o `XOLU_BIN`) y `SEEDS_DIR`. Probado solo con la semilla 01 y esa disposición de carpetas.
+- `scripts/levantar-xolu.sh` (+ `make xolu-up` / `make xolu-down`): compila y arranca un xolu local con `XOLU_API_V2_ENABLED` y `XOLU_CAL_ENABLED`, y carga una semilla de Seam (por defecto la 01, Constructec). Opciones: `--seed 01..06`, `--reset`, `--no-seed`, `--port`, `stop`, `status`. Estado en `.dev-xolu/` (ignorado por git).
+- Hay un script por sistema (26-oct-2026), con las mismas opciones:
+  - `scripts/levantar-xolu.sh`: base (Linux). Usa `setsid`, que macOS no trae, así que **falla en macOS** (`nohup: setsid: No such file or directory`). Puerto por defecto 9090 (la cabecera todavía dice 9191).
+  - `scripts/levantar-xolu-windows.sh`: Git Bash (`.exe`, `Scripts/` en el venv, `py -3`, `-X utf8`, `setsid` opcional). Puerto por defecto 9090.
+  - `scripts/levantar-xolu-macos.sh`: copia del base con `setsid` opcional y la misma búsqueda de carpetas que el de Windows. Puerto por defecto **9191** porque `molu` abre sus métricas en el 9090 y chocaría. Probado en macOS: arranque, idempotencia, `stop`/`status`, carga desde cero de la semilla 01 y semilla 05 en otro puerto, y FSM v2 inicializadas.
+- El `makefile` elige el script con `uname -s` (`Darwin` → macOS, `MINGW*/MSYS*/CYGWIN*` → Windows, otro → base); se fuerza con `XOLU_SCRIPT=`. Solo se verificó la rama de macOS; las de Windows y Linux no se ejecutaron. `make inspector` usa 9090 por defecto: en macOS hay que pasar `XOLU_URL=http://127.0.0.1:9191`.
+- Necesita el código de xolu y las semillas de Seam, que no están en este repo: los busca en `../SEAM-CURE/` (el de Windows y el de macOS también en `SEAM-CURE/` dentro del repo) o se indican con `XOLU_SRC` (o `XOLU_BIN`) y `SEEDS_DIR`.
+- Semillas: probadas la 01 (Constructec) y la 05 (Fairborne) en macOS. La 05 parece la 01 traducida al inglés (mismas cantidades y tipos, otros nombres y logins: `admin@fairborne-equipment.example` / `letsgetstarted`); `SEEDS-CATALOGO.md` solo documenta la 01 a la 04. No se probó `molu` contra la 05.
+- Pendiente: un compañero (Gaston) reportó que la semilla no carga en su máquina; falta su `.dev-xolu/seed-<puerto>.log`. Causa probable: venv de Python a medias (el script actual reinstala si faltan `bcrypt`/`requests`).
 
 ---
 

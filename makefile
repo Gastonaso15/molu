@@ -31,10 +31,23 @@ inspector: build
 		-e MOLU_FRONT_XOLU_TOKEN_FILE="$(CURDIR)/$(TOKEN_FILE)" \
 		./bin/molu
 
-# xolu local con datos de demo de Seam (ver scripts/levantar-xolu.sh).
+# xolu local con datos de demo de Seam. El script se elige según el sistema
+# (macOS, Windows con Git Bash, o el base para Linux); se puede forzar con
+# XOLU_SCRIPT=scripts/levantar-xolu-macos.sh. Detalles en cada script.
 # Ejemplo: make xolu-up && make inspector XOLU_URL=http://127.0.0.1:9191
+# (el puerto por defecto es 9191 en macOS y 9090 en los otros dos scripts;
+# lo imprime xolu-up al terminar)
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+XOLU_SCRIPT ?= ./scripts/levantar-xolu-macos.sh
+else ifneq (,$(filter MINGW% MSYS% CYGWIN%,$(UNAME_S)))
+XOLU_SCRIPT ?= ./scripts/levantar-xolu-windows.sh
+else
+XOLU_SCRIPT ?= ./scripts/levantar-xolu.sh
+endif
+
 xolu-up:
-	./scripts/levantar-xolu.sh
+	$(XOLU_SCRIPT)
 
 xolu-down:
-	./scripts/levantar-xolu.sh stop
+	$(XOLU_SCRIPT) stop
