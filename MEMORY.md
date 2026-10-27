@@ -334,6 +334,11 @@ go test ./...  # Todo en verde
 ### Pendiente
 - T46: Este registro en MEMORY.md ✓
 
+## Actualización de README.md (sesión actual)
+- **Descripción**: Se añadió sección "Primitivas del Sistema" con las 13 primitivas genéricas contra xolu, enfatizando su neutralidad de dominio y que nunca llevan namespace.
+- **Guía de ejecución multiplataforma**: Se mejoró la sección "Comandos Principales" con instrucciones claras por SO (Linux, macOS, Windows) para compilar y ejecutar el programa, incluyendo variables de entorno requeridas y scripts de xolu por plataforma.
+- **Archivo modificado**: `readme.md` (líneas 110-149 aproximadamente).
+
 ---
 
 ## Entorno Local y Herramientas de Desarrollo
