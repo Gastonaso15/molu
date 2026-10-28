@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Gastonaso15/molu/pkg/taxonomy"
@@ -318,109 +319,8 @@ func (c *HTTPXoluClient) Execute(ctx context.Context, primitive string, args map
 		method = "GET"
 		machineID := fmt.Sprintf("%v", args["machine_id"])
 		path = fmt.Sprintf("/api/v2/fsm/machine/%s/history", machineID)
-	case "cal_check":
-		method = "POST"
-		path = "/api/v2/cal/check"
-		calID := ""
-		if cals, ok := args["calendars"].([]any); ok && len(cals) > 0 {
-			calID = fmt.Sprintf("%v", cals[0])
-		} else if cals, ok := args["calendars"].([]string); ok && len(cals) > 0 {
-			calID = cals[0]
-		} else if cid, ok := args["calendar_id"]; ok {
-			calID = fmt.Sprintf("%v", cid)
-		}
-		if calID != "" && args["start"] != nil && args["end"] != nil {
-			body = map[string]any{
-				"calendar_id": calID,
-				"span": map[string]any{
-					"start": args["start"],
-					"end":   args["end"],
-				},
-			}
-		} else {
-			body = args
-		}
-	case "cal_openings":
-		method = "POST"
-		path = "/api/v2/cal/openings"
-		calID := ""
-		if cals, ok := args["calendars"].([]any); ok && len(cals) > 0 {
-			calID = fmt.Sprintf("%v", cals[0])
-		} else if cals, ok := args["calendars"].([]string); ok && len(cals) > 0 {
-			calID = cals[0]
-		} else if cid, ok := args["calendar_id"]; ok {
-			calID = fmt.Sprintf("%v", cid)
-		}
-		durationMs := int64(3600000)
-		if durStr, ok := args["duration"].(string); ok {
-			if d, err := time.ParseDuration(durStr); err == nil {
-				durationMs = d.Milliseconds()
-			} else if durStr == "PT1H" {
-				durationMs = 3600000
-			}
-		} else if dMs, ok := args["duration_ms"].(float64); ok {
-			durationMs = int64(dMs)
-		}
-		if calID != "" {
-			body = map[string]any{
-				"calendar_id": calID,
-				"from":        args["from"],
-				"to":          args["to"],
-				"duration_ms": durationMs,
-				"objective":   args["objective"],
-			}
-		} else {
-			body = args
-		}
-	case "cal_propose":
-		method = "POST"
-		path = "/api/v2/cal/propose"
-		calID := ""
-		if cals, ok := args["calendars"].([]any); ok && len(cals) > 0 {
-			calID = fmt.Sprintf("%v", cals[0])
-		} else if cals, ok := args["calendars"].([]string); ok && len(cals) > 0 {
-			calID = cals[0]
-		} else if cid, ok := args["calendar_id"]; ok {
-			calID = fmt.Sprintf("%v", cid)
-		}
-		bookingID := fmt.Sprintf("bk-%d", time.Now().UnixNano())
-		if bid, ok := args["booking_id"]; ok && fmt.Sprintf("%v", bid) != "" {
-			bookingID = fmt.Sprintf("%v", bid)
-		}
-		bearer := uint64(1)
-		if b, ok := args["bearer"].(float64); ok {
-			bearer = uint64(b)
-		} else if b, ok := args["bearer"].(int); ok {
-			bearer = uint64(b)
-		}
-		if calID != "" && args["start"] != nil && args["end"] != nil {
-			body = map[string]any{
-				"calendar_id": calID,
-				"booking_id":  bookingID,
-				"bearer":      bearer,
-				"span": map[string]any{
-					"start": args["start"],
-					"end":   args["end"],
-				},
-			}
-		} else {
-			body = args
-		}
-	case "cal_confirm":
-		method = "POST"
-		path = "/api/v2/cal/confirm"
-		calID := "VH-001"
-		if cid, ok := args["calendar_id"]; ok && fmt.Sprintf("%v", cid) != "" {
-			calID = fmt.Sprintf("%v", cid)
-		} else if cals, ok := args["calendars"].([]any); ok && len(cals) > 0 {
-			calID = fmt.Sprintf("%v", cals[0])
-		} else if cals, ok := args["calendars"].([]string); ok && len(cals) > 0 {
-			calID = cals[0]
-		}
-		body = map[string]any{
-			"calendar_id": calID,
-			"booking_id":  args["booking_id"],
-		}
+	case "cal_check", "cal_openings", "cal_propose", "cal_confirm":
+		// Served by executeCalendar (calendar.go).
 	default:
 		return nil, fmt.Errorf("unsupported primitive: %s", primitive)
 	}
@@ -431,6 +331,8 @@ func (c *HTTPXoluClient) Execute(ctx context.Context, primitive string, args map
 		result, err = c.executeList(ctx, args)
 	} else if primitive == "describe" {
 		result, err = c.executeDescribe(ctx, args)
+	} else if strings.HasPrefix(primitive, "cal_") {
+		result, err = c.executeCalendar(ctx, primitive, args)
 	} else {
 		_, err = c.doRequest(ctx, method, path, body, &result)
 	}

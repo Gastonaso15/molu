@@ -522,7 +522,7 @@ func TestServer_CallTool_T5_QueryAndCalendars(t *testing.T) {
 		return nil, errors.New("404 booking not found")
 	}
 	out.Reset()
-	callReq = `{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"cal_confirm","arguments":{"booking_id":"bk-invalid"}}}`
+	callReq = `{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"cal_confirm","arguments":{"calendar_id":"cal-1","booking_id":"bk-invalid"}}}`
 	if err := srv.HandleMessage(context.Background(), []byte(callReq), &out); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1067,5 +1067,64 @@ func TestServer_ErrorMetrics_Empty(t *testing.T) {
 		!strings.Contains(body, `code="EMPTY"`) ||
 		!strings.Contains(body, ` 1`) {
 		t.Errorf("expected metric molu_errors_total with component=molu-front, code=EMPTY, value=1 not found in:\n%s", body)
+	}
+}
+
+func TestServer_CallTool_UnknownCalendarIsNotFoundAndNamesIt(t *testing.T) {
+	const span = `"start":"2026-10-27T10:00:00Z","end":"2026-10-27T11:00:00Z"`
+	cases := []struct {
+		primitive string
+		args      string
+	}{
+		{"cal_check", `{"calendars":["cal-x"],` + span + `}`},
+		{"cal_openings", `{"calendars":["cal-x"],"duration":"PT1H","from":"2026-10-27T08:00:00Z","to":"2026-10-27T18:00:00Z"}`},
+		{"cal_propose", `{"calendars":["cal-x"],` + span + `}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.primitive, func(t *testing.T) {
+			srv := NewServer(ServerConfig{Executor: &mockSubstrateExecutor{
+				executeFn: func(context.Context, string, map[string]interface{}) (map[string]interface{}, error) {
+					return nil, &statusError{status: 404}
+				},
+			}})
+			req := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + tc.primitive + `","arguments":` + tc.args + `}}`
+			var out bytes.Buffer
+			if err := srv.HandleMessage(context.Background(), []byte(req), &out); err != nil {
+				t.Fatal(err)
+			}
+			var resp jsonRPCResponse
+			json.Unmarshal(out.Bytes(), &resp)
+			data := toolFailure(t, resp)
+			if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeNotFound) {
+				t.Fatalf("expected NOT_FOUND, got %v (%v)", data["code"], data["message"])
+			}
+			if msg, _ := data["message"].(string); !strings.Contains(msg, "cal-x") {
+				t.Errorf("NOT_FOUND must name the calendar, got %q", msg)
+			}
+		})
+	}
+}
+
+func TestServer_CallTool_CalConfirmNeedsTheCalendar(t *testing.T) {
+	called := false
+	srv := NewServer(ServerConfig{Executor: &mockSubstrateExecutor{
+		executeFn: func(context.Context, string, map[string]interface{}) (map[string]interface{}, error) {
+			called = true
+			return map[string]interface{}{"state": "binding"}, nil
+		},
+	}})
+	req := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cal_confirm","arguments":{"booking_id":"bk-1"}}}`
+	var out bytes.Buffer
+	if err := srv.HandleMessage(context.Background(), []byte(req), &out); err != nil {
+		t.Fatal(err)
+	}
+	var resp jsonRPCResponse
+	json.Unmarshal(out.Bytes(), &resp)
+	data := toolFailure(t, resp)
+	if data["code"] != string(taxonomy.PrefixMolu+taxonomy.CodeContractViolation) {
+		t.Fatalf("expected CONTRACT_VIOLATION, got %v", data["code"])
+	}
+	if called {
+		t.Error("the executor must not be reached without a calendar")
 	}
 }

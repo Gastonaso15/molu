@@ -199,7 +199,7 @@ func TestHTTPXoluClient_Execute_CalendarsAndDescribe(t *testing.T) {
 	}
 
 	// 5. cal_confirm
-	res, err = client.Execute(ctx, "cal_confirm", map[string]interface{}{"booking_id": "bk-456"})
+	res, err = client.Execute(ctx, "cal_confirm", map[string]interface{}{"calendar_id": "c1", "booking_id": "bk-456"})
 	if err != nil {
 		t.Fatalf("unexpected error on cal_confirm: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestHTTPXoluClient_Execute_NestedErrorEnvelope(t *testing.T) {
 		}
 	}
 
-	_, err := client.Execute(ctx, "cal_check", map[string]interface{}{"calendars": []interface{}{"a"}})
+	_, err := client.Execute(ctx, "cal_check", map[string]interface{}{"calendars": []interface{}{"a"}, "start": "2026-10-23T10:00:00Z", "end": "2026-10-23T11:00:00Z"})
 	te, ok := err.(*taxonomy.TypedError)
 	if !ok {
 		t.Fatalf("expected *taxonomy.TypedError for a 400 with a nested code, got %T: %v", err, err)

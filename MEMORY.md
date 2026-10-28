@@ -276,6 +276,23 @@ Hecha, sin commit. `describe` ya no devuelve `/api/v1/schemas` (vacío con las s
 - Pendiente menor: con `name` y un grupo no disponible (p. ej. `/api/v2` apagado) sin coincidencias, el resultado es `NOT_FOUND` y no menciona qué grupo no se pudo leer.
 - `gofmt -l pkg/` lista muchos archivos que ya estaban sin formatear (no son de esta tarea); los nuevos y `client.go` están limpios.
 
+## Calendario: T9.3 (Spec 006; sesión 28-oct-2026)
+Hecha, sin commit. Detalle de decisiones y límites en `specs/006-mcp-server-stdio/tasks.md` (T9.3). El código del calendario sale de `Execute` a `pkg/xolu/calendar.go`.
+
+| Archivo | Cambio |
+|---------|--------|
+| `pkg/xolu/calendar.go` | Nuevo. `executeCalendar`: sin calendario por defecto en `cal_confirm`; `duration` ISO 8601 (`PT30M`...) y violación si no se lee; `cal_check` con varios calendarios los intersecta y nombra los bloqueantes; `cal_openings`/`cal_propose` rechazan más de uno |
+| `pkg/xolu/calendar_test.go` | Nuevo. 11 tests con un xolu falso con las formas reales (primero en rojo) |
+| `pkg/xolu/client.go` | `Execute` despacha `cal_*` a `executeCalendar`; se quitaron los 4 casos inline |
+| `pkg/mcp/server.go` | `NOT_FOUND` nombrando el calendario en `cal_check`/`cal_openings`/`cal_propose` (`firstCalendar`) |
+| `pkg/mcp/primitives.go` | `cal_confirm`: `calendar_id` obligatorio (se aparta del §5.1.13) |
+| `pkg/mcp/server_test.go`, `pkg/mcp/primitives_test.go`, `pkg/xolu/client_test.go` | 2 tests nuevos; se ajustaron los que usaban el comportamiento anterior |
+| `specs/006-.../spec.md`, `tasks.md` | `cal_confirm` y T9.3 |
+
+- Verificado por MCP contra xolu real v0.30.44 y `go test -race ./...` en verde.
+- Hallazgos nuevos: xolu trabaja con un calendario por petición y no busca reservas por id; **no valida que el `bearer` exista** (cualquier valor distinto de 0 permite confirmar), así que el `bearer: 1` por defecto de `cal_propose` es un valor arbitrario de la demo (sigue ahí, decisión pendiente).
+- Sigue abierto: `default`/`examples` de `primitives.go` con valores de la demo (`VH-001`, `bk-1001`, `assets`...), el 500 de xolu informado como `SUBSTRATE_UNAVAILABLE`, y `(root)` en lugar del campo en `CONTRACT_VIOLATION`.
+
 ## Herramientas de desarrollo (25-oct-2026)
 - `scripts/levantar-xolu.sh` (+ `make xolu-up` / `make xolu-down`): compila y arranca un xolu local con `XOLU_API_V2_ENABLED` y `XOLU_CAL_ENABLED`, y carga una semilla de Seam (por defecto la 01, Constructec). Opciones: `--seed 01..06`, `--reset`, `--no-seed`, `--port`, `stop`, `status`. Estado en `.dev-xolu/` (ignorado por git).
 - Hay un script por sistema (26-oct-2026), con las mismas opciones:

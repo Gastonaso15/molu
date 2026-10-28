@@ -446,8 +446,13 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 			Description: "Confirms a proposed booking into the binding plane",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
-				"required": []interface{}{"booking_id"},
+				"required": []interface{}{"calendar_id", "booking_id"},
 				"properties": map[string]interface{}{
+					"calendar_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Calendar the booking was proposed on. xolu confirms within one calendar and cannot look a booking up without it; cal_propose returns it.",
+						"default":     "VH-001",
+					},
 					"booking_id": map[string]interface{}{
 						"type":        []interface{}{"string", "integer"},
 						"description": "Identifier of the booking to confirm.",
@@ -456,7 +461,8 @@ func StandardPrimitives() []schema.PrimitiveSchema {
 				},
 				"examples": []interface{}{
 					map[string]interface{}{
-						"booking_id": "bk-1001",
+						"calendar_id": "VH-001",
+						"booking_id":  "bk-1001",
 					},
 				},
 			},

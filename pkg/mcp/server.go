@@ -358,6 +358,13 @@ func (s *Server) executeTool(ctx context.Context, p callToolParams) (interface{}
 					s.incError(te.Code)
 					return nil, typedRPCError(te)
 				}
+			case "cal_check", "cal_openings", "cal_propose":
+				// xolu answers 404 only for a calendar that does not exist.
+				if isNotFound {
+					te = taxonomy.NewNotFound("", firstCalendar(p.Arguments))
+					s.incError(te.Code)
+					return nil, typedRPCError(te)
+				}
 			case "cal_confirm":
 				if isNotFound {
 					te = taxonomy.NewNotFound("", fmt.Sprintf("%v", p.Arguments["booking_id"]))
@@ -616,4 +623,20 @@ func (s *Server) incError(code string) {
 		baseCode := taxonomy.StripPrefix(code)
 		s.metrics.IncErrors(telemetry.ComponentMoluFront, string(baseCode))
 	}
+}
+
+// firstCalendar names the calendar an agent addressed, for the NOT_FOUND of
+// the calendar primitives.
+func firstCalendar(args map[string]interface{}) string {
+	switch v := args["calendars"].(type) {
+	case []interface{}:
+		if len(v) > 0 {
+			return fmt.Sprint(v[0])
+		}
+	case []string:
+		if len(v) > 0 {
+			return v[0]
+		}
+	}
+	return fmt.Sprint(args["calendar_id"])
 }

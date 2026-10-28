@@ -159,11 +159,12 @@ func TestStandardPrimitives_SchemasDetail(t *testing.T) {
 		t.Errorf("cal_propose required fields expected 3 items, got %v", reqCalProp)
 	}
 
-	// 13. cal_confirm: required booking_id
+	// 13. cal_confirm: required calendar_id and booking_id (xolu confirms within
+	// one calendar and cannot look a booking up without it)
 	calConfPrim := lookup["cal_confirm"]
 	reqCalConf := calConfPrim.InputSchema["required"].([]interface{})
-	if len(reqCalConf) != 1 || reqCalConf[0] != "booking_id" {
-		t.Errorf("cal_confirm required fields expected [booking_id], got %v", reqCalConf)
+	if len(reqCalConf) != 2 || reqCalConf[0] != "calendar_id" || reqCalConf[1] != "booking_id" {
+		t.Errorf("cal_confirm required fields expected [calendar_id booking_id], got %v", reqCalConf)
 	}
 }
 

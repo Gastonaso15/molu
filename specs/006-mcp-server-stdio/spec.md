@@ -238,13 +238,14 @@ Mueve una reserva del plano propuesto al plano vinculante (*binding plane*).
   ```json
   {
     "type": "object",
-    "required": ["booking_id"],
+    "required": ["calendar_id", "booking_id"],
     "properties": {
+      "calendar_id": { "type": "string", "description": "Calendario en el que se propuso la reserva." },
       "booking_id": { "type": ["string", "integer"] }
     }
   }
   ```
-- **Despacho**: API de calendario de xolu (`POST /api/v2/cal/confirm`). Si el `booking_id` no existe, emite `NOT_FOUND`.
+- **Despacho**: API de calendario de xolu (`POST /api/v2/cal/confirm`). xolu confirma dentro de un calendario y no busca reservas por id, por eso `calendar_id` es obligatorio (se aparta del §5.1.13, que pedía solo `booking_id`; `cal_propose` lo devuelve). No hay calendario por defecto. Si el `booking_id` o el calendario no existen, emite `NOT_FOUND`.
 
 ---
 

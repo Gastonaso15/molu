@@ -361,25 +361,26 @@ Dry-run availability check against one or more calendars over a proposed span, w
 }
 ```
 
-Dispatches through the xolu client's `cal` check surface. Returns availability and, on unavailability, the blocking diagnostic naming the calendars that killed the intersection.
+Dispatches to `POST /api/v2/cal/check` once per calendar, because xolu checks one calendar per request, and intersects the answers. With a single calendar the response is xolu's own (`feasible`, `nearest_openings`). With several it is `{feasible, blocking_calendars, calendars}`: `feasible` is true only if every calendar is, `blocking_calendars` names the calendars that killed the intersection, and `calendars` carries each calendar's own answer. A calendar that does not exist is `NOT_FOUND`, naming it.
 
 #### 5.1.11. `cal_openings`
 
-Find open windows across one or more calendars.
+Find open windows on one calendar.
 
 ```json
 {
   "name": "cal_openings",
-  "description": "Find available windows across one or more calendars, given a duration and search range.",
+  "description": "Find available windows on one calendar, given a duration and search range.",
   "inputSchema": {
     "type": "object",
     "required": ["calendars", "duration", "from", "to"],
     "properties": {
       "calendars": {
         "type": "array",
-        "items": { "type": "string" }
+        "items": { "type": "string" },
+        "description": "Exactly one calendar. xolu does not intersect windows across calendars."
       },
-      "duration": { "type": "string", "description": "ISO 8601 duration (e.g. PT1H)." },
+      "duration": { "type": "string", "description": "ISO 8601 duration (e.g. PT30M, PT1H30M, P1D)." },
       "from":     { "type": "string", "format": "date-time" },
       "to":       { "type": "string", "format": "date-time" },
       "objective": {
@@ -393,7 +394,7 @@ Find open windows across one or more calendars.
 }
 ```
 
-Dispatches through the xolu client's `cal` openings surface.
+Dispatches to `POST /api/v2/cal/openings`. Exactly one calendar is accepted; naming several is a `CONTRACT_VIOLATION` on `calendars`, and the extra ones are never silently ignored. `duration` must be a readable ISO 8601 duration (days and time parts: `PT30M`, `PT1H30M`, `P1D`, `P1DT2H`); one that is missing or unreadable is a `CONTRACT_VIOLATION` on `duration` and is never defaulted. A calendar that does not exist is `NOT_FOUND`, naming it.
 
 #### 5.1.12. `cal_propose`
 
@@ -402,14 +403,15 @@ Create a proposed booking (proposed plane; not yet confirmed).
 ```json
 {
   "name": "cal_propose",
-  "description": "Create a proposed booking on one or more calendars. Bookings are placed on the proposed plane until confirmed.",
+  "description": "Create a proposed booking on one calendar. Bookings are placed on the proposed plane until confirmed.",
   "inputSchema": {
     "type": "object",
     "required": ["calendars", "start", "end"],
     "properties": {
       "calendars": {
         "type": "array",
-        "items": { "type": "string" }
+        "items": { "type": "string" },
+        "description": "Exactly one calendar. xolu books on one calendar per request."
       },
       "start": { "type": "string", "format": "date-time" },
       "end":   { "type": "string", "format": "date-time" },
@@ -419,7 +421,7 @@ Create a proposed booking (proposed plane; not yet confirmed).
 }
 ```
 
-Dispatches through the xolu client's `cal` propose surface. Returns a booking id.
+Dispatches to `POST /api/v2/cal/propose`. Exactly one calendar is accepted; naming several is a `CONTRACT_VIOLATION` on `calendars`. Returns the booking, including its `booking_id` and `calendar_id`; both are needed by `cal_confirm`. A calendar that does not exist is `NOT_FOUND`, naming it.
 
 #### 5.1.13. `cal_confirm`
 
@@ -431,15 +433,16 @@ Move a proposed booking to the binding plane.
   "description": "Confirm a previously proposed booking, moving it from the proposed plane to the binding plane.",
   "inputSchema": {
     "type": "object",
-    "required": ["booking_id"],
+    "required": ["calendar_id", "booking_id"],
     "properties": {
+      "calendar_id": { "type": "string", "description": "Calendar the booking was proposed on." },
       "booking_id": { "type": ["string", "integer"] }
     }
   }
 }
 ```
 
-Dispatches through the xolu client's `cal` confirm surface.
+Dispatches to `POST /api/v2/cal/confirm`. xolu confirms within one calendar and has no lookup of a booking by id, so `calendar_id` is required and molu has no default calendar: without it the call is a `CONTRACT_VIOLATION` and nothing is sent to xolu. `cal_propose` returns the `calendar_id` to pass here. A booking or calendar that does not exist is `NOT_FOUND`.
 
 ### 5.2. Domain functions
 
@@ -690,7 +693,7 @@ Recorded so a reader knows what is *not* in draft-02 and where it will land.
 
 **Event subscriptions for proactive MCP notifications.** molu does not subscribe to the xolu event stream in draft-02. A future revision may register subscriptions to `entity.updated`, `fsm.step`, and `commit.applied` for the purpose of pushing MCP notifications to the agent — allowing an agent to be told about state changes without polling. When that work happens, subscriptions will use a namespaced description prefix (candidate: `molu.front.<instance-id>.*`) for identification and cleanup.
 
-**cal `move` and lifecycle-completion tools.** `cal_check`, `cal_openings`, `cal_propose`, and `cal_confirm` cover the primary agentic scheduling flow in draft-02. A future revision will add `cal_move` (atomic reschedule) and `cal_complete` / `cal_cancel` (terminal lifecycle transitions) once the request patterns from real agentic use are observed.
+**cal `move` and lifecycle-completion tools.** `cal_check`, `cal_openings`, `cal_propose`, and `cal_confirm` cover the primary agentic scheduling flow in draft-02. A future revision will add `cal_move` (atomic reschedule) and `cal_complete` / `cal_cancel` (terminal lifecycle transitions) once the request patterns from real agentic use are observed. Operations across several calendars at once (intersecting openings, booking on several calendars atomically) are not offered by xolu today; `cal_check` is the only one that spans calendars, by asking each in turn.
 
 **Sync via nolu.** When nolu-coordinated xolu deployments become the norm, molu's semantic-map poller may need awareness of the coordination layer to avoid transient inconsistencies during nolu rebalancing. Not in draft-02; the current design assumes one molu talks to one xolu directly.
 
