@@ -38,7 +38,8 @@
 | **004** | `rpi-admit-score` — Interfaz RPI (`Admit`/`Score`) y proveedores V1 (`admit-all`, `static-context-rules`) | **En curso**: plan.md y tasks.md cubren T-004.2 a T-004.5; T1–T9 hechas (interfaz `RPIProvider` + mock, `admit-all`, `static-context-rules`, `rpi.Offer` + integración `NOT_OFFERED`). Implementación previa revertida (`457bbd1`, `3aa5903`) | Pendientes de sus responsables: config `MOLU_FRONT_RPI_*` (RF-1), `tools/list` (RF-2, RF-3, RF-8), Criterio 7 y diagrama; cada uno agrega sus tareas a `tasks.md` |
 | **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI, `tools/call` stub | **En curso** (spec en borrador; `Registry` y `PublisherAPI` implementados) | Añadir `tools/list` con Admit+Score (depende de spec 004), `tools/call` stub, config `MOLU_HUB_*`, wiring MCP y diagrama |
 | **006** | `mcp-server-stdio` — Servidor MCP Stdio y Despachador de Primitivos en Molu Frontend (ampliada a los 13 primitivos genéricos §5.1) | **En curso (7/8 tasks)** | Continuar con T8 (diagrama de secuencia y documentación operativa) |
-| **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Iniciar spec 008 (si aplica) / documentación pendiente T23-T28 |
+| **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
+| **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **Planificada (spec, plan y 8 tasks)** | Iniciar implementación TDD de T1 (Tipos, interfaces y `EnvSecretResolver`) |
 
 
 
