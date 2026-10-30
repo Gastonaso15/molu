@@ -1,9 +1,9 @@
 # Tareas: Spec 008 — Execution Bridge para Funciones de Dominio del Hub
 
-- [ ] **T1. Tipos, interfaces del puente y `EnvSecretResolver`.** RF-5, RF-6, RF-13
+- [x] **T1. Tipos, interfaces del puente y `EnvSecretResolver`.** RF-5, RF-6, RF-13
   - Definir interfaces en `pkg/bridge/types.go` (`ToolLookup`, `SecretResolver`, `DomainCaller`, `DomainExecutor`) y modelos de autenticación (`AuthMetadata`, `AuthMode`).
   - Implementar `EnvSecretResolver` en `pkg/bridge/resolver.go`: normaliza `token_ref` (ej. `vault:token-1` $\rightarrow$ `MOLU_FRONT_TOKEN_VAULT_TOKEN_1`), con soporte prioritario para archivos con sufijo `_FILE`.
-  - Hecho cuando: `go test -v -race ./pkg/bridge/... -run "TestSecretResolver"` pasa en verde y verifica normalización, lectura de env, lectura de `_FILE` y error ante secreto inexistente.
+  - Hecho cuando: `go test -v -race ./pkg/bridge/... -run "TestSecretResolver"` pasa en verde y verifica normalización, lectura de env, lectura de `_FILE` y error ante secreto inexistente. (Completado: tests en verde bajo `-race`).
 
 - [ ] **T2. Validador de contratos de dominio (`ValidateDomainInput`).** RF-3, RF-4
   - Implementar `ValidateDomainInput(schemaMap, args)` en `pkg/bridge/validator.go` utilizando `gojsonschema`.

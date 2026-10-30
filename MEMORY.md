@@ -39,7 +39,7 @@
 | **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI, `tools/call` stub | **En curso** (spec en borrador; `Registry` y `PublisherAPI` implementados) | Añadir `tools/list` con Admit+Score (depende de spec 004), `tools/call` stub, config `MOLU_HUB_*`, wiring MCP y diagrama |
 | **006** | `mcp-server-stdio` — Servidor MCP Stdio y Despachador de Primitivos en Molu Frontend (ampliada a los 13 primitivos genéricos §5.1) | **En curso (7/8 tasks)** | Continuar con T8 (diagrama de secuencia y documentación operativa) |
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
-| **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **Planificada (spec, plan y 8 tasks)** | Iniciar implementación TDD de T1 (Tipos, interfaces y `EnvSecretResolver`) |
+| **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1 hecha: 1/8 tasks)** | Proceder con T2 (Validador de contratos de dominio `ValidateDomainInput`) |
 
 
 
@@ -383,4 +383,18 @@ go test ./...  # Todo en verde
   - En `scripts/levantar-xolu.sh`:
     - Auto-inicialización de definiciones FSM v2 (`Ciclo de Vida — Vehículo` id: 1 con triggers `qr_scan`/`custom_driver`, y `Ciclo de Vida — Maquinaria Pesada` id: 2) e instancias de máquinas asociadas.
     - Registro de calendarios (`VH-001` y `room-a`) y propuesta inicial de reserva `bk-1001` para que `cal_confirm` sea ejecutable inmediatamente en la UI del inspector tras resetear xolu.
+
+---
+
+## Archivos Creados (Spec 008 — Execution Bridge, T1)
+
+| Archivo | Descripción | RF Cubiertos |
+| :--- | :--- | :--- |
+| `specs/008-execution-bridge/spec.md` | Especificación funcional EARS para invocación de funciones de dominio del Hub vía HTTP passthrough | Todos |
+| `specs/008-execution-bridge/plan.md` | Plan técnico: arquitectura `pkg/bridge`, modelos `AuthMetadata`, interfaces `ToolLookup`/`SecretResolver`/`DomainCaller`/`DomainExecutor`, secuencia Mermaid | Todos |
+| `specs/008-execution-bridge/tasks.md` | 8 micro-tareas TDD (T1 a T8) | Todos |
+| `pkg/bridge/types.go` | Definición de interfaces `ToolLookup`, `SecretResolver`, `DomainCaller`, `DomainExecutor`, tipos `AuthMetadata`, `AuthMode` y centinela `ErrSecretNotFound` | RF-5, RF-6, RF-13 |
+| `pkg/bridge/resolver.go` | `EnvSecretResolver` y `NormalizeTokenRef`: normalización de `token_ref` a `MOLU_FRONT_TOKEN_<REF>` y soporte para archivos de secretos `_FILE` | RF-5, RF-6, RF-13 |
+| `pkg/bridge/resolver_test.go` | Tests unitarios: normalización, variables directas, archivo `_FILE`, precedencia de archivo, error de secreto inexistente y neutralidad de dominio (cero menciones al término prohibido) | RF-5, RF-6, RF-13 |
+
 
