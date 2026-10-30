@@ -5,10 +5,10 @@
   - Implementar `EnvSecretResolver` en `pkg/bridge/resolver.go`: normaliza `token_ref` (ej. `vault:token-1` $\rightarrow$ `MOLU_FRONT_TOKEN_VAULT_TOKEN_1`), con soporte prioritario para archivos con sufijo `_FILE`.
   - Hecho cuando: `go test -v -race ./pkg/bridge/... -run "TestSecretResolver"` pasa en verde y verifica normalización, lectura de env, lectura de `_FILE` y error ante secreto inexistente. (Completado: tests en verde bajo `-race`).
 
-- [ ] **T2. Validador de contratos de dominio (`ValidateDomainInput`).** RF-3, RF-4
+- [x] **T2. Validador de contratos de dominio (`ValidateDomainInput`).** RF-3, RF-4
   - Implementar `ValidateDomainInput(schemaMap, args)` en `pkg/bridge/validator.go` utilizando `gojsonschema`.
   - Retornar `CONTRACT_VIOLATION` con `details.fields[]` ante violación de tipos o campos obligatorios faltantes.
-  - Hecho cuando: `go test -v -race ./pkg/bridge/... -run "TestValidateDomainInput"` pasa en verde con pruebas unitarias por tabla.
+  - Hecho cuando: `go test -v -race ./pkg/bridge/... -run "TestValidateDomainInput"` pasa en verde con pruebas unitarias por tabla. (Completado: tests en verde bajo `-race`. Los campos se nombran por la propiedad infractora, no por `(root)`; `tenant` y `tool` quedan vacíos en el error para que T4 los complete. Un schema que no compila devuelve error simple, no `CONTRACT_VIOLATION`.)
 
 - [ ] **T3. Cliente HTTP passthrough (`HTTPDomainCaller`).** RF-7, RF-8, RF-9, RF-10, RF-11
   - Implementar `HTTPDomainCaller` en `pkg/bridge/caller.go`: ejecuta peticiones HTTP POST JSON con timeout y headers de autenticación (`Bearer`, `apikey` o `none`) y correlación (`X-Request-ID`, `traceparent`).

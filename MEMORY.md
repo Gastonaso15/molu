@@ -39,7 +39,7 @@
 | **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI, `tools/call` stub | **En curso** (spec en borrador; `Registry` y `PublisherAPI` implementados) | Añadir `tools/list` con Admit+Score (depende de spec 004), `tools/call` stub, config `MOLU_HUB_*`, wiring MCP y diagrama |
 | **006** | `mcp-server-stdio` — Servidor MCP Stdio y Despachador de Primitivos en Molu Frontend (ampliada a los 13 primitivos genéricos §5.1) | **En curso (7/8 tasks)** | Continuar con T8 (diagrama de secuencia y documentación operativa) |
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
-| **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1 hecha: 1/8 tasks)** | Proceder con T2 (Validador de contratos de dominio `ValidateDomainInput`) |
+| **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T2 hechas: 2/8 tasks)** | Proceder con T3 (Cliente HTTP passthrough `HTTPDomainCaller`) |
 
 
 
@@ -386,7 +386,7 @@ go test ./...  # Todo en verde
 
 ---
 
-## Archivos Creados (Spec 008 — Execution Bridge, T1)
+## Archivos Creados (Spec 008 — Execution Bridge, T1–T2)
 
 | Archivo | Descripción | RF Cubiertos |
 | :--- | :--- | :--- |
@@ -396,5 +396,9 @@ go test ./...  # Todo en verde
 | `pkg/bridge/types.go` | Definición de interfaces `ToolLookup`, `SecretResolver`, `DomainCaller`, `DomainExecutor`, tipos `AuthMetadata`, `AuthMode` y centinela `ErrSecretNotFound` | RF-5, RF-6, RF-13 |
 | `pkg/bridge/resolver.go` | `EnvSecretResolver` y `NormalizeTokenRef`: normalización de `token_ref` a `MOLU_FRONT_TOKEN_<REF>` y soporte para archivos de secretos `_FILE` | RF-5, RF-6, RF-13 |
 | `pkg/bridge/resolver_test.go` | Tests unitarios: normalización, variables directas, archivo `_FILE`, precedencia de archivo, error de secreto inexistente y neutralidad de dominio (cero menciones al término prohibido) | RF-5, RF-6, RF-13 |
+| `pkg/bridge/validator.go` | `ValidateDomainInput(schema, args)` con `gojsonschema`: devuelve `CONTRACT_VIOLATION` con `details.fields[]` nombrando la propiedad infractora (también en `required` y `additionalProperties`, anidadas con `a.b`, no `(root)`). `tenant`/`tool` quedan vacíos en el error: T4 los completa. Schema vacío acepta todo; schema que no compila devuelve error simple (defecto del publicador, no del agente) | RF-3, RF-4 |
+| `pkg/bridge/validator_test.go` | Tests por tabla: válido, anidado, requeridos faltantes, tipo erróneo, propiedad extra, args nil/vacíos, schema nil/vacío, schema inválido | RF-3, RF-4 |
+
+**T2 completada** (30-oct-2026): `go test -v -race ./...` en verde. Siguiente paso: T3 (`HTTPDomainCaller`, `pkg/bridge/caller.go`).
 
 
