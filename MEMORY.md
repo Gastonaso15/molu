@@ -40,7 +40,7 @@
 | **006** | `mcp-server-stdio` — Servidor MCP Stdio y Despachador de Primitivos en Molu Frontend (ampliada a los 13 primitivos genéricos §5.1) | **En curso (7/8 tasks)** | Continuar con T8 (diagrama de secuencia y documentación operativa) |
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
 | **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T7 hechas: 7/8 tasks)** | Proceder con T8 (Diagrama de secuencia Mermaid y documentación operativa) |
-| **009** | `work-orders-publisher` — Publicador piloto de Work Orders (registro en Hub, endpoints HTTP, FSM xolu y validación de Criterio 1) | **Borrador** | Revisión y aprobación del borrador por el usuario |
+| **009** | `work-orders-publisher` — Hub Standalone (`bin/hub`) y Publicador Piloto de Work Orders (desacoplamiento de binarios, endpoints HTTP, FSM xolu y validación de Criterio 1) | **Borrador ampliado** | Aprobación de la spec por el usuario para redactar `plan.md` y `tasks.md` |
 
 
 
@@ -54,6 +54,8 @@
 - **ADR-005**: Diagramas de secuencia versionados como texto `.mmd` (Mermaid) con exportación a `.pdf`.
 - **ADR-006** (Spec 001): Paquete compartido `pkg/taxonomy/` interno con constructores puros, interfaces `XoluClient`, `MCPTransport`, `RPIProvider` mockables, `RetryMetadata` con attemptNumber/maxAttempts, formato `XOLU-<CODE>` fijo para xolu.
 - **ADR-007** (Spec 007): Librería `zerolog` para logging estructurado (API fluida, zero-allocation JSON, mejor performance que zap); UUID v7 (ULID) para `request_id` (timestamp ordenable); W3C `traceparent` para `trace_id`/`span_id` (estándar industria); Security log separado con flush síncrono (integridad auditoría); Puerto telemetry 9090 desacoplado del MCP; `LogRotator` propia para control total (tamaño+tiempo, compresión, security log independiente); Prometheus client nativo para métricas; Health check con cache 30s basado en último ping exitoso xolu.
+- **ADR-008** (Spec 008): Execution Bridge (`pkg/bridge`) desacoplado en `HTTPDomainCaller` y `ExecutionBridge` orquestador; passthrough de llamadas POST JSON hacia endpoints de dominio con resolución local de `token_ref` y preservación de sobres de error `XOLU-*` verbatim.
+- **ADR-009** (Spec 009): Desacoplamiento del Hub en un binario independiente (`cmd/hub`) con servicio HTTP (`MOLU_HUB_HTTP_ADDR`, por defecto `:8091`) para que los publicadores externos registren sus contratos vía HTTP, y cliente remoto en `molu` configurable vía `MOLU_FRONT_HUB_URL`.
 
 ---
 ## Archivos Creados (Spec 001)
