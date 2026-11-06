@@ -161,6 +161,14 @@ Merge con spec 007 (`658def3`): `RPIProvider` conserva `SetLogger`/`SetMetrics` 
 
 ---
 
+## Archivos Creados/Modificados (Documentación de Configuración, sesión actual)
+
+| Archivo | Descripción |
+| :--- | :--- |
+| `docs/configuration.md` | Documentación completa de variables de entorno: Variables de Logging (`MOLU_FRONT_LOG_*`), Telemetría (`MOLU_FRONT_TELEMETRY_*`), Conexión a xolu (`MOLU_FRONT_*`), Schema (`MOLU_FRONT_SCHEMA_*` Spec 003), RPI (`MOLU_FRONT_RPI_*` Spec 004), y Hub (`MOLU_HUB_*` Spec 005). Incluye resumen por ambiente (desarrollo, staging, producción), validación de configuración y cheatsheet. Dependencias: specs 003, 004, 005, 006, 007. |
+
+---
+
 ## Archivos Creados (Spec 007)
 
 | Archivo | Descripción |
