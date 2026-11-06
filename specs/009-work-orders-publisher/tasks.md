@@ -24,12 +24,12 @@
   - **Descripción**: Crear el punto de entrada para `bin/hub`. Lee variables `MOLU_HUB_HTTP_ADDR` (default `:8091`), `MOLU_HUB_RPI_PROVIDER`, etc., inicializa registro y logger, arranca `HubHTTPServer` y soporta graceful shutdown ante `SIGINT`/`SIGTERM`.
   - **Criterio de finalización**: Compila limpiamente con `go build -o bin/hub ./cmd/hub` y el test verifica arranque y apagado ordenado.
 
-- [ ] **T3. Cliente Remoto de Hub en Molu (`pkg/hub/client.go`).** RF-5, RF-13, RF-14
+- [x] **T3. Cliente Remoto de Hub en Molu (`pkg/hub/client.go`).** RF-5, RF-13, RF-14
   - **Archivos**: `pkg/hub/client.go`, `pkg/hub/client_test.go`
   - **Descripción**: Implementar `RemoteHubClient` que implementa `mcp.CatalogLookup` (`Lookup`) y `mcp.ToolDiscoverer` (`ListTools`) mediante llamadas HTTP POST a `/api/v1/registry/list` y `/api/v1/discovery/tools`. Deserializa y propaga errores de taxonomía tipada (`TypedError`) sin colapsarlos.
   - **Criterio de finalización**: `go test -v -race ./pkg/hub/... -run "TestRemoteHubClient"` pasa con simulación de servidor HTTP.
 
-- [ ] **T4. Wiring de Hub Remoto en Molu Frontend (`cmd/molu/main.go` & `pkg/config/config.go`).** RF-5
+- [x] **T4. Wiring de Hub Remoto en Molu Frontend (`cmd/molu/main.go` & `pkg/config/config.go`).** RF-5
   - **Archivos**: `pkg/config/config.go`, `pkg/config/config_test.go`, `cmd/molu/main.go`
   - **Descripción**: Agregar variable de configuración `MOLU_FRONT_HUB_URL`. En `cmd/molu/main.go`, si la variable está definida, instanciar `RemoteHubClient` para `CatalogLookup` y `Discovery`; si está vacía, mantener el `Registry` local en memoria para retrocompatibilidad y tests.
   - **Criterio de finalización**: `go test -v -race ./pkg/config/...` y `go test -v -race ./cmd/molu/...` pasan.

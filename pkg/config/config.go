@@ -74,9 +74,9 @@ func LoadFromEnv() (*Config, error) {
 		XoluAuthMode:  r.str("MOLU_FRONT_XOLU_AUTH_MODE", ""),
 		XoluTokenFile: r.str("MOLU_FRONT_XOLU_TOKEN_FILE", ""),
 
-		HubURL:       r.str("MOLU_HUB_URL", ""),
-		HubAuthMode:  r.str("MOLU_HUB_AUTH_MODE", ""),
-		HubTokenFile: r.str("MOLU_HUB_TOKEN_FILE", ""),
+		HubURL:       r.first("MOLU_FRONT_HUB_URL", "MOLU_HUB_URL", ""),
+		HubAuthMode:  r.first("MOLU_FRONT_HUB_AUTH_MODE", "MOLU_HUB_AUTH_MODE", ""),
+		HubTokenFile: r.first("MOLU_FRONT_HUB_TOKEN_FILE", "MOLU_HUB_TOKEN_FILE", ""),
 
 		HubRPIProvider:  r.str("MOLU_HUB_RPI_PROVIDER", ""),
 		HubRPIRulesFile: r.str("MOLU_HUB_RPI_RULES_FILE", ""),
@@ -142,8 +142,12 @@ func (c *Config) validate() []error {
 
 	// Hub: solo se valida si está configurado
 	if c.HubURL != "" {
-		oneOf("MOLU_HUB_AUTH_MODE", c.HubAuthMode, "bearer", "apikey", "jwt")
-		required("MOLU_HUB_TOKEN_FILE", c.HubTokenFile)
+		if c.HubAuthMode == "none" {
+			// Hub auth mode "none" requires no token file
+		} else {
+			oneOf("MOLU_HUB_AUTH_MODE", c.HubAuthMode, "bearer", "apikey", "jwt")
+			required("MOLU_HUB_TOKEN_FILE", c.HubTokenFile)
+		}
 	}
 
 	// Descubrimiento del Hub (RPI)
@@ -220,6 +224,18 @@ func (r *reader) str(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func (r *reader) first(keys ...string) string {
+	for i := 0; i < len(keys)-1; i++ {
+		if v := os.Getenv(keys[i]); v != "" {
+			return v
+		}
+	}
+	if len(keys) > 0 {
+		return keys[len(keys)-1]
+	}
+	return ""
 }
 
 func (r *reader) duration(key string, def time.Duration) time.Duration {

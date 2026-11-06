@@ -118,30 +118,40 @@ func main() {
 		}
 	}
 
-	// Hub Registry, Discovery y Execution Bridge (Spec 005, Spec 008)
+	// Hub Registry, Discovery y Execution Bridge (Spec 005, Spec 008, Spec 009)
 	var discovery mcp.ToolDiscoverer
+	var catalogLookup mcp.CatalogLookup
 	var domainExecutor mcp.DomainExecutor
-	hubRegistry := hub.NewRegistry()
-
 	var rpiProvider rpi.RPIProvider
-	if cfg.HubRPIProvider != "" {
-		provider, err := hub.NewRPIProvider(cfg.HubRPIProvider, cfg.HubRPIRulesFile, cfg.HubRPIRulesJSON)
-		if err != nil {
-			logger.System().Error().Err(err).Msg("invalid RPI provider configuration, exiting")
-			os.Exit(1)
+
+	if cfg.HubURL != "" {
+		remoteHub := hub.NewRemoteHubClient(cfg.HubURL, cfg.DomainCallTimeout)
+		catalogLookup = remoteHub
+		discovery = remoteHub
+		logger.System().Info().Str("hub_url", cfg.HubURL).Msg("Connected to remote Hub service")
+	} else {
+		hubRegistry := hub.NewRegistry()
+		catalogLookup = hubRegistry
+
+		if cfg.HubRPIProvider != "" {
+			provider, err := hub.NewRPIProvider(cfg.HubRPIProvider, cfg.HubRPIRulesFile, cfg.HubRPIRulesJSON)
+			if err != nil {
+				logger.System().Error().Err(err).Msg("invalid RPI provider configuration, exiting")
+				os.Exit(1)
+			}
+			provider.SetLogger(logger)
+			provider.SetMetrics(metrics)
+			rpiProvider = provider
+			discovery = hub.NewDiscovery(hubRegistry, rpiProvider)
+			logger.System().Info().Str("rpi_provider", cfg.HubRPIProvider).Msg("Hub discovery enabled (local)")
 		}
-		provider.SetLogger(logger)
-		provider.SetMetrics(metrics)
-		rpiProvider = provider
-		discovery = hub.NewDiscovery(hubRegistry, rpiProvider)
-		logger.System().Info().Str("rpi_provider", cfg.HubRPIProvider).Msg("Hub discovery enabled")
 	}
 
 	caller := bridge.NewHTTPDomainCaller(nil, nil, cfg.DomainCallTimeout)
 	caller.SetLogger(logger)
 	caller.SetMetrics(metrics)
 
-	execBridge := bridge.NewExecutionBridge(hubRegistry, rpiProvider, nil, caller)
+	execBridge := bridge.NewExecutionBridge(catalogLookup, rpiProvider, nil, caller)
 	execBridge.SetLogger(logger)
 	execBridge.SetMetrics(metrics)
 	domainExecutor = execBridge
@@ -153,7 +163,7 @@ func main() {
 		Executor:       xoluClient,
 		Discovery:      discovery,
 		DomainExecutor: domainExecutor,
-		CatalogLookup:  hubRegistry,
+		CatalogLookup:  catalogLookup,
 		CallTimeout:    cfg.CallTimeout,
 		Metrics:        metrics,
 	})

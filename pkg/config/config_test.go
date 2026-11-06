@@ -13,6 +13,31 @@ func setRequired(t *testing.T) {
 	t.Setenv("MOLU_FRONT_XOLU_TOKEN_FILE", "xolu.jwt")
 }
 
+func TestHubURLConfiguration(t *testing.T) {
+	setRequired(t)
+	t.Setenv("MOLU_FRONT_HUB_AUTH_MODE", "none")
+
+	// 1. MOLU_FRONT_HUB_URL sets HubURL
+	t.Setenv("MOLU_FRONT_HUB_URL", "http://hub.internal:8091")
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.HubURL != "http://hub.internal:8091" {
+		t.Errorf("HubURL = %q, expected http://hub.internal:8091", cfg.HubURL)
+	}
+
+	// 2. MOLU_FRONT_HUB_URL takes precedence over MOLU_HUB_URL
+	t.Setenv("MOLU_HUB_URL", "http://legacy.hub:8091")
+	cfgPrecedence, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfgPrecedence.HubURL != "http://hub.internal:8091" {
+		t.Errorf("HubURL = %q, expected http://hub.internal:8091 (precedence)", cfgPrecedence.HubURL)
+	}
+}
+
 func TestDefaults(t *testing.T) {
 	setRequired(t)
 
