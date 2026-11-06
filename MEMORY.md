@@ -40,7 +40,7 @@
 | **006** | `mcp-server-stdio` — Servidor MCP Stdio y Despachador de Primitivos en Molu Frontend (ampliada a los 13 primitivos genéricos §5.1) | **En curso (7/8 tasks)** | Continuar con T8 (diagrama de secuencia y documentación operativa) |
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
 | **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T7 hechas: 7/8 tasks)** | Proceder con T8 (Diagrama de secuencia Mermaid y documentación operativa) |
-| **009** | `work-orders-publisher` — Hub Standalone (`bin/hub`) y Publicador Piloto de Work Orders (desacoplamiento de binarios, endpoints HTTP, FSM xolu y validación de Criterio 1) | **Borrador ampliado** | Aprobación de la spec por el usuario para redactar `plan.md` y `tasks.md` |
+| **009** | `work-orders-publisher` — Hub Standalone (`bin/hub`) y Publicador Piloto de Work Orders (desacoplamiento de binarios, endpoints HTTP, FSM xolu y validación de Criterio 1) | **En curso (T1–T2 hechas: 2/9 tasks)** | Continuar con T3 (Cliente Remoto de Hub en Molu `pkg/hub/client.go`) |
 
 
 
@@ -413,5 +413,22 @@ go test ./...  # Todo en verde
 | `pkg/bridge_integration/bridge_integration_test.go` | 11 pruebas de integración dedicadas E2E (§2.4 y Criterio 2): ciclo completo `tools/call` sobre stdio cubriendo éxito, `NOT_OFFERED` (catálogo y RPI), `CONTRACT_VIOLATION` (schema y secreto), `NOT_FOUND`, `SUBSTRATE_UNAVAILABLE` (5xx y timeout), `EMPTY` e `INVALID_TRANSITION` verbatim en sobre `isError: true` | RF-2, RF-4, RF-8, RF-9, RF-10, RF-11, RF-12, RF-13 |
 
 **T7 completada** (05-nov-2026): `go test -v -race ./...` y `make build` en verde. Siguiente paso: T8 (Diagrama de secuencia Mermaid y documentación operativa).
+
+---
+
+## Archivos Creados (Spec 009 — Hub Standalone y Publicador de Work Orders, T1–T2)
+
+| Archivo | Descripción | RF Cubiertos |
+| :--- | :--- | :--- |
+| `specs/009-work-orders-publisher/spec.md` | Especificación de Hub Standalone (`bin/hub`), cliente remoto en `molu` y publicador de Work Orders | Todos |
+| `specs/009-work-orders-publisher/plan.md` | Plan técnico con arquitectura de servicios, diagramas y contratos HTTP | Todos |
+| `specs/009-work-orders-publisher/tasks.md` | Desglose en 9 tareas de implementación TDD (T1 a T9) | Todos |
+| `pkg/hub/http_server.go` | `HubHTTPServer`: servidor HTTP REST exponiendo `/api/v1/registry/register`, `/unregister`, `/list`, `/api/v1/discovery/tools` y `/healthz` con taxonomía tipada | RF-2, RF-3, RF-4, RF-13, RF-14 |
+| `pkg/hub/http_server_test.go` | Tests unitarios y de concurrencia: endpoints de salud, registro, desregistro, validación de schemas, taxonomía `EMPTY`/`CONTRACT_VIOLATION`/`NOT_FOUND`, y concurrencia segura | RF-2, RF-3, RF-4, RF-13, RF-14 |
+| `cmd/hub/main.go` | Binario ejecutable del Hub Standalone: configuración por variables de entorno `MOLU_HUB_*`, inicio del servidor HTTP y graceful shutdown ante `SIGINT`/`SIGTERM` | RF-1, RF-13, RF-14 |
+| `cmd/hub/main_test.go` | Test unitario de arranque, endpoint `/healthz` y apagado ordenado del Hub | RF-1, RF-13, RF-14 |
+
+**T2 completada** (06-nov-2026): `bin/hub` compilado, `go test -v -race ./...` pasando. Siguiente paso: T3 (Cliente Remoto de Hub en Molu `pkg/hub/client.go`).
+
 
 
