@@ -39,7 +39,8 @@
 | **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI, `tools/call` stub | **En curso** (spec en borrador; `Registry` y `PublisherAPI` implementados) | Añadir `tools/list` con Admit+Score (depende de spec 004), `tools/call` stub, config `MOLU_HUB_*`, wiring MCP y diagrama |
 | **006** | `mcp-server-stdio` — Servidor MCP Stdio y Despachador de Primitivos en Molu Frontend (ampliada a los 13 primitivos genéricos §5.1) | **En curso (7/8 tasks)** | Continuar con T8 (diagrama de secuencia y documentación operativa) |
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
-| **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T2 hechas: 2/8 tasks)** | Proceder con T3 (Cliente HTTP passthrough `HTTPDomainCaller`) |
+| **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T7 hechas: 7/8 tasks)** | Proceder con T8 (Diagrama de secuencia Mermaid y documentación operativa) |
+| **009** | `work-orders-publisher` — Publicador piloto de Work Orders (registro en Hub, endpoints HTTP, FSM xolu y validación de Criterio 1) | **Borrador** | Revisión y aprobación del borrador por el usuario |
 
 
 
@@ -386,7 +387,7 @@ go test ./...  # Todo en verde
 
 ---
 
-## Archivos Creados (Spec 008 — Execution Bridge, T1–T2)
+## Archivos Creados (Spec 008 — Execution Bridge, T1–T7)
 
 | Archivo | Descripción | RF Cubiertos |
 | :--- | :--- | :--- |
@@ -398,7 +399,17 @@ go test ./...  # Todo en verde
 | `pkg/bridge/resolver_test.go` | Tests unitarios: normalización, variables directas, archivo `_FILE`, precedencia de archivo, error de secreto inexistente y neutralidad de dominio (cero menciones al término prohibido) | RF-5, RF-6, RF-13 |
 | `pkg/bridge/validator.go` | `ValidateDomainInput(schema, args)` con `gojsonschema`: devuelve `CONTRACT_VIOLATION` con `details.fields[]` nombrando la propiedad infractora (también en `required` y `additionalProperties`, anidadas con `a.b`, no `(root)`). `tenant`/`tool` quedan vacíos en el error: T4 los completa. Schema vacío acepta todo; schema que no compila devuelve error simple (defecto del publicador, no del agente) | RF-3, RF-4 |
 | `pkg/bridge/validator_test.go` | Tests por tabla: válido, anidado, requeridos faltantes, tipo erróneo, propiedad extra, args nil/vacíos, schema nil/vacío, schema inválido | RF-3, RF-4 |
+| `pkg/bridge/caller.go` | `HTTPDomainCaller`: ejecución HTTP POST JSON con timeout configurable, correlación (`X-Request-ID`, `traceparent`), headers de autenticación (`Bearer`, `apikey`, `none`), mapeo a taxonomía tipada (`NOT_FOUND`, `SUBSTRATE_UNAVAILABLE`, `EMPTY`), y preservación verbatim de sobres de error xolu (`XOLU-*`) | RF-7, RF-8, RF-9, RF-10, RF-11, RF-13 |
+| `pkg/bridge/caller_test.go` | Tests unitarios contra `httptest.Server`: POST 200 con payload, correlación W3C/ULID, auth headers y resolución previa con `CONTRACT_VIOLATION`, status 404 $\rightarrow$ `NOT_FOUND`, status 5xx/timeout/no-JSON $\rightarrow$ `SUBSTRATE_UNAVAILABLE`, colecciones vacías $\rightarrow$ `EMPTY`, sobres verbatim xolu (`XOLU-INVALID_TRANSITION`, etc.) | RF-7, RF-8, RF-9, RF-10, RF-11, RF-13 |
+| `pkg/bridge/bridge.go` | `ExecutionBridge`: orquestador que implementa `DomainExecutor`, realiza lookup de herramienta, gating de admisión RPI (`rpi.Offer`), validación de schema (`ValidateDomainInput`), extracción de endpoint/auth, enriquecimiento de correlación y despacho a través de `DomainCaller` con telemetría | RF-1, RF-2, RF-3, RF-4, RF-12, RF-13 |
+| `pkg/bridge/bridge_test.go` | Tests unitarios del bridge: `NOT_OFFERED` ante herramienta desconocida o exclusión RPI, `CONTRACT_VIOLATION` ante schema inválido o falta de endpoint, llamada exitosa passthrough y prueba de estrés concurrente con 25 goroutines | RF-1, RF-2, RF-3, RF-4, RF-12, RF-13 |
+| `pkg/mcp/server.go` | Integración del Execution Bridge en el servidor MCP: añadido `CatalogLookup` y `DomainExecutor` en `ServerConfig`, actualización de `isToolOffered` para nombres con namespace (`.`) y despacho de llamadas en `executeTool` | RF-1, RF-2, RF-7, RF-12, RF-13 |
+| `pkg/mcp/server_domain_test.go` | Tests unitarios de integración MCP: llamadas exitosas a funciones de dominio con resultado en `CallToolResult`, propagación de `CONTRACT_VIOLATION`, rechazo `NOT_OFFERED` y convivencia sin interferencias con los 13 primitivos nativos | RF-1, RF-2, RF-7, RF-12, RF-13 |
+| `pkg/config/config.go` | Adición de variable `MOLU_FRONT_DOMAIN_CALL_TIMEOUT` (default `30s`) y validación de duración positiva | RF-7 |
+| `pkg/config/config_test.go` | Tests de defaults y validación para `MOLU_FRONT_DOMAIN_CALL_TIMEOUT` | RF-7 |
+| `cmd/molu/main.go` | Cableado en el frontal MCP: instanciación de `hub.NewRegistry`, `bridge.NewExecutionBridge` y `bridge.NewHTTPDomainCaller` inyectados en `mcp.NewServer` | RF-1, RF-7, RF-12, RF-13 |
+| `pkg/bridge_integration/bridge_integration_test.go` | 11 pruebas de integración dedicadas E2E (§2.4 y Criterio 2): ciclo completo `tools/call` sobre stdio cubriendo éxito, `NOT_OFFERED` (catálogo y RPI), `CONTRACT_VIOLATION` (schema y secreto), `NOT_FOUND`, `SUBSTRATE_UNAVAILABLE` (5xx y timeout), `EMPTY` e `INVALID_TRANSITION` verbatim en sobre `isError: true` | RF-2, RF-4, RF-8, RF-9, RF-10, RF-11, RF-12, RF-13 |
 
-**T2 completada** (30-oct-2026): `go test -v -race ./...` en verde. Siguiente paso: T3 (`HTTPDomainCaller`, `pkg/bridge/caller.go`).
+**T7 completada** (05-nov-2026): `go test -v -race ./...` y `make build` en verde. Siguiente paso: T8 (Diagrama de secuencia Mermaid y documentación operativa).
 
 

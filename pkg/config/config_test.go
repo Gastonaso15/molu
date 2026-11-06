@@ -60,6 +60,9 @@ func TestDefaults(t *testing.T) {
 	if cfg.HubURL != "" {
 		t.Errorf("HubURL = %q, se esperaba vacío", cfg.HubURL)
 	}
+	if cfg.DomainCallTimeout != 30*time.Second {
+		t.Errorf("DomainCallTimeout = %v, se esperaba 30s", cfg.DomainCallTimeout)
+	}
 }
 
 func TestFaltanObligatorias(t *testing.T) {
@@ -78,6 +81,7 @@ func TestValoresInvalidos(t *testing.T) {
 	setRequired(t)
 	t.Setenv("MOLU_FRONT_TRANSPORT", "sse")
 	t.Setenv("MOLU_FRONT_PING_INTERVAL", "treinta")
+	t.Setenv("MOLU_FRONT_DOMAIN_CALL_TIMEOUT", "-5s")
 	t.Setenv("MOLU_FRONT_SCHEMA_RETRY_FLOOR", "5s")
 	t.Setenv("MOLU_FRONT_SCHEMA_RETRY_CEILING", "2s")
 

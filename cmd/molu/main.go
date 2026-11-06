@@ -9,11 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Gastonaso15/molu/pkg/bridge"
 	"github.com/Gastonaso15/molu/pkg/config"
 	"github.com/Gastonaso15/molu/pkg/exec"
 	"github.com/Gastonaso15/molu/pkg/hub"
 	"github.com/Gastonaso15/molu/pkg/mcp"
 	"github.com/Gastonaso15/molu/pkg/obs"
+	"github.com/Gastonaso15/molu/pkg/rpi"
 	"github.com/Gastonaso15/molu/pkg/schema"
 	"github.com/Gastonaso15/molu/pkg/taxonomy"
 	"github.com/Gastonaso15/molu/pkg/telemetry"
@@ -116,29 +118,44 @@ func main() {
 		}
 	}
 
-	// Descubrimiento del Hub filtrado por RPI (Spec 005): solo si hay proveedor
-	// configurado; sin él, tools/list sigue sirviendo los primitivos de xolu.
+	// Hub Registry, Discovery y Execution Bridge (Spec 005, Spec 008)
 	var discovery mcp.ToolDiscoverer
+	var domainExecutor mcp.DomainExecutor
+	hubRegistry := hub.NewRegistry()
+
+	var rpiProvider rpi.RPIProvider
 	if cfg.HubRPIProvider != "" {
-		rpiProvider, err := hub.NewRPIProvider(cfg.HubRPIProvider, cfg.HubRPIRulesFile, cfg.HubRPIRulesJSON)
+		provider, err := hub.NewRPIProvider(cfg.HubRPIProvider, cfg.HubRPIRulesFile, cfg.HubRPIRulesJSON)
 		if err != nil {
 			logger.System().Error().Err(err).Msg("invalid RPI provider configuration, exiting")
 			os.Exit(1)
 		}
-		rpiProvider.SetLogger(logger)
-		rpiProvider.SetMetrics(metrics)
-		discovery = hub.NewDiscovery(hub.NewRegistry(), rpiProvider)
+		provider.SetLogger(logger)
+		provider.SetMetrics(metrics)
+		rpiProvider = provider
+		discovery = hub.NewDiscovery(hubRegistry, rpiProvider)
 		logger.System().Info().Str("rpi_provider", cfg.HubRPIProvider).Msg("Hub discovery enabled")
 	}
 
-	// Inicializar Servidor MCP (Spec 006)
+	caller := bridge.NewHTTPDomainCaller(nil, nil, cfg.DomainCallTimeout)
+	caller.SetLogger(logger)
+	caller.SetMetrics(metrics)
+
+	execBridge := bridge.NewExecutionBridge(hubRegistry, rpiProvider, nil, caller)
+	execBridge.SetLogger(logger)
+	execBridge.SetMetrics(metrics)
+	domainExecutor = execBridge
+
+	// Inicializar Servidor MCP (Spec 006, Spec 008)
 	mcpServer := mcp.NewServer(mcp.ServerConfig{
-		Provider:    &loaderProvider{loader: schemaLoader},
-		Health:      probe,
-		Executor:    xoluClient,
-		Discovery:   discovery,
-		CallTimeout: cfg.CallTimeout,
-		Metrics:     metrics,
+		Provider:       &loaderProvider{loader: schemaLoader},
+		Health:         probe,
+		Executor:       xoluClient,
+		Discovery:      discovery,
+		DomainExecutor: domainExecutor,
+		CatalogLookup:  hubRegistry,
+		CallTimeout:    cfg.CallTimeout,
+		Metrics:        metrics,
 	})
 
 	primitives := schemaLoader.GetPrimitives()

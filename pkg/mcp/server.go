@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Gastonaso15/molu/pkg/hub"
 	"github.com/Gastonaso15/molu/pkg/rpi"
 	"github.com/Gastonaso15/molu/pkg/schema"
 	"github.com/Gastonaso15/molu/pkg/taxonomy"
@@ -42,24 +43,38 @@ type ToolDiscoverer interface {
 	ListTools(ctx context.Context, actx rpi.AdmitContext) ([]rpi.ScoredTool, error)
 }
 
+// CatalogLookup resolves tools from the Hub catalog.
+type CatalogLookup interface {
+	Lookup(name string) (hub.ToolRegistration, bool)
+}
+
+// DomainExecutor executes domain functions through the execution bridge.
+type DomainExecutor interface {
+	Execute(ctx context.Context, toolName string, args map[string]any, actx rpi.AdmitContext) (any, error)
+}
+
 // ServerConfig configures the MCP server.
 type ServerConfig struct {
-	Provider    PrimitiveProvider
-	Health      HealthChecker
-	Executor    SubstrateExecutor
-	Discovery   ToolDiscoverer
-	CallTimeout time.Duration
-	Metrics     telemetry.Metrics
+	Provider       PrimitiveProvider
+	Health         HealthChecker
+	Executor       SubstrateExecutor
+	Discovery      ToolDiscoverer
+	DomainExecutor DomainExecutor
+	CatalogLookup  CatalogLookup
+	CallTimeout    time.Duration
+	Metrics        telemetry.Metrics
 }
 
 // Server is the MCP server over stdio or any io.ReadWriter.
 type Server struct {
-	provider    PrimitiveProvider
-	health      HealthChecker
-	executor    SubstrateExecutor
-	discovery   ToolDiscoverer
-	callTimeout time.Duration
-	metrics     telemetry.Metrics
+	provider       PrimitiveProvider
+	health         HealthChecker
+	executor       SubstrateExecutor
+	discovery      ToolDiscoverer
+	domainExecutor DomainExecutor
+	catalogLookup  CatalogLookup
+	callTimeout    time.Duration
+	metrics        telemetry.Metrics
 
 	mu         sync.RWMutex
 	primitives []schema.PrimitiveSchema
@@ -86,13 +101,15 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 
 	return &Server{
-		provider:    cfg.Provider,
-		health:      cfg.Health,
-		executor:    cfg.Executor,
-		discovery:   cfg.Discovery,
-		callTimeout: callTimeout,
-		metrics:     cfg.Metrics,
-		primitives:  initialPrims,
+		provider:       cfg.Provider,
+		health:         cfg.Health,
+		executor:       cfg.Executor,
+		discovery:      cfg.Discovery,
+		domainExecutor: cfg.DomainExecutor,
+		catalogLookup:  cfg.CatalogLookup,
+		callTimeout:    callTimeout,
+		metrics:        cfg.Metrics,
+		primitives:     initialPrims,
 	}
 }
 
@@ -234,9 +251,19 @@ func (s *Server) handleDiscoveryList(ctx context.Context, params json.RawMessage
 type callToolParams struct {
 	Name      string                 `json:"name"`
 	Arguments map[string]interface{} `json:"arguments"`
+	Tenant    string                 `json:"tenant,omitempty"`
+	Roles     []string               `json:"roles,omitempty"`
 }
 
 func (s *Server) isToolOffered(name string) bool {
+	if strings.Contains(name, ".") {
+		if s.catalogLookup != nil {
+			_, ok := s.catalogLookup.Lookup(name)
+			return ok
+		}
+		return false
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -291,6 +318,54 @@ func (s *Server) executeTool(ctx context.Context, p callToolParams) (interface{}
 		te := taxonomy.NewNotOffered("", p.Name)
 		s.incError(te.Code)
 		return nil, typedRPCError(te)
+	}
+
+	// 2b. Domain function dispatch (RF-1, RF-7 / T5)
+	if strings.Contains(p.Name, ".") {
+		if s.domainExecutor == nil {
+			te := taxonomy.NewNotOffered("", p.Name)
+			s.incError(te.Code)
+			return nil, typedRPCError(te)
+		}
+
+		rc := telemetry.RequestContextFrom(ctx)
+		tenant := rc.TenantID
+		if tenant == "" && p.Tenant != "" {
+			tenant = p.Tenant
+		}
+		if tenant == "" && p.Arguments != nil {
+			if t, ok := p.Arguments["tenant_id"].(string); ok && t != "" {
+				tenant = t
+			} else if t, ok := p.Arguments["tenant"].(string); ok && t != "" {
+				tenant = t
+			}
+		}
+		actx := rpi.AdmitContext{
+			Tenant: tenant,
+			Roles:  p.Roles,
+		}
+		res, err := s.domainExecutor.Execute(ctx, p.Name, p.Arguments, actx)
+		if err != nil {
+			var te *taxonomy.TypedError
+			if errors.As(err, &te) {
+				s.incError(te.Code)
+				return nil, typedRPCError(te)
+			}
+			return nil, &jsonRPCError{Code: -32603, Message: err.Error()}
+		}
+
+		resBytes, err := json.Marshal(res)
+		if err != nil {
+			return nil, &jsonRPCError{Code: -32603, Message: err.Error()}
+		}
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": string(resBytes),
+				},
+			},
+		}, nil
 	}
 
 	// 3. Contract validation (RF-3 / T4)

@@ -10,29 +10,29 @@
   - Retornar `CONTRACT_VIOLATION` con `details.fields[]` ante violación de tipos o campos obligatorios faltantes.
   - Hecho cuando: `go test -v -race ./pkg/bridge/... -run "TestValidateDomainInput"` pasa en verde con pruebas unitarias por tabla. (Completado: tests en verde bajo `-race`. Los campos se nombran por la propiedad infractora, no por `(root)`; `tenant` y `tool` quedan vacíos en el error para que T4 los complete. Un schema que no compila devuelve error simple, no `CONTRACT_VIOLATION`.)
 
-- [ ] **T3. Cliente HTTP passthrough (`HTTPDomainCaller`).** RF-7, RF-8, RF-9, RF-10, RF-11
+- [x] **T3. Cliente HTTP passthrough (`HTTPDomainCaller`).** RF-7, RF-8, RF-9, RF-10, RF-11, RF-13
   - Implementar `HTTPDomainCaller` en `pkg/bridge/caller.go`: ejecuta peticiones HTTP POST JSON con timeout y headers de autenticación (`Bearer`, `apikey` o `none`) y correlación (`X-Request-ID`, `traceparent`).
   - Mapear respuestas: status 200 $\rightarrow$ payload JSON; status 404 $\rightarrow$ `NOT_FOUND`; status 5xx / timeout $\rightarrow$ `SUBSTRATE_UNAVAILABLE`; colección vacía $\rightarrow$ `EMPTY`; sobre xolu con código $\rightarrow$ error verbatim.
-  - Hecho cuando: `go test -v -race ./pkg/bridge/... -run "TestHTTPDomainCaller"` pasa en verde contra un servidor `httptest.Server` para cada escenario.
+  - Hecho cuando: `go test -v -race ./pkg/bridge/... -run "TestHTTPDomainCaller"` pasa en verde contra un servidor `httptest.Server` para cada escenario. (Completado: suite de pruebas en `caller_test.go` cubriendo 200 OK con payload, propagación de headers de correlación y auth, rechazo con `CONTRACT_VIOLATION` si falta el secreto, 404 $\rightarrow$ `NOT_FOUND`, 5xx/timeout/no-JSON $\rightarrow$ `SUBSTRATE_UNAVAILABLE`, `EMPTY` ante colecciones vacías o `count: 0`, y preservación verbatim de sobres de error xolu).
 
-- [ ] **T4. Orquestador `ExecutionBridge` con validación RPI y `ToolLookup`.** RF-1, RF-2, RF-12
+- [x] **T4. Orquestador `ExecutionBridge` con validación RPI y `ToolLookup`.** RF-1, RF-2, RF-3, RF-4, RF-12, RF-13
   - Implementar `ExecutionBridge` en `pkg/bridge/bridge.go` orquestando: consulta a `ToolLookup` $\rightarrow$ gating RPI con `rpi.Offer` $\rightarrow$ validación de esquema $\rightarrow$ resolución de auth $\rightarrow$ llamada HTTP.
-  - Hecho cuando: `go test -v -race ./pkg/bridge/... -run "TestBridge"` pasa en verde cubriendo `NOT_OFFERED` (herramienta desconocida o rechazada por RPI), `CONTRACT_VIOLATION`, éxito y prueba de concurrencia bajo `-race`.
+  - Hecho cuando: `go test -v -race ./pkg/bridge/... -run "TestBridge"` pasa en verde cubriendo `NOT_OFFERED` (herramienta desconocida o rechazada por RPI), `CONTRACT_VIOLATION`, éxito y prueba de concurrencia bajo `-race`. (Completado: `TestBridge` en verde bajo `-race`, cubriendo rechazo `NOT_OFFERED` si la herramienta no existe o RPI la excluye, `CONTRACT_VIOLATION` si los argumentos o el endpoint fallan, propagación de contexto/telemetría y prueba de concurrencia con 25 goroutines).
 
-- [ ] **T5. Integración en `pkg/mcp/server.go` y despacho de funciones de dominio.** RF-1, RF-2, RF-7
+- [x] **T5. Integración en `pkg/mcp/server.go` y despacho de funciones de dominio.** RF-1, RF-2, RF-7, RF-12, RF-13
   - Extender `ServerConfig` con `DomainExecutor` y `CatalogLookup`.
   - Actualizar `isToolOffered` para consultar `CatalogLookup` ante herramientas con namespace (`.`) y enrutar su ejecución al `DomainExecutor` en `executeTool`.
-  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_Domain"` pasa en verde para llamadas a herramientas de dominio y primitivos nativos sin interferencias.
+  - Hecho cuando: `go test -v -race ./pkg/mcp/... -run "TestServer_Domain"` pasa en verde para llamadas a herramientas de dominio y primitivos nativos sin interferencias. (Completado: `server.go` extendido con `CatalogLookup` y `DomainExecutor`; pruebas en `server_domain_test.go` en verde bajo `-race`, cubriendo llamadas exitosas, propagación de `CONTRACT_VIOLATION`, rechazo `NOT_OFFERED` e interoperabilidad limpia con los primitivos nativos).
 
-- [ ] **T6. Configuración y cableado en `cmd/molu/main.go`.** RF-1, RF-7
+- [x] **T6. Configuración y cableado en `cmd/molu/main.go`.** RF-1, RF-7, RF-12, RF-13
   - Adición de `MOLU_FRONT_DOMAIN_CALL_TIMEOUT` (default `30s`) en `pkg/config`.
   - Instanciar `bridge.NewExecutionBridge` en `cmd/molu/main.go` conectando el `hub.Registry`, proveedor RPI, logger y métricas, e inyectarlo en `mcp.NewServer`.
-  - Hecho cuando: `make build` compila limpiamente y `go test -v -race ./...` pasa en verde.
+  - Hecho cuando: `make build` compila limpiamente y `go test -v -race ./...` pasa en verde. (Completado: `MOLU_FRONT_DOMAIN_CALL_TIMEOUT` incorporada con validación positiva; `main.go` cablea `bridge.NewExecutionBridge` y `bridge.NewHTTPDomainCaller` inyectándolos en `mcp.NewServer`; binario compilado exitosamente con `make build` y tests pasando bajo `-race`).
 
-- [ ] **T7. Pruebas de integración E2E de taxonomía tipada (§2.4 y Criterio 2).** RF-2, RF-4, RF-8, RF-9, RF-10
+- [x] **T7. Pruebas de integración E2E de taxonomía tipada (§2.4 y Criterio 2).** RF-2, RF-4, RF-8, RF-9, RF-10, RF-11, RF-12, RF-13
   - Implementar `pkg/bridge_integration/bridge_integration_test.go` simulando ciclo completo `tools/call` a través de JSON-RPC stdio.
   - Demostrar que los errores tipados (`NOT_OFFERED`, `CONTRACT_VIOLATION`, `NOT_FOUND`, `SUBSTRATE_UNAVAILABLE`, `EMPTY`) se entregan correctamente en el sobre MCP `isError: true` con su JSON estructurado.
-  - Hecho cuando: `go test -v -race ./pkg/bridge_integration/...` pasa en verde.
+  - Hecho cuando: `go test -v -race ./pkg/bridge_integration/...` pasa en verde. (Completado: 11 pruebas de integración punta a punta sobre JSON-RPC stdio con servidor HTTP mock para publicadores, cubriendo éxito con payload y auth bearer, los 5 códigos de error de taxonomía tipada, `INVALID_TRANSITION` verbatim y neutralidad de dominio bajo `-race`).
 
 - [ ] **T8. Diagrama de secuencia Mermaid y documentación operativa.** RF-1 a RF-13
   - Crear `docs/diagrams/008-execution-bridge-sequence.mmd` reflejando el flujo completo del Execution Bridge.

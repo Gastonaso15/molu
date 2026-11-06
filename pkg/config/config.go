@@ -59,8 +59,9 @@ type Config struct {
 	MetricsAddr string // MOLU_FRONT_METRICS_ADDR (vacío = deshabilitado)
 
 	// Comportamiento
-	RedactPayloads bool          // MOLU_FRONT_REDACT_PAYLOADS
-	CallTimeout    time.Duration // MOLU_FRONT_CALL_TIMEOUT
+	RedactPayloads    bool          // MOLU_FRONT_REDACT_PAYLOADS
+	CallTimeout       time.Duration // MOLU_FRONT_CALL_TIMEOUT
+	DomainCallTimeout time.Duration // MOLU_FRONT_DOMAIN_CALL_TIMEOUT
 }
 
 // LoadFromEnv lee la configuración de las variables de entorno y la valida.
@@ -106,8 +107,9 @@ func LoadFromEnv() (*Config, error) {
 		LogFormat:   r.str("MOLU_FRONT_LOG_FORMAT", "console"),
 		MetricsAddr: r.str("MOLU_FRONT_METRICS_ADDR", ":9090"),
 
-		RedactPayloads: r.boolean("MOLU_FRONT_REDACT_PAYLOADS", true),
-		CallTimeout:    r.duration("MOLU_FRONT_CALL_TIMEOUT", 30*time.Second),
+		RedactPayloads:    r.boolean("MOLU_FRONT_REDACT_PAYLOADS", true),
+		CallTimeout:       r.duration("MOLU_FRONT_CALL_TIMEOUT", 30*time.Second),
+		DomainCallTimeout: r.duration("MOLU_FRONT_DOMAIN_CALL_TIMEOUT", 30*time.Second),
 	}
 
 	r.errs = append(r.errs, cfg.validate()...)
@@ -197,6 +199,7 @@ func (c *Config) validate() []error {
 	positive("MOLU_FRONT_PING_FAIL_FLOOR", c.PingFailFloor)
 	positive("MOLU_FRONT_PING_FAIL_CEILING", c.PingFailCeiling)
 	positive("MOLU_FRONT_CALL_TIMEOUT", c.CallTimeout)
+	positive("MOLU_FRONT_DOMAIN_CALL_TIMEOUT", c.DomainCallTimeout)
 	if c.PingFailFloor > c.PingFailCeiling {
 		errs = append(errs, errors.New("MOLU_FRONT_PING_FAIL_FLOOR no puede ser mayor que MOLU_FRONT_PING_FAIL_CEILING"))
 	}
