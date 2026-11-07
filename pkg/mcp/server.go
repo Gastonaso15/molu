@@ -63,6 +63,7 @@ type ServerConfig struct {
 	CatalogLookup  CatalogLookup
 	CallTimeout    time.Duration
 	Metrics        telemetry.Metrics
+	DefaultTenant  string
 }
 
 // Server is the MCP server over stdio or any io.ReadWriter.
@@ -75,6 +76,7 @@ type Server struct {
 	catalogLookup  CatalogLookup
 	callTimeout    time.Duration
 	metrics        telemetry.Metrics
+	defaultTenant  string
 
 	mu         sync.RWMutex
 	primitives []schema.PrimitiveSchema
@@ -110,6 +112,7 @@ func NewServer(cfg ServerConfig) *Server {
 		callTimeout:    callTimeout,
 		metrics:        cfg.Metrics,
 		primitives:     initialPrims,
+		defaultTenant:  cfg.DefaultTenant,
 	}
 }
 
@@ -166,10 +169,10 @@ type jsonRPCRequest struct {
 }
 
 type jsonRPCResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id"`
-	Result  interface{}     `json:"result,omitempty"`
-	Error   *jsonRPCError   `json:"error,omitempty"`
+	JSONRPC string        `json:"jsonrpc"`
+	ID      interface{}   `json:"id"`
+	Result  interface{}   `json:"result,omitempty"`
+	Error   *jsonRPCError `json:"error,omitempty"`
 }
 
 type jsonRPCError struct {
@@ -227,7 +230,12 @@ func (s *Server) handleDiscoveryList(ctx context.Context, params json.RawMessage
 		}
 	}
 
-	scored, err := s.discovery.ListTools(ctx, rpi.AdmitContext{Tenant: p.Tenant, Roles: p.Roles, Query: p.Query})
+	tenant := p.Tenant
+	if tenant == "" {
+		tenant = s.defaultTenant
+	}
+
+	scored, err := s.discovery.ListTools(ctx, rpi.AdmitContext{Tenant: tenant, Roles: p.Roles, Query: p.Query})
 	if err != nil {
 		var te *taxonomy.TypedError
 		if errors.As(err, &te) {

@@ -166,6 +166,7 @@ func main() {
 		CatalogLookup:  catalogLookup,
 		CallTimeout:    cfg.CallTimeout,
 		Metrics:        metrics,
+		DefaultTenant:  cfg.DefaultTenant,
 	})
 
 	primitives := schemaLoader.GetPrimitives()

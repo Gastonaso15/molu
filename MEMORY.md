@@ -440,6 +440,8 @@ go test ./...  # Todo en verde
 | `pkg/config/config.go` & `config_test.go` | Adición de `MOLU_FRONT_HUB_URL` con precedencia sobre `MOLU_HUB_URL`, soporte de auth `none` para entorno desacoplado | RF-5 |
 | `cmd/molu/main.go` | Cableado condicional: si `MOLU_FRONT_HUB_URL` está configurada conecta con `RemoteHubClient`; si no, usa `Registry` en memoria | RF-5 |
 
+| `makefile` | Target `build` compila `bin/molu` y `bin/hub`; target `inspector` adaptado con `HUB_URL`, `DEFAULT_TENANT` y telemetría en 9095 | RF-1, RF-5 |
+
 **T4 completada** (06-nov-2026): Fase 1 terminada. Siguiente paso: T5 (Fase 2: Dominio y Operaciones de Work Orders en `pkg/publisher/orders/service.go`).
 
 

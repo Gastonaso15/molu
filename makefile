@@ -1,6 +1,8 @@
 .PHONY: all build test coverage clean run-molu inspector xolu-up xolu-down
 
 XOLU_URL ?= http://localhost:9090
+HUB_URL ?= http://localhost:8091
+DEFAULT_TENANT ?= dev
 AUTH_MODE ?= bearer
 TOKEN_FILE ?= .token.dev
 
@@ -9,6 +11,7 @@ all: test build
 build:
 	@mkdir -p bin
 	go build -o bin/molu ./cmd/molu
+	go build -o bin/hub ./cmd/hub
 
 test:
 	go test -v -race ./...
@@ -29,6 +32,10 @@ inspector: build
 		-e MOLU_FRONT_XOLU_URL="$(XOLU_URL)" \
 		-e MOLU_FRONT_XOLU_AUTH_MODE="$(AUTH_MODE)" \
 		-e MOLU_FRONT_XOLU_TOKEN_FILE="$(CURDIR)/$(TOKEN_FILE)" \
+		-e MOLU_FRONT_HUB_URL="$(HUB_URL)" \
+		-e MOLU_FRONT_HUB_AUTH_MODE="none" \
+		-e MOLU_FRONT_DEFAULT_TENANT="$(DEFAULT_TENANT)" \
+		-e MOLU_FRONT_TELEMETRY_PORT=9095 \
 		./bin/molu
 
 # xolu local con datos de demo de Seam. El script se elige según el sistema

@@ -62,6 +62,7 @@ type Config struct {
 	RedactPayloads    bool          // MOLU_FRONT_REDACT_PAYLOADS
 	CallTimeout       time.Duration // MOLU_FRONT_CALL_TIMEOUT
 	DomainCallTimeout time.Duration // MOLU_FRONT_DOMAIN_CALL_TIMEOUT
+	DefaultTenant     string        // MOLU_FRONT_DEFAULT_TENANT
 }
 
 // LoadFromEnv lee la configuración de las variables de entorno y la valida.
@@ -110,6 +111,7 @@ func LoadFromEnv() (*Config, error) {
 		RedactPayloads:    r.boolean("MOLU_FRONT_REDACT_PAYLOADS", true),
 		CallTimeout:       r.duration("MOLU_FRONT_CALL_TIMEOUT", 30*time.Second),
 		DomainCallTimeout: r.duration("MOLU_FRONT_DOMAIN_CALL_TIMEOUT", 30*time.Second),
+		DefaultTenant:     r.str("MOLU_FRONT_DEFAULT_TENANT", ""),
 	}
 
 	r.errs = append(r.errs, cfg.validate()...)
