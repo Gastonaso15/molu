@@ -17,7 +17,7 @@
 | **Telemetría y auditoría** | Completo | Paquete de trabajo §3.4 | **Completado (Spec 007: 30/30 tasks, coverage 72.8%)** |
 | **RPI — interfaz y proveedores V1** | Completo | Paquete de trabajo §3.6 (admit-all, static-context-rules, test double de Score) | Especificado en constitución |
 | **Documentación** | Completo | Despliegue, configuración, runbook operativo, diagramas .mmd y .pdf | Pendiente |
-| **Motor de Seam** | Parcial | Integración del publicador para funciones piloto Work Orders | Pendiente |
+| **Motor de Seam** | Parcial | Integración del publicador para funciones piloto Work Orders | Publicador piloto implementado (Spec 009); falta definición final de las funciones por el equipo externo |
 
 ---
 
@@ -35,12 +35,12 @@
 | **001** | `taxonomy-types` — Tipos de taxonomía tipada (6 códigos, prefijos, verbatim) | **Completada** | Iniciar spec 002 (`xolu-probe`) |
 | **002** | `xolu-probe` — Sonda de salud xolu (backoff, gating, SUBSTRATE_UNAVAILABLE) | **Completada** | Iniciar spec 003 (`schema-reader`) |
 | **003** | `schema-reader` — Lectora de schemas xolu (GET /schemas, walk/find/get sin namespace, hot-reload, CONTRACT_VIOLATION) | **Completada (18/18 tasks)** | Iniciar spec 004 (`rpi-admit-score`) |
-| **004** | `rpi-admit-score` — Interfaz RPI (`Admit`/`Score`) y proveedores V1 (`admit-all`, `static-context-rules`) | **En curso**: plan.md y tasks.md cubren T-004.2 a T-004.5; T1–T9 hechas (interfaz `RPIProvider` + mock, `admit-all`, `static-context-rules`, `rpi.Offer` + integración `NOT_OFFERED`). Implementación previa revertida (`457bbd1`, `3aa5903`) | Pendientes de sus responsables: config `MOLU_FRONT_RPI_*` (RF-1), `tools/list` (RF-2, RF-3, RF-8), Criterio 7 y diagrama; cada uno agrega sus tareas a `tasks.md` |
-| **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI, `tools/call` stub | **En curso** (spec en borrador; `Registry` y `PublisherAPI` implementados) | Añadir `tools/list` con Admit+Score (depende de spec 004), `tools/call` stub, config `MOLU_HUB_*`, wiring MCP y diagrama |
+| **004** | `rpi-admit-score` — Interfaz RPI (`Admit`/`Score`) y proveedores V1 (`admit-all`, `static-context-rules`) | **Completada (T1–T9, 9/9 tasks)** | — |
+| **005** | `catalog-and-hub` — Hub/Registry MCP: catálogo, API de publicadores, `tools/list` filtrado por RPI | **Completada (T1–T3, 3/3 tasks)**: `hub.Discovery`, `tools/list` y wiring con Criterio 7 | — |
 | **006** | `mcp-server-stdio` — Servidor MCP Stdio y Despachador de Primitivos en Molu Frontend (ampliada a los 13 primitivos genéricos §5.1) | **En curso (7/8 tasks)** | Continuar con T8 (diagrama de secuencia y documentación operativa) |
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
 | **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T7 hechas: 7/8 tasks)** | Proceder con T8 (Diagrama de secuencia Mermaid y documentación operativa) |
-| **009** | `work-orders-publisher` — Hub Standalone (`bin/hub`) y Publicador Piloto de Work Orders (desacoplamiento de binarios, endpoints HTTP, FSM xolu y validación de Criterio 1) | **En curso (T1–T4 hechas: 4/9 tasks, Fase 1 lista)** | Continuar con T5 (Dominio y Operaciones de Work Orders `pkg/publisher/orders/service.go`) |
+| **009** | `work-orders-publisher` — Hub Standalone (`bin/hub`) y Publicador Piloto de Work Orders (desacoplamiento de binarios, endpoints HTTP, FSM xolu y validación de Criterio 1) | **Implementada (T1–T9, 9/9 tasks)**; E2E del Criterio 1 en `pkg/bridge_integration/criterio1_e2e_test.go` contra un xolu simulado a nivel de red | Verificar contra un xolu real (`make xolu-up`) y documentar `bin/publisher-orders` (`MOLU_PUBLISHER_*`) |
 
 
 
@@ -56,6 +56,7 @@
 - **ADR-007** (Spec 007): Librería `zerolog` para logging estructurado (API fluida, zero-allocation JSON, mejor performance que zap); UUID v7 (ULID) para `request_id` (timestamp ordenable); W3C `traceparent` para `trace_id`/`span_id` (estándar industria); Security log separado con flush síncrono (integridad auditoría); Puerto telemetry 9090 desacoplado del MCP; `LogRotator` propia para control total (tamaño+tiempo, compresión, security log independiente); Prometheus client nativo para métricas; Health check con cache 30s basado en último ping exitoso xolu.
 - **ADR-008** (Spec 008): Execution Bridge (`pkg/bridge`) desacoplado en `HTTPDomainCaller` y `ExecutionBridge` orquestador; passthrough de llamadas POST JSON hacia endpoints de dominio con resolución local de `token_ref` y preservación de sobres de error `XOLU-*` verbatim.
 - **ADR-009** (Spec 009): Desacoplamiento del Hub en un binario independiente (`cmd/hub`) con servicio HTTP (`MOLU_HUB_HTTP_ADDR`, por defecto `:8091`) para que los publicadores externos registren sus contratos vía HTTP, y cliente remoto en `molu` configurable vía `MOLU_FRONT_HUB_URL`.
+- **ADR-010** (Spec 009): el publicador `work-orders` accede a xolu con su propia capa HTTP (`orders.HTTPSubstrate`) y no con `pkg/xolu`, porque las rutas FSM de xolu responden `{"error":"XOLU-FSM00x",...}` (campo `error` como string) y esa forma no la leen ni `pkg/xolu` ni el bridge. El servicio traduce `FSM003`/`FSM004` a `XOLU-INVALID_TRANSITION` conservando `message` y `detail` de xolu verbatim. Un 404 del publicador va sin código `XOLU-` para que el bridge lo mapee a `NOT_FOUND`.
 
 ---
 ## Archivos Creados (Spec 001)
@@ -444,5 +445,6 @@ go test ./...  # Todo en verde
 
 **T4 completada** (06-nov-2026): Fase 1 terminada. Siguiente paso: T5 (Fase 2: Dominio y Operaciones de Work Orders en `pkg/publisher/orders/service.go`).
 
+**T5–T9 completadas** (09-nov-2026): Spec 009 implementada. `bin/publisher-orders` (`pkg/publisher/orders`, `cmd/publisher-orders`, vars `MOLU_PUBLISHER_*`: `HTTP_ADDR` `:8092`, `HUB_URL`, `XOLU_URL`, `API_TOKEN[_FILE]`, `XOLU_TOKEN[_FILE]`, `PUBLIC_URL`). El token de `API_TOKEN` debe coincidir con `MOLU_FRONT_TOKEN_ORDERS_API_TOKEN` de molu. Criterio 1 cubierto por `TestCriterio1_E2E` (xolu simulado). Siguiente paso: verificar contra un xolu real y cerrar documentación y diagramas pendientes.
 
-
+**Verificado contra xolu real** (09-nov-2026, xolu v0.30.44, `make xolu-up`-style en :9494): recorrido completo con `bin/hub`, `bin/publisher-orders` y `bin/molu` por stdio; FSM003/FSM004 llegan verbatim como `XOLU-INVALID_TRANSITION`; SIGTERM al publicador desregistra las 3 herramientas. Diferencias xolu real vs doc: la definición exige `determinism` (FSM006), la entidad inline no está implementada (se crea la entidad y se enlaza con `ref`), los errores FSM usan el sobre anidado `{"error":{"code","message"}}` y no traen `state`/`available_inputs`/`detail`. Test opt-in: `MOLU_REAL_XOLU_URL=http://127.0.0.1:9494 go test -run TestRealXolu ./pkg/publisher/orders/`.

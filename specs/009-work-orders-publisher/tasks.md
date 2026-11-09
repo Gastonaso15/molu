@@ -34,27 +34,27 @@
   - **Descripción**: Agregar variable de configuración `MOLU_FRONT_HUB_URL`. En `cmd/molu/main.go`, si la variable está definida, instanciar `RemoteHubClient` para `CatalogLookup` y `Discovery`; si está vacía, mantener el `Registry` local en memoria para retrocompatibilidad y tests.
   - **Criterio de finalización**: `go test -v -race ./pkg/config/...` y `go test -v -race ./cmd/molu/...` pasan.
 
-- [ ] **T5. Dominio y Operaciones de Work Orders (`pkg/publisher/orders/service.go`).** RF-7, RF-8, RF-9, RF-11
+- [x] **T5. Dominio y Operaciones de Work Orders (`pkg/publisher/orders/service.go`).** RF-7, RF-8, RF-9, RF-11
   - **Archivos**: `pkg/publisher/orders/types.go`, `pkg/publisher/orders/service.go`, `pkg/publisher/orders/service_test.go`
   - **Descripción**: Definir tipos `WorkOrder` y servicio que interactúa con xolu (`/api/v1/orders`, `/api/v2/fsm/walk`). Implementar `CreateOrder`, `GetOrder` (404 ante inexistencia) y `AdvanceOrder` (invoca `walk` en FSM; si xolu rechaza la transición, retorna error `XOLU-INVALID_TRANSITION` verbatim).
   - **Criterio de finalización**: `go test -v -race ./pkg/publisher/orders/... -run "TestOrderService"` pasa contra mock de xolu.
 
-- [ ] **T6. Servidor HTTP y Middleware de Autenticación (`pkg/publisher/orders/server.go`).** RF-7, RF-8, RF-9, RF-10, RF-11
+- [x] **T6. Servidor HTTP y Middleware de Autenticación (`pkg/publisher/orders/server.go`).** RF-7, RF-8, RF-9, RF-10, RF-11
   - **Archivos**: `pkg/publisher/orders/server.go`, `pkg/publisher/orders/server_test.go`
   - **Descripción**: Servidor HTTP en `:8092` con endpoints `POST /api/v1/orders/create`, `POST /api/v1/orders/advance`, `POST /api/v1/orders/get` y `GET /healthz`. Middleware Bearer valida cabecera `Authorization: Bearer <token>`. Retorna HTTP 401 si token inválido, 404 si orden no existe, 409 con sobre xolu si transición rechazada, y 503 si xolu inalcanzable.
   - **Criterio de finalización**: `go test -v -race ./pkg/publisher/orders/... -run "TestOrderServer"` pasa.
 
-- [ ] **T7. Auto-registro en el Hub y Ciclo de Vida (`pkg/publisher/orders/registrar.go`).** RF-6, RF-12
+- [x] **T7. Auto-registro en el Hub y Ciclo de Vida (`pkg/publisher/orders/registrar.go`).** RF-6, RF-12
   - **Archivos**: `pkg/publisher/orders/registrar.go`, `pkg/publisher/orders/registrar_test.go`
   - **Descripción**: Componente que registra las 3 herramientas (`work_orders.CreateOrder`, `work_orders.AdvanceOrder`, `work_orders.GetOrder`) en el Hub remoto con sus esquemas JSON y metadatos `token_ref: "orders:api-token"`. Incluye reintentos con backoff al arranque y desregistro ante shutdown.
   - **Criterio de finalización**: `go test -v -race ./pkg/publisher/orders/... -run "TestOrderRegistrar"` pasa.
 
-- [ ] **T8. Binario del Publicador y Makefile (`cmd/publisher-orders/main.go` & `makefile`).** RF-6, RF-13, RF-14
+- [x] **T8. Binario del Publicador y Makefile (`cmd/publisher-orders/main.go` & `makefile`).** RF-6, RF-13, RF-14
   - **Archivos**: `cmd/publisher-orders/main.go`, `makefile`
   - **Descripción**: Binario del publicador leyendo `MOLU_PUBLISHER_*`. Actualizar `makefile` para que `make build` compile `bin/molu`, `bin/hub` y `bin/publisher-orders`.
   - **Criterio de finalización**: `make build` compila los 3 binarios sin errores y `grep -ri seam cmd/ pkg/` da cero coincidencias.
 
-- [ ] **T9. Prueba de Integración E2E y Validación del Criterio 1.** RF-1 a RF-14, Criterio 1
+- [x] **T9. Prueba de Integración E2E y Validación del Criterio 1.** RF-1 a RF-14, Criterio 1
   - **Archivos**: `pkg/bridge_integration/criterio1_e2e_test.go`
   - **Descripción**: Prueba integral donde un cliente MCP consulta tools via stdio a Molu $\rightarrow$ Molu consulta Hub remoto desacoplado $\rightarrow$ Publisher auto-registrado atiende llamadas de dominio despachadas por el Execution Bridge $\rightarrow$ xolu rechaza transición FSM inválida $\rightarrow$ se comprueba que el error `INVALID_TRANSITION` con el mensaje exacto de la guarda llega intacto al cliente MCP.
   - **Criterio de finalización**: `go test -v -race ./pkg/bridge_integration/... -run "TestCriterio1_E2E"` pasa exitosamente.
