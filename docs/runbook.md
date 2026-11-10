@@ -134,6 +134,7 @@ Cada error tipado incluye `code` y `details`:
 | `XOLU-MOLU-FRONT-INVALID_TRANSITION` | FSM rechazada por xolu | network | `message` = guarda verbatim |
 | `XOLU-MOLU-FRONT-CONTRACT_VIOLATION` | Schema inválido | application | `fields[]` infractores |
 | `XOLU-MOLU-FRONT-SUBSTRATE_UNAVAILABLE` | xolu caído | network | `lastSuccessfulContact`, `nextRetryAt`, `attemptNumber`, `maxAttempts` |
+| `XOLU-MOLU-FRONT-TIMEOUT` | timeout excedido en ping/llamada | network | `attemptNumber`, `maxAttempts`, `seconds_ago` |
 | `XOLU-*` (verbatim) | Otros códigos xolu | network | Preservado sin modificación |
 
 **Regla**: Nunca colapsar a "internal error". Cada código tiene test de integración dedicado.
@@ -176,6 +177,44 @@ Cada error tipado incluye `code` y `details`:
 - molu reintenta ping con backoff exponencial (1s → 30s)
 - Health check usa cache 30s: `/healthz` sigue 503 hasta 30s tras recuperación
 - Métrica `molu_errors_total{code="SUBSTRATE_UNAVAILABLE"}` deja de incrementar
+
+---
+
+## 4b. Procedimiento: `XOLU-MOLU-FRONT-TIMEOUT`
+
+### Síntomas
+- Log `network` nivel ERROR: `code=XOLU-MOLU-FRONT-TIMEOUT`
+- Health check `/healthz` → 503, status `degraded` (timeout persistente)
+- Métricas: `molu_errors_total{code="XOLU-MOLU-FRONT-TIMEOUT"}` incrementa
+- Requests MCP fallan con 503 o error taxonomía, latencia alta detectada
+
+### Detalles en Log
+```json
+{
+  "code": "XOLU-MOLU-FRONT-TIMEOUT",
+  "details": {
+    "attemptNumber": 5,
+    "maxAttempts": 10,
+    "seconds_ago": 45
+  }
+}
+```
+
+### Pasos de Resolución
+
+| Paso | Acción | Verificación |
+|------|--------|--------------|
+| 1 | Verificar conectividad a `MOLU_FRONT_XOLU_URL` | `curl -f http://xolu:8080/health` |
+| 2 | Revisar logs de xolu | `docker logs xolu` / `journalctl -u xolu` |
+| 3 | Verificar red/firewall | `nc -zv xolu 8080` |
+| 4 | Revisar recursos xolu (CPU, RAM, disco) | `docker stats xolu` |
+| 5 | Si xolu responde lento: optimizar configuración | `top`, `df -h`, revisar queries lentas |
+| 6 | Verificar auto-recuperación | `curl http://molu:9090/healthz` → 200 OK |
+
+### Auto-recuperación
+- molu reintenta ping con backoff exponencial (1s → 30s)
+- Health check usa cache 30s: `/healthz` sigue 503 hasta 30s tras recuperación
+- Métrica `molu_errors_total{code="XOLU-MOLU-FRONT-TIMEOUT"}` deja de incrementar cuando health check retorna 200
 
 ---
 
@@ -231,7 +270,7 @@ Cada error tipado incluye `code` y `details`:
 | Estado | HTTP | Significado |
 |--------|------|-------------|
 | `ok` | 200 | xolu ping exitoso < 30s |
-| `degraded` | 503 | xolu ping > 30s o nunca exitoso |
+| `degraded` | 503 | xolu ping > 30s o nunca exitoso (incluye `XOLU-MOLU-FRONT-TIMEOUT`) |
 | `down` | 503 | Proceso apagándose |
 
 ### Response JSON
@@ -282,7 +321,7 @@ file /var/log/molu/system.log.20261015-143000.gz
 ```
 [ ] 1. Identificar request_id / trace_id del usuario afectado
 [ ] 2. Buscar en logs: grep <request_id> /var/log/molu/*.log
-[ ] 3. Identificar código de taxonomía en log network/application
+[ ] 3. Identificar código de taxonomía en log network/application (`NOT_FOUND`, `SUBSTRATE_UNAVAILABLE`, `TIMEOUT`)
 [ ] 4. Revisar detalles (details.fields, lastSuccessfulContact, etc.)
 [ ] 5. Consultar métricas: rate(molu_errors_total[5m]) por código
 [ ] 6. Verificar health check: curl http://localhost:9090/healthz

@@ -186,7 +186,7 @@ Merge con spec 007 (`658def3`): `RPIProvider` conserva `SetLogger`/`SetMetrics` 
 | `pkg/telemetry/metrics_test.go` | 4 tests con registry custom: contadores, histogramas, handler, multi-componente |
 | `pkg/telemetry/health.go` | Interfaz `Health` + implementación: `/healthz` (ready/live), estado xolu basado en último ping exitoso (cache 30s), devuelve 503 si stale >30s |
 | `pkg/telemetry/health_test.go` | 5 tests: ready/live inicial, xolu available/unavailable, métodos Ready/Live, cache TTL |
-| `pkg/telemetry/middleware.go` | Middleware MCP: genera `request_id` (ULID), extrae/propaga `trace_id`/`span_id` (W3C traceparent), parsea method/tool del body JSON, setea headers `X-Request-ID`, `X-Trace-ID` en respuesta |
+| `pkg/telemetry/middleware.go` | Middleware MCP: genera `request_id` (ULID), extrae/propaga `trace_id`/`span_id` (W3C traceparent), parsea method/tool del body JSON, setea headers `X-Request-ID`, `X-Trace-ID` en respuesta. **Ahora también**: volca trazas JSON estructuradas para cada petición/response MCP al dominio `network` (RF-2, RF-4) con `timestamp`, `level`, `component`, `request_id`, `trace_id`, `span_id`, `method`, `tool`, `latency_ms`, `status`. |
 | `pkg/telemetry/middleware_test.go` | 6 tests: request_id (ULID), traceparent extraction/generation, propagación context, method/tool extraction, response headers |
 | `pkg/telemetry/config.go` | Estructuras `Config` + `DefaultConfig` + `LoadConfigFromEnv`: todas las variables `MOLU_FRONT_LOG_*`, `MOLU_FRONT_TELEMETRY_*`, `MOLU_FRONT_SECURITY_LOG_*` con defaults y validación |
 | `pkg/telemetry/config_test.go` | 4 tests: defaults, env parsing, validación (format/level/component/ports), telemetry defaults |

@@ -6,11 +6,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 )
 
-// Middleware handles MCP request correlation.
+// Middleware handles MCP request correlation and structured JSON logging.
 type Middleware struct {
 	logger Logger
 }
@@ -22,7 +23,19 @@ func NewMiddleware(logger Logger) *Middleware {
 	}
 }
 
-// Wrap wraps an HTTP handler with correlation ID extraction and propagation.
+// wrappingResponseWriter captures the HTTP status code written by a handler.
+type wrappingResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (wr *wrappingResponseWriter) WriteHeader(status int) {
+	wr.status = status
+	wr.ResponseWriter.WriteHeader(status)
+}
+
+// Wrap wraps an HTTP handler with correlation ID extraction, propagation, and structured JSON logging.
+// It logs incoming MCP requests to the network domain and outgoing responses with latency.
 func (m *Middleware) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract or generate request_id (ULID - time-ordered like UUID v7)
@@ -46,13 +59,36 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 			Tool:      tool,
 		}
 
-		// Add to response headers for client correlation
-		w.Header().Set("X-Request-ID", requestID)
-		w.Header().Set("X-Trace-ID", traceID)
-
-		// Continue with enriched context
+	// Log incoming MCP request (Network domain, RF-2)
 		ctx := WithRequestContext(r.Context(), rc)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		ctxLogger := m.logger.WithContext(ctx)
+		ctxLogger.Network().Info().
+			Str("method", method).
+			Str("tool", tool).
+			Str("tenant_id", rc.TenantID).
+			Msg("incoming mcp request")
+
+		// Wrap response writer to capture status code
+		wr := &wrappingResponseWriter{ResponseWriter: w}
+
+		// Add to response headers for client correlation
+		wr.Header().Set("X-Request-ID", requestID)
+		wr.Header().Set("X-Trace-ID", traceID)
+
+		// Continue with enriched context, measuring latency
+		ctx = WithRequestContext(r.Context(), rc)
+		start := time.Now()
+		next.ServeHTTP(wr, r.WithContext(ctx))
+		latency := time.Since(start).Milliseconds()
+
+		// Log outgoing MCP response (Network domain, RF-4)
+		ctxLogger2 := m.logger.WithContext(ctx)
+		ctxLogger2.Network().Info().
+			Int("latency_ms", int(latency)).
+			Int("status", wr.status).
+			Str("method", method).
+			Str("tool", tool).
+			Msg("outgoing mcp response")
 	})
 }
 
