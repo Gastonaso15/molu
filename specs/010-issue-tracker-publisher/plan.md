@@ -97,3 +97,4 @@ flowchart TD
 | **RF-8** | `pkg/publisher/issues/registrar.go` | Desregistro ordenado de herramientas al apagarse el servicio. |
 | **RF-9** | Todos | Ausencia de data races validada con `go test -v -race ./...`. |
 | **RF-10** | Todos | Neutralidad estricta (cero menciones al término restringido). |
+

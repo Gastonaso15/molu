@@ -69,3 +69,4 @@ El equipo de Issue Tracker requiere exponer sus capacidades de negocio como herr
 - Binario ejecutable `bin/publisher-issues` (`cmd/publisher-issues/main.go`).
 - Pruebas unitarias y de integración cubiertas bajo `go test -v -race ./...`.
 - Neutralidad de dominio verificada con cero coincidencias.
+

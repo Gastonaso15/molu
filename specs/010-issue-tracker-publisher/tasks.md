@@ -25,3 +25,4 @@
   - **Archivos**: `pkg/bridge_integration/issues_e2e_test.go`
   - **Descripción**: Prueba integral donde un cliente MCP consulta tools via stdio a Molu $\rightarrow$ Molu consulta Hub remoto $\rightarrow$ Publisher de issues auto-registrado atiende llamadas de dominio despachadas por el Execution Bridge $\rightarrow$ se verifica la creación con SLA y el rechazo verbatim de transición inválida.
   - **Criterio de finalización**: `go test -v -race ./pkg/bridge_integration/... -run "TestIssues_E2E"` pasa exitosamente.
+
