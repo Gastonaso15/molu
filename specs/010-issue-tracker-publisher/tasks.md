@@ -6,7 +6,7 @@
   - **Descripción**: Definir tipos `Issue`, matriz y cálculo de SLA (primera respuesta y resolución), y servicio que interactúa con xolu (`/api/v1/issues`, `/api/v1/assets`, `/api/v2/fsm/walk`). Implementar `CreateIssue` (calcula SLA, crea máquina FSM `issue_lifecycle` y entidad `issues`), `GetIssue` (404 ante inexistencia) y `AdvanceIssue` (invoca `walk` en FSM; si xolu rechaza la transición, retorna error `XOLU-INVALID_TRANSITION` verbatim).
   - **Criterio de finalización**: `go test -v -race ./pkg/publisher/issues/... -run "TestIssueService"` pasa contra mock de xolu.
 
-- [ ] **T2. Servidor HTTP y Middleware de Autenticación (`pkg/publisher/issues/server.go`).** RF-1, RF-2, RF-3, RF-6, RF-7
+- [x] **T2. Servidor HTTP y Middleware de Autenticación (`pkg/publisher/issues/server.go`).** RF-1, RF-2, RF-3, RF-6, RF-7
   - **Archivos**: `pkg/publisher/issues/server.go`, `pkg/publisher/issues/server_test.go`
   - **Descripción**: Servidor HTTP en `:8093` con endpoints `POST /api/v1/issues/create`, `POST /api/v1/issues/advance`, `POST /api/v1/issues/get` y `GET /healthz`. Middleware Bearer valida cabecera `Authorization: Bearer <token>`. Retorna HTTP 401 si token inválido, 404 si incidencia no existe, 409 con sobre xolu si transición rechazada, y 503 si xolu inalcanzable.
   - **Criterio de finalización**: `go test -v -race ./pkg/publisher/issues/... -run "TestIssueServer"` pasa.
