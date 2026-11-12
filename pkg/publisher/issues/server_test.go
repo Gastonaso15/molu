@@ -217,3 +217,4 @@ func TestIssueServer_EchoesRequestID(t *testing.T) {
 		t.Fatalf("X-Request-ID header mismatch, got %q", got)
 	}
 }
+

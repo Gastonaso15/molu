@@ -41,7 +41,7 @@
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
 | **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T7 hechas: 7/8 tasks)** | Proceder con T8 (Diagrama de secuencia Mermaid y documentación operativa) |
 | **009** | `work-orders-publisher` — Hub Standalone (`bin/hub`) y Publicador Piloto de Work Orders (desacoplamiento de binarios, endpoints HTTP, FSM xolu y validación de Criterio 1) | **Implementada (T1–T9, 9/9 tasks)**; E2E del Criterio 1 en `pkg/bridge_integration/criterio1_e2e_test.go` contra un xolu simulado a nivel de red | Verificar contra un xolu real (`make xolu-up`) y documentar `bin/publisher-orders` (`MOLU_PUBLISHER_*`) |
-| **010** | `issue-tracker-publisher` — Publicador de Issue Tracker (cálculo de SLA, criticidad de activo, FSM de 8 estados e integración con xolu) | **En curso (T1–T2 completadas: 2/5 tasks)** | Continuar con T3 (Auto-registro en el Hub `pkg/publisher/issues/registrar.go`) |
+| **010** | `issue-tracker-publisher` — Publicador de Issue Tracker (cálculo de SLA, criticidad de activo, FSM de 8 estados e integración con xolu) | **En curso (T1–T3 completadas: 3/5 tasks)** | Continuar con T4 (Binario `cmd/publisher-issues` y Makefile) |
 
 
 
@@ -452,7 +452,7 @@ go test ./...  # Todo en verde
 
 ---
 
-## Archivos Creados y Modificados (Spec 010 — Publicador de Issue Tracker, T1–T2)
+## Archivos Creados y Modificados (Spec 010 — Publicador de Issue Tracker, T1–T3)
 
 | Archivo | Descripción | RF Cubiertos |
 | :--- | :--- | :--- |
@@ -464,6 +464,8 @@ go test ./...  # Todo en verde
 | `pkg/publisher/issues/service_test.go` | 9 tests unitarios y de concurrencia: validaciones, cálculo SLA, activo crítico, `NOT_FOUND`, `XOLU-INVALID_TRANSITION` verbatim, `SUBSTRATE_UNAVAILABLE` y 20 goroutines concurrentes | RF-1, RF-2, RF-3, RF-4, RF-7, RF-9, RF-10 |
 | `pkg/publisher/issues/server.go` | `Server`: servidor HTTP en `:8093` con middleware Bearer Auth, endpoints `/create`, `/advance`, `/get`, `/healthz` y propagación de errores tipados | RF-1, RF-2, RF-3, RF-6, RF-7 |
 | `pkg/publisher/issues/server_test.go` | 9 tests HTTP: `/healthz`, Bearer 401, 405 Method Not Allowed, 200 create con SLA, 400 Bad Requests, 404 Get bare, 409 verbatim FSM, 503 con retry metadata y `X-Request-ID` | RF-1, RF-2, RF-3, RF-6, RF-7, RF-9, RF-10 |
+| `pkg/publisher/issues/registrar.go` | `Registrar`: auto-registro de herramientas (`issues.CreateIssue`, `issues.AdvanceIssue`, `issues.GetIssue`) en el Hub remoto, backoff exponencial ante reintentos y desregistro en shutdown | RF-5, RF-8 |
+| `pkg/publisher/issues/registrar_test.go` | 7 tests de auto-registro: publicación de 3 herramientas con esquemas, idempotencia, reintentos en backoff, no reintento de 400, límite de intentos, cancelación de context y desregistro total | RF-5, RF-8, RF-9, RF-10 |
 
-**T2 completada** (12-nov-2026): Servidor HTTP y middleware de autenticación implementados y verificados bajo `go test -v -race ./...`. Siguiente paso: T3 (Auto-registro en el Hub y ciclo de vida en `pkg/publisher/issues/registrar.go`).
+**T3 completada** (12-nov-2026): Auto-registro en el Hub y ciclo de vida de herramientas implementados y verificados bajo `go test -v -race ./...`. Siguiente paso: T4 (Binario `cmd/publisher-issues/main.go` y Makefile).
 

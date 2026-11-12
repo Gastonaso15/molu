@@ -5,6 +5,19 @@ import (
 	"time"
 )
 
+const (
+	// Namespace prefixes every function published by this service.
+	Namespace = "issues"
+	// PublisherID identifies this publisher in the Hub catalog.
+	PublisherID = "issue-tracker-publisher"
+	// EntityType is the xolu entity that stores issues.
+	EntityType = "issues"
+	// DefinitionName is the xolu FSM definition that governs the issue lifecycle.
+	DefinitionName = "issue_lifecycle"
+	// TokenRef is the reference the Execution Bridge resolves to the bearer token.
+	TokenRef = "issues:api-token"
+)
+
 // Issue represents an issue tracked by the domain service.
 type Issue struct {
 	ID                       int64          `json:"id"`

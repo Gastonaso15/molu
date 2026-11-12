@@ -11,7 +11,7 @@
   - **Descripción**: Servidor HTTP en `:8093` con endpoints `POST /api/v1/issues/create`, `POST /api/v1/issues/advance`, `POST /api/v1/issues/get` y `GET /healthz`. Middleware Bearer valida cabecera `Authorization: Bearer <token>`. Retorna HTTP 401 si token inválido, 404 si incidencia no existe, 409 con sobre xolu si transición rechazada, y 503 si xolu inalcanzable.
   - **Criterio de finalización**: `go test -v -race ./pkg/publisher/issues/... -run "TestIssueServer"` pasa.
 
-- [ ] **T3. Auto-registro en el Hub y Ciclo de Vida (`pkg/publisher/issues/registrar.go`).** RF-5, RF-8
+- [x] **T3. Auto-registro en el Hub y Ciclo de Vida (`pkg/publisher/issues/registrar.go`).** RF-5, RF-8
   - **Archivos**: `pkg/publisher/issues/registrar.go`, `pkg/publisher/issues/registrar_test.go`
   - **Descripción**: Componente que registra las 3 herramientas (`issues.CreateIssue`, `issues.AdvanceIssue`, `issues.GetIssue`) en el Hub remoto con sus esquemas JSON y metadatos `token_ref: "issues:api-token"`. Incluye reintentos con backoff al arranque y desregistro ante shutdown.
   - **Criterio de finalización**: `go test -v -race ./pkg/publisher/issues/... -run "TestIssueRegistrar"` pasa.
