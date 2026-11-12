@@ -1,6 +1,6 @@
 # Spec 010 — Publicador de Issue Tracker
 
-Estado: borrador
+Estado: implementada
 
 ## Contexto y objetivo
 El equipo de Issue Tracker requiere exponer sus capacidades de negocio como herramientas MCP dentro del catálogo del Hub de Molu. Para mantener la arquitectura desacoplada de la Constitución (§3.1) y respetar la estricta neutralidad de dominio del sistema, se implementa un servicio publicador independiente (`bin/publisher-issues`) que:

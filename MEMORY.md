@@ -41,7 +41,7 @@
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
 | **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T7 hechas: 7/8 tasks)** | Proceder con T8 (Diagrama de secuencia Mermaid y documentación operativa) |
 | **009** | `work-orders-publisher` — Hub Standalone (`bin/hub`) y Publicador Piloto de Work Orders (desacoplamiento de binarios, endpoints HTTP, FSM xolu y validación de Criterio 1) | **Implementada (T1–T9, 9/9 tasks)**; E2E del Criterio 1 en `pkg/bridge_integration/criterio1_e2e_test.go` contra un xolu simulado a nivel de red | Verificar contra un xolu real (`make xolu-up`) y documentar `bin/publisher-orders` (`MOLU_PUBLISHER_*`) |
-| **010** | `issue-tracker-publisher` — Publicador de Issue Tracker (cálculo de SLA, criticidad de activo, FSM de 8 estados e integración con xolu) | **En curso (T1–T4 completadas: 4/5 tasks)** | Continuar con T5 (Prueba de integración E2E `pkg/bridge_integration/issues_e2e_test.go`) |
+| **010** | `issue-tracker-publisher` — Publicador de Issue Tracker (cálculo de SLA, criticidad de activo, FSM de 8 estados e integración con xolu) | **Implementada (T1–T5, 5/5 tasks)**; E2E completada en `pkg/bridge_integration/issues_e2e_test.go` | Documentación operativa y verificación contra xolu real |
 
 
 
@@ -452,13 +452,13 @@ go test ./...  # Todo en verde
 
 ---
 
-## Archivos Creados y Modificados (Spec 010 — Publicador de Issue Tracker, T1–T4)
+## Archivos Creados y Modificados (Spec 010 — Publicador de Issue Tracker, T1–T5)
 
 | Archivo | Descripción | RF Cubiertos |
 | :--- | :--- | :--- |
 | `specs/010-issue-tracker-publisher/spec.md` | Especificación del Publicador de Issue Tracker (`bin/publisher-issues`) | Todos |
 | `specs/010-issue-tracker-publisher/plan.md` | Plan técnico con arquitectura, diagramas y contratos de Issue Tracker | Todos |
-| `specs/010-issue-tracker-publisher/tasks.md` | Desglose en 5 tareas de implementación TDD (T1 a T5) | Todos |
+| `specs/010-issue-tracker-publisher/tasks.md` | Desglose en 5 tareas de implementación TDD (T1 a T5, todas completadas) | Todos |
 | `pkg/publisher/issues/types.go` | Tipos de dominio `Issue`, structs de petición/respuesta y funciones de cálculo de plazos SLA | RF-1 |
 | `pkg/publisher/issues/service.go` | `IssueService`: creación de incidencias (`CreateIssue`), consulta (`GetIssue`), avance de ciclo de vida con FSM (`AdvanceIssue`), resolución de criticidad de activos y cálculo SLA | RF-1, RF-2, RF-3, RF-4, RF-7 |
 | `pkg/publisher/issues/service_test.go` | 9 tests unitarios y de concurrencia: validaciones, cálculo SLA, activo crítico, `NOT_FOUND`, `XOLU-INVALID_TRANSITION` verbatim, `SUBSTRATE_UNAVAILABLE` y 20 goroutines concurrentes | RF-1, RF-2, RF-3, RF-4, RF-7, RF-9, RF-10 |
@@ -470,6 +470,7 @@ go test ./...  # Todo en verde
 | `cmd/publisher-issues/main.go` | Binario ejecutable del publicador de Issue Tracker: variables de entorno `MOLU_PUBLISHER_ISSUES_*`, escucha HTTP, auto-registro en Hub y apagado ordenado | RF-5, RF-9, RF-10 |
 | `cmd/publisher-issues/main_test.go` | Tests de binario: validación de configuración requerida, arranque, publicación, healthz y desregistro total ante shutdown | RF-5, RF-8, RF-9, RF-10 |
 | `makefile` | Target `build` actualizado para compilar `bin/publisher-issues` junto con `bin/molu`, `bin/hub` y `bin/publisher-orders` | RF-5 |
+| `pkg/bridge_integration/issues_e2e_test.go` | Prueba de integración punta a punta: MCP Client stdio $\rightarrow$ Molu $\rightarrow$ Hub Standalone $\rightarrow$ Issue Tracker Publisher $\rightarrow$ xolu. Verificación de tools/list, creación con SLA, lectura y rechazo de FSM verbatim | RF-1 a RF-10 |
 
-**T4 completada** (12-nov-2026): Binario y Makefile implementados y verificados. Los 4 binarios compilan limpiamente. Siguiente paso: T5 (Prueba de integración E2E en `pkg/bridge_integration/issues_e2e_test.go`).
+**T5 completada** (12-nov-2026): Spec 010 totalmente implementada y validada de punta a punta. Todos los tests en verde bajo `-race`. Siguiente paso: verificación con xolu real o documentación según prioridades del equipo.
 

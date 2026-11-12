@@ -21,7 +21,7 @@
   - **Descripción**: Binario del publicador leyendo `MOLU_PUBLISHER_ISSUES_*`. Actualizar `makefile` para que `make build` compile `bin/molu`, `bin/hub`, `bin/publisher-orders` y `bin/publisher-issues`.
   - **Criterio de finalización**: `make build` compila los 4 binarios sin errores y `grep -ri seam cmd/ pkg/` da cero coincidencias.
 
-- [ ] **T5. Prueba de Integración E2E para Issue Tracker (`pkg/bridge_integration/issues_e2e_test.go`).** RF-1 a RF-10
+- [x] **T5. Prueba de Integración E2E para Issue Tracker (`pkg/bridge_integration/issues_e2e_test.go`).** RF-1 a RF-10
   - **Archivos**: `pkg/bridge_integration/issues_e2e_test.go`
   - **Descripción**: Prueba integral donde un cliente MCP consulta tools via stdio a Molu $\rightarrow$ Molu consulta Hub remoto $\rightarrow$ Publisher de issues auto-registrado atiende llamadas de dominio despachadas por el Execution Bridge $\rightarrow$ se verifica la creación con SLA y el rechazo verbatim de transición inválida.
   - **Criterio de finalización**: `go test -v -race ./pkg/bridge_integration/... -run "TestIssues_E2E"` pasa exitosamente.
