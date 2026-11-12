@@ -76,3 +76,4 @@ func TestRun_RegistersServesAndUnregistersOnShutdown(t *testing.T) {
 		t.Fatalf("%d tools still registered after shutdown", n)
 	}
 }
+
