@@ -13,6 +13,7 @@ build:
 	go build -o bin/molu ./cmd/molu
 	go build -o bin/hub ./cmd/hub
 	go build -o bin/publisher-orders ./cmd/publisher-orders
+	go build -o bin/publisher-issues ./cmd/publisher-issues
 
 test:
 	go test -v -race ./...

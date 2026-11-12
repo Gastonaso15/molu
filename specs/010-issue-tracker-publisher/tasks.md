@@ -16,8 +16,8 @@
   - **Descripción**: Componente que registra las 3 herramientas (`issues.CreateIssue`, `issues.AdvanceIssue`, `issues.GetIssue`) en el Hub remoto con sus esquemas JSON y metadatos `token_ref: "issues:api-token"`. Incluye reintentos con backoff al arranque y desregistro ante shutdown.
   - **Criterio de finalización**: `go test -v -race ./pkg/publisher/issues/... -run "TestIssueRegistrar"` pasa.
 
-- [ ] **T4. Binario del Publicador y Makefile (`cmd/publisher-issues/main.go` & `makefile`).** RF-5, RF-9, RF-10
-  - **Archivos**: `cmd/publisher-issues/main.go`, `makefile`
+- [x] **T4. Binario del Publicador y Makefile (`cmd/publisher-issues/main.go` & `makefile`).** RF-5, RF-9, RF-10
+  - **Archivos**: `cmd/publisher-issues/main.go`, `cmd/publisher-issues/main_test.go`, `makefile`
   - **Descripción**: Binario del publicador leyendo `MOLU_PUBLISHER_ISSUES_*`. Actualizar `makefile` para que `make build` compile `bin/molu`, `bin/hub`, `bin/publisher-orders` y `bin/publisher-issues`.
   - **Criterio de finalización**: `make build` compila los 4 binarios sin errores y `grep -ri seam cmd/ pkg/` da cero coincidencias.
 

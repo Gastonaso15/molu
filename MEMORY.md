@@ -41,7 +41,7 @@
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
 | **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T7 hechas: 7/8 tasks)** | Proceder con T8 (Diagrama de secuencia Mermaid y documentación operativa) |
 | **009** | `work-orders-publisher` — Hub Standalone (`bin/hub`) y Publicador Piloto de Work Orders (desacoplamiento de binarios, endpoints HTTP, FSM xolu y validación de Criterio 1) | **Implementada (T1–T9, 9/9 tasks)**; E2E del Criterio 1 en `pkg/bridge_integration/criterio1_e2e_test.go` contra un xolu simulado a nivel de red | Verificar contra un xolu real (`make xolu-up`) y documentar `bin/publisher-orders` (`MOLU_PUBLISHER_*`) |
-| **010** | `issue-tracker-publisher` — Publicador de Issue Tracker (cálculo de SLA, criticidad de activo, FSM de 8 estados e integración con xolu) | **En curso (T1–T3 completadas: 3/5 tasks)** | Continuar con T4 (Binario `cmd/publisher-issues` y Makefile) |
+| **010** | `issue-tracker-publisher` — Publicador de Issue Tracker (cálculo de SLA, criticidad de activo, FSM de 8 estados e integración con xolu) | **En curso (T1–T4 completadas: 4/5 tasks)** | Continuar con T5 (Prueba de integración E2E `pkg/bridge_integration/issues_e2e_test.go`) |
 
 
 
@@ -452,7 +452,7 @@ go test ./...  # Todo en verde
 
 ---
 
-## Archivos Creados y Modificados (Spec 010 — Publicador de Issue Tracker, T1–T3)
+## Archivos Creados y Modificados (Spec 010 — Publicador de Issue Tracker, T1–T4)
 
 | Archivo | Descripción | RF Cubiertos |
 | :--- | :--- | :--- |
@@ -466,6 +466,10 @@ go test ./...  # Todo en verde
 | `pkg/publisher/issues/server_test.go` | 9 tests HTTP: `/healthz`, Bearer 401, 405 Method Not Allowed, 200 create con SLA, 400 Bad Requests, 404 Get bare, 409 verbatim FSM, 503 con retry metadata y `X-Request-ID` | RF-1, RF-2, RF-3, RF-6, RF-7, RF-9, RF-10 |
 | `pkg/publisher/issues/registrar.go` | `Registrar`: auto-registro de herramientas (`issues.CreateIssue`, `issues.AdvanceIssue`, `issues.GetIssue`) en el Hub remoto, backoff exponencial ante reintentos y desregistro en shutdown | RF-5, RF-8 |
 | `pkg/publisher/issues/registrar_test.go` | 7 tests de auto-registro: publicación de 3 herramientas con esquemas, idempotencia, reintentos en backoff, no reintento de 400, límite de intentos, cancelación de context y desregistro total | RF-5, RF-8, RF-9, RF-10 |
+| `pkg/publisher/issues/substrate_http.go` | `HTTPSubstrate`: cliente REST hacia xolu para entidades (`issues`, `assets`) y máquinas FSM v2 (`issue_lifecycle`) | RF-1, RF-2, RF-3, RF-4, RF-7 |
+| `cmd/publisher-issues/main.go` | Binario ejecutable del publicador de Issue Tracker: variables de entorno `MOLU_PUBLISHER_ISSUES_*`, escucha HTTP, auto-registro en Hub y apagado ordenado | RF-5, RF-9, RF-10 |
+| `cmd/publisher-issues/main_test.go` | Tests de binario: validación de configuración requerida, arranque, publicación, healthz y desregistro total ante shutdown | RF-5, RF-8, RF-9, RF-10 |
+| `makefile` | Target `build` actualizado para compilar `bin/publisher-issues` junto con `bin/molu`, `bin/hub` y `bin/publisher-orders` | RF-5 |
 
-**T3 completada** (12-nov-2026): Auto-registro en el Hub y ciclo de vida de herramientas implementados y verificados bajo `go test -v -race ./...`. Siguiente paso: T4 (Binario `cmd/publisher-issues/main.go` y Makefile).
+**T4 completada** (12-nov-2026): Binario y Makefile implementados y verificados. Los 4 binarios compilan limpiamente. Siguiente paso: T5 (Prueba de integración E2E en `pkg/bridge_integration/issues_e2e_test.go`).
 
