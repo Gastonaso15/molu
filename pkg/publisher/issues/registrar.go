@@ -185,3 +185,4 @@ func (r *Registrar) post(ctx context.Context, path string, body any) error {
 		return permanentError{fmt.Errorf("hub answered %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
 	}
 }
+

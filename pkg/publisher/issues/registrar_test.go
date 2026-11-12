@@ -161,3 +161,4 @@ func TestIssueRegistrar_UnregisterRemovesAllTools(t *testing.T) {
 		t.Fatalf("%d tools left after unregister", n)
 	}
 }
+
