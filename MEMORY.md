@@ -41,6 +41,7 @@
 | **007** | `telemetry-and-observability` — Logging 4 dominios, correlación request_id/trace_id, rotación, security log, health/metrics Prometheus, middleware MCP | **Completada (30/30 tasks)** | Documentación pendiente T23-T28 |
 | **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T7 hechas: 7/8 tasks)** | Proceder con T8 (Diagrama de secuencia Mermaid y documentación operativa) |
 | **009** | `work-orders-publisher` — Hub Standalone (`bin/hub`) y Publicador Piloto de Work Orders (desacoplamiento de binarios, endpoints HTTP, FSM xolu y validación de Criterio 1) | **Implementada (T1–T9, 9/9 tasks)**; E2E del Criterio 1 en `pkg/bridge_integration/criterio1_e2e_test.go` contra un xolu simulado a nivel de red | Verificar contra un xolu real (`make xolu-up`) y documentar `bin/publisher-orders` (`MOLU_PUBLISHER_*`) |
+| **010** | `issue-tracker-publisher` — Publicador de Issue Tracker (cálculo de SLA, criticidad de activo, FSM de 8 estados e integración con xolu) | **En curso (T1 completada: 1/5 tasks)** | Continuar con T2 (Servidor HTTP y Middleware Bearer `pkg/publisher/issues/server.go`) |
 
 
 
@@ -448,3 +449,19 @@ go test ./...  # Todo en verde
 **T5–T9 completadas** (09-nov-2026): Spec 009 implementada. `bin/publisher-orders` (`pkg/publisher/orders`, `cmd/publisher-orders`, vars `MOLU_PUBLISHER_*`: `HTTP_ADDR` `:8092`, `HUB_URL`, `XOLU_URL`, `API_TOKEN[_FILE]`, `XOLU_TOKEN[_FILE]`, `PUBLIC_URL`). El token de `API_TOKEN` debe coincidir con `MOLU_FRONT_TOKEN_ORDERS_API_TOKEN` de molu. Criterio 1 cubierto por `TestCriterio1_E2E` (xolu simulado). Siguiente paso: verificar contra un xolu real y cerrar documentación y diagramas pendientes.
 
 **Verificado contra xolu real** (09-nov-2026, xolu v0.30.44, `make xolu-up`-style en :9494): recorrido completo con `bin/hub`, `bin/publisher-orders` y `bin/molu` por stdio; FSM003/FSM004 llegan verbatim como `XOLU-INVALID_TRANSITION`; SIGTERM al publicador desregistra las 3 herramientas. Diferencias xolu real vs doc: la definición exige `determinism` (FSM006), la entidad inline no está implementada (se crea la entidad y se enlaza con `ref`), los errores FSM usan el sobre anidado `{"error":{"code","message"}}` y no traen `state`/`available_inputs`/`detail`. Test opt-in: `MOLU_REAL_XOLU_URL=http://127.0.0.1:9494 go test -run TestRealXolu ./pkg/publisher/orders/`.
+
+---
+
+## Archivos Creados y Modificados (Spec 010 — Publicador de Issue Tracker, T1)
+
+| Archivo | Descripción | RF Cubiertos |
+| :--- | :--- | :--- |
+| `specs/010-issue-tracker-publisher/spec.md` | Especificación del Publicador de Issue Tracker (`bin/publisher-issues`) | Todos |
+| `specs/010-issue-tracker-publisher/plan.md` | Plan técnico con arquitectura, diagramas y contratos de Issue Tracker | Todos |
+| `specs/010-issue-tracker-publisher/tasks.md` | Desglose en 5 tareas de implementación TDD (T1 a T5) | Todos |
+| `pkg/publisher/issues/types.go` | Tipos de dominio `Issue`, structs de petición/respuesta y funciones de cálculo de plazos SLA | RF-1 |
+| `pkg/publisher/issues/service.go` | `IssueService`: creación de incidencias (`CreateIssue`), consulta (`GetIssue`), avance de ciclo de vida con FSM (`AdvanceIssue`), resolución de criticidad de activos y cálculo SLA | RF-1, RF-2, RF-3, RF-4, RF-7 |
+| `pkg/publisher/issues/service_test.go` | 9 tests unitarios y de concurrencia: validaciones, cálculo SLA, activo crítico, `NOT_FOUND`, `XOLU-INVALID_TRANSITION` verbatim, `SUBSTRATE_UNAVAILABLE` y 20 goroutines concurrentes | RF-1, RF-2, RF-3, RF-4, RF-7, RF-9, RF-10 |
+
+**T1 completada** (12-nov-2026): Dominio y operaciones de Issue Tracker implementados y verificados bajo `go test -v -race ./...`. Siguiente paso: T2 (Servidor HTTP y Middleware de Autenticación en `pkg/publisher/issues/server.go`).
+
