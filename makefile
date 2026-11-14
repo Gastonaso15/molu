@@ -26,6 +26,14 @@ clean:
 	rm -rf bin/ coverage.out coverage.html .token.dev dev-token.txt
 
 run-molu:
+	@if [ ! -f $(TOKEN_FILE) ]; then echo "molu-dev-token" > $(TOKEN_FILE); fi
+	MOLU_FRONT_XOLU_URL="$(XOLU_URL)" \
+	MOLU_FRONT_XOLU_AUTH_MODE="$(AUTH_MODE)" \
+	MOLU_FRONT_XOLU_TOKEN_FILE="$(CURDIR)/$(TOKEN_FILE)" \
+	MOLU_FRONT_HUB_URL="$(HUB_URL)" \
+	MOLU_FRONT_HUB_AUTH_MODE="none" \
+	MOLU_FRONT_DEFAULT_TENANT="$(DEFAULT_TENANT)" \
+	MOLU_FRONT_TELEMETRY_PORT=9095 \
 	go run ./cmd/molu
 
 inspector: build
