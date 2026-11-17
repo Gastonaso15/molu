@@ -1,40 +1,33 @@
 package orders
 
-// LifecycleDefinition is the FSM that governs a work order:
+// LifecycleDefinition is the FSM Seam's Work Orders module uses for orders
+// created without a template (the "legacy" path):
 //
-//	Open --start--> InProgress --complete[resolution]--> Completed
-//	Open|InProgress --cancel--> Cancelled
+//	draft --start--> in_progress --complete[technician_signature]--> completed
 //
-// "complete" is guarded: the payload must carry a non-empty resolution, so a
+// It mirrors seam-CURE (internal/ui/workorders.go, ensureWorkOrderDefinition)
+// so orders created through the Hub and orders created from Seam's UI share
+// one definition. "complete" is guarded by the technician's signature, so a
 // rejected transition has a guard diagnostic worth surfacing verbatim.
 func LifecycleDefinition() Definition {
 	return Definition{
 		"name":        DefinitionName,
-		"description": "Lifecycle of a work order from opening to completion or cancellation",
-		"initial":     "Open",
-		// xolu requires an explicit level (XOLU-FSM006 otherwise). Each
-		// (state, input) pair has exactly one transition, so "strict" fits.
-		"determinism": "strict",
+		"description": "Seam AMS Work Orders playground -- minimal lifecycle, not T-11's full Order Engine scope",
+		"initial":     StateDraft,
+		// xolu requires an explicit level (XOLU-FSM006 otherwise); Seam uses firstmatch.
+		"determinism": "firstmatch",
 		"states": map[string]any{
-			"Open":       map[string]any{"terminal": false},
-			"InProgress": map[string]any{"terminal": false},
-			"Completed":  map[string]any{"terminal": true},
-			"Cancelled":  map[string]any{"terminal": true},
+			StateDraft:      map[string]any{"terminal": false},
+			StateInProgress: map[string]any{"terminal": false},
+			StateCompleted:  map[string]any{"terminal": true},
 		},
-		"output_alphabet": []any{"order_completed"},
 		"transitions": []any{
-			map[string]any{"from": "Open", "input": "start", "to": "InProgress"},
+			map[string]any{"from": StateDraft, "input": InputStart, "to": StateInProgress},
 			map[string]any{
-				"from": "InProgress", "input": "complete", "to": "Completed",
-				"guard":  "payload.resolution IS NOT NULL AND payload.resolution != ''",
-				"output": "order_completed",
+				"from": StateInProgress, "input": InputComplete, "to": StateCompleted,
+				// Single-quoted literal: a double-quoted token is an identifier in xolu's T-SQL lexer.
+				"guard": "payload.technician_signature != ''",
 			},
-			map[string]any{"from": "Open", "input": "cancel", "to": "Cancelled"},
-			map[string]any{"from": "InProgress", "input": "cancel", "to": "Cancelled"},
 		},
 	}
 }
-
-// terminalStates mirrors LifecycleDefinition so the service can tell whether an
-// order is closed even when xolu's machine document omits a terminal flag.
-var terminalStates = map[string]bool{"Completed": true, "Cancelled": true}

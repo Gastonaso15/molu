@@ -52,38 +52,31 @@ func (h *HTTPSubstrate) EnsureDefinition(ctx context.Context, name string, def D
 	return id, nil
 }
 
-// CreateMachine stores the entity and then mints a machine bound to it by ref.
-// xolu's v2 preview does not implement inline entity creation, so the two steps
-// are separate; if the machine cannot be created the entity is removed again.
-func (h *HTTPSubstrate) CreateMachine(ctx context.Context, definitionID, entityType string, entity map[string]any) (Machine, error) {
-	var created map[string]any
-	if err := h.do(ctx, http.MethodPost, "/api/v1/"+url.PathEscape(entityType), entity, &created); err != nil {
-		return Machine{}, err
-	}
-	entityID := idString(created["id"])
-	if entityID == "" {
-		return Machine{}, fmt.Errorf("xolu created %s without an id", entityType)
-	}
-	body := map[string]any{"definition": numericOrString(definitionID), "ref": entityType + ":" + entityID}
+// CreateMachine mints a machine from a definition. It is not bound to an
+// entity: like seam-CURE, the order document points at it through machine_id.
+func (h *HTTPSubstrate) CreateMachine(ctx context.Context, definitionID string) (Machine, error) {
+	body := map[string]any{"definition": numericOrString(definitionID)}
 	var out map[string]any
 	if err := h.do(ctx, http.MethodPost, "/api/v2/fsm/machine", body, &out); err != nil {
-		// Best effort: do not leave an orphan order document behind.
-		_ = h.do(context.WithoutCancel(ctx), http.MethodDelete, "/api/v1/"+url.PathEscape(entityType)+"/"+url.PathEscape(entityID), nil, nil)
 		return Machine{}, err
 	}
 	m := machineFrom(out)
-	if m.Ref == "" {
-		m.Ref = body["ref"].(string)
+	if m.ID == "" {
+		return Machine{}, fmt.Errorf("xolu created a machine without an id")
 	}
 	return m, nil
 }
 
-func (h *HTTPSubstrate) GetMachine(ctx context.Context, id string) (Machine, error) {
-	var out map[string]any
-	if err := h.do(ctx, http.MethodGet, "/api/v2/fsm/machine/"+url.PathEscape(id), nil, &out); err != nil {
-		return Machine{}, err
+func (h *HTTPSubstrate) CreateEntity(ctx context.Context, entityType string, data map[string]any) (string, error) {
+	var created map[string]any
+	if err := h.do(ctx, http.MethodPost, "/api/v1/"+url.PathEscape(entityType), data, &created); err != nil {
+		return "", err
 	}
-	return machineFrom(out), nil
+	id := idString(created["id"])
+	if id == "" {
+		return "", fmt.Errorf("xolu created %s without an id", entityType)
+	}
+	return id, nil
 }
 
 func (h *HTTPSubstrate) GetEntity(ctx context.Context, entityType, id string) (map[string]any, error) {
@@ -95,6 +88,23 @@ func (h *HTTPSubstrate) GetEntity(ctx context.Context, entityType, id string) (m
 		return inner, nil
 	}
 	return out, nil
+}
+
+func (h *HTTPSubstrate) PatchEntity(ctx context.Context, entityType, id string, data map[string]any) error {
+	return h.do(ctx, http.MethodPatch, "/api/v1/"+url.PathEscape(entityType)+"/"+url.PathEscape(id), data, nil)
+}
+
+// ListEntities reads every document through OQL, the route seam-CURE uses for
+// its own lists.
+func (h *HTTPSubstrate) ListEntities(ctx context.Context, entityType string) ([]map[string]any, error) {
+	var out struct {
+		Data []map[string]any `json:"data"`
+	}
+	q := map[string]any{"query": "SELECT TOP 100 * FROM " + entityType + " ORDER BY id DESC"}
+	if err := h.do(ctx, http.MethodPost, "/api/v1/oql/query", q, &out); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
 }
 
 func (h *HTTPSubstrate) Walk(ctx context.Context, machineID, input string, payload map[string]any) (WalkResult, error) {
@@ -197,7 +207,6 @@ func parseXoluError(status int, raw []byte) *XoluError {
 func machineFrom(m map[string]any) Machine {
 	out := Machine{ID: idString(m["id"])}
 	out.State, _ = m["state"].(string)
-	out.Ref, _ = m["ref"].(string)
 	out.Terminal, _ = m["terminal"].(bool)
 	return out
 }
@@ -232,6 +241,10 @@ func idString(v any) string {
 		return t
 	case float64:
 		return strconv.FormatInt(int64(t), 10)
+	case int:
+		return strconv.Itoa(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
 	}
 	return ""
 }

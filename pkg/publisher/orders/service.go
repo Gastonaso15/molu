@@ -3,13 +3,16 @@ package orders
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Service holds the work-order business logic. Lifecycle legality is not
 // decided here: every transition is delegated to the xolu FSM, and its
-// rejections travel back verbatim.
+// rejections travel back verbatim. Orders are stored the way seam-CURE stores
+// them, so both sides read and write the same work_orders entity.
 type Service struct {
 	sub Substrate
 
@@ -19,7 +22,9 @@ type Service struct {
 
 func NewService(sub Substrate) *Service { return &Service{sub: sub} }
 
-// CreateOrder opens a new order: a xolu entity bound to a fresh lifecycle machine.
+// CreateOrder opens a legacy (template-less) order the way Seam does: a fresh
+// lifecycle machine first, then the work_orders document carrying the
+// machine's initial state and its id, so Seam's own list and detail pages see it.
 func (s *Service) CreateOrder(ctx context.Context, in CreateInput) (WorkOrder, error) {
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
@@ -29,15 +34,25 @@ func (s *Service) CreateOrder(ctx context.Context, in CreateInput) (WorkOrder, e
 	if err != nil {
 		return WorkOrder{}, classify(err, "")
 	}
-	entity := map[string]any{"title": title}
-	if in.Description != "" {
-		entity["description"] = in.Description
-	}
-	m, err := s.sub.CreateMachine(ctx, defID, EntityType, entity)
+	m, err := s.sub.CreateMachine(ctx, defID)
 	if err != nil {
 		return WorkOrder{}, classify(err, "")
 	}
-	return WorkOrder{ID: m.ID, Title: title, Description: in.Description, State: m.State, Terminal: m.Terminal || terminalStates[m.State]}, nil
+	now := time.Now().UTC().Format(time.RFC3339)
+	doc := map[string]any{
+		"title":       title,
+		"description": in.Description,
+		"assigned_to": in.AssignedTo,
+		"state":       m.State,
+		"machine_id":  numericOrString(m.ID),
+		"created_at":  now,
+		"updated_at":  now,
+	}
+	id, err := s.sub.CreateEntity(ctx, EntityType, doc)
+	if err != nil {
+		return WorkOrder{}, classify(err, "")
+	}
+	return orderFromDoc(id, doc), nil
 }
 
 // GetOrder returns the order or NotFoundError.
@@ -45,12 +60,18 @@ func (s *Service) GetOrder(ctx context.Context, id string) (WorkOrder, error) {
 	if strings.TrimSpace(id) == "" {
 		return WorkOrder{}, &ValidationError{Fields: []string{"order_id"}}
 	}
-	return s.load(ctx, id)
+	doc, err := s.sub.GetEntity(ctx, EntityType, id)
+	if err != nil {
+		return WorkOrder{}, classify(err, id)
+	}
+	return orderFromDoc(id, doc), nil
 }
 
-// AdvanceOrder fires an FSM input on the order's machine. A rejection by xolu
-// (no transition, or a guard that evaluated false) becomes a TransitionError
-// whose message is xolu's own.
+// AdvanceOrder fires an FSM input on the order's machine and then copies the
+// new state onto the order document, as Seam does. A rejection by xolu (no
+// transition, or a guard that evaluated false) becomes a TransitionError whose
+// message is xolu's own. Orders that follow a template workflow have no
+// machine and are not supported yet.
 func (s *Service) AdvanceOrder(ctx context.Context, in AdvanceInput) (AdvanceResult, error) {
 	var bad []string
 	if strings.TrimSpace(in.OrderID) == "" {
@@ -63,36 +84,94 @@ func (s *Service) AdvanceOrder(ctx context.Context, in AdvanceInput) (AdvanceRes
 		return AdvanceResult{}, &ValidationError{Fields: bad}
 	}
 
-	wr, err := s.sub.Walk(ctx, in.OrderID, in.Input, in.Payload)
+	doc, err := s.sub.GetEntity(ctx, EntityType, in.OrderID)
 	if err != nil {
 		return AdvanceResult{}, classify(err, in.OrderID)
 	}
-	order, err := s.load(ctx, in.OrderID)
-	if err != nil {
-		return AdvanceResult{}, err
+	machineID := idString(doc["machine_id"])
+	if machineID == "" || machineID == "0" {
+		return AdvanceResult{}, &ValidationError{
+			Fields: []string{"order_id"},
+			Reason: "order follows a template workflow, which this publisher cannot advance yet",
+		}
 	}
-	return AdvanceResult{Order: order, Previous: wr.Previous, Current: wr.Current, Outputs: wr.Outputs}, nil
+
+	wr, err := s.sub.Walk(ctx, machineID, in.Input, in.Payload)
+	if err != nil {
+		return AdvanceResult{}, classify(err, in.OrderID)
+	}
+
+	patch := map[string]any{"state": wr.Current, "updated_at": time.Now().UTC().Format(time.RFC3339)}
+	if sig, ok := in.Payload["technician_signature"]; ok {
+		patch["technician_signature"] = sig
+	}
+	if err := s.sub.PatchEntity(ctx, EntityType, in.OrderID, patch); err != nil {
+		// The machine moved but the document did not: surface it, do not hide the drift.
+		return AdvanceResult{}, classify(err, in.OrderID)
+	}
+	for k, v := range patch {
+		doc[k] = v
+	}
+	return AdvanceResult{Order: orderFromDoc(in.OrderID, doc), Previous: wr.Previous, Current: wr.Current, Outputs: wr.Outputs}, nil
 }
 
-// load joins the machine (state) with its entity document (title, description).
-func (s *Service) load(ctx context.Context, id string) (WorkOrder, error) {
-	m, err := s.sub.GetMachine(ctx, id)
+// ListTemplates returns the work order templates (read-only). Only the latest
+// version of each is listed unless IncludeOldVersions is set. xolu answers
+// 400 XOLU-QL004 "does not exist" until the first template is created (the
+// same case seam-CURE's entityNotYetCreated handles): that is an empty list.
+func (s *Service) ListTemplates(ctx context.Context, in ListTemplatesInput) (TemplateList, error) {
+	rows, err := s.sub.ListEntities(ctx, TemplateEntityType)
 	if err != nil {
-		return WorkOrder{}, classify(err, id)
+		var xe *XoluError
+		if errors.As(err, &xe) && xe.Code == "XOLU-QL004" && strings.Contains(xe.Message, "does not exist") {
+			return TemplateList{Templates: []Template{}}, nil
+		}
+		return TemplateList{}, classify(err, "")
 	}
-	order := WorkOrder{ID: m.ID, State: m.State, Terminal: m.Terminal || terminalStates[m.State]}
+	out := TemplateList{Templates: []Template{}}
+	for _, row := range rows {
+		t := templateFromRow(row)
+		if !in.IncludeOldVersions && !t.Latest {
+			continue
+		}
+		out.Templates = append(out.Templates, t)
+	}
+	return out, nil
+}
 
-	entityType, entityID, ok := strings.Cut(m.Ref, ":")
-	if !ok {
-		return order, nil
+func orderFromDoc(id string, doc map[string]any) WorkOrder {
+	state, _ := doc["state"].(string)
+	o := WorkOrder{ID: id, State: state, Terminal: state == StateCompleted}
+	o.Title, _ = doc["title"].(string)
+	o.Description, _ = doc["description"].(string)
+	o.AssignedTo, _ = doc["assigned_to"].(string)
+	if tid := idString(doc["template_id"]); tid != "" && tid != "0" {
+		o.TemplateID = tid
 	}
-	doc, err := s.sub.GetEntity(ctx, entityType, entityID)
-	if err != nil {
-		return WorkOrder{}, classify(err, id)
+	return o
+}
+
+func templateFromRow(row map[string]any) Template {
+	t := Template{ID: idString(row["id"]), WorkflowStates: []string{}}
+	t.Name, _ = row["name"].(string)
+	t.Description, _ = row["description"].(string)
+	t.Latest, _ = row["latest"].(bool)
+	if v := idString(row["version"]); v != "" {
+		t.Version, _ = strconv.Atoi(v)
 	}
-	order.Title, _ = doc["title"].(string)
-	order.Description, _ = doc["description"].(string)
-	return order, nil
+	if a := idString(row["asset_type_id"]); a != "" && a != "0" {
+		t.AssetTypeID = a
+	}
+	if states, ok := row["workflow_states"].([]any); ok {
+		for _, st := range states {
+			if m, ok := st.(map[string]any); ok {
+				if n, _ := m["name"].(string); n != "" {
+					t.WorkflowStates = append(t.WorkflowStates, n)
+				}
+			}
+		}
+	}
+	return t
 }
 
 // definitionID resolves the lifecycle definition once. A failed attempt is not

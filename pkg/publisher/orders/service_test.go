@@ -4,26 +4,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 )
 
-// fakeSubstrate is an in-memory xolu double that enforces the lifecycle FSM
-// the way xolu does, answering with raw *XoluError values.
+// fakeSubstrate is an in-memory xolu double that enforces the legacy lifecycle
+// FSM the way xolu does, answering with raw *XoluError values.
 type fakeSubstrate struct {
 	mu          sync.Mutex
 	next        int
 	machines    map[string]*Machine
-	entities    map[string]map[string]any
+	entities    map[string]map[string]map[string]any // type -> id -> doc
 	ensureCalls atomic.Int32
 	ensureErr   error
 	failWith    error // when set, every call returns it
+	patchErr    error
 }
 
 func newFake() *fakeSubstrate {
-	return &fakeSubstrate{machines: map[string]*Machine{}, entities: map[string]map[string]any{}}
+	return &fakeSubstrate{machines: map[string]*Machine{}, entities: map[string]map[string]map[string]any{}}
 }
 
 func (f *fakeSubstrate) EnsureDefinition(_ context.Context, _ string, _ Definition) (string, error) {
@@ -34,7 +36,7 @@ func (f *fakeSubstrate) EnsureDefinition(_ context.Context, _ string, _ Definiti
 	return "42", f.failWith
 }
 
-func (f *fakeSubstrate) CreateMachine(_ context.Context, _ string, entityType string, entity map[string]any) (Machine, error) {
+func (f *fakeSubstrate) CreateMachine(_ context.Context, _ string) (Machine, error) {
 	if f.failWith != nil {
 		return Machine{}, f.failWith
 	}
@@ -42,33 +44,83 @@ func (f *fakeSubstrate) CreateMachine(_ context.Context, _ string, entityType st
 	defer f.mu.Unlock()
 	f.next++
 	id := strconv.Itoa(1000 + f.next)
-	m := &Machine{ID: id, State: "Open", Ref: entityType + ":" + id}
+	m := &Machine{ID: id, State: StateDraft}
 	f.machines[id] = m
-	f.entities[m.Ref] = entity
 	return *m, nil
 }
 
-func (f *fakeSubstrate) GetMachine(_ context.Context, id string) (Machine, error) {
+func (f *fakeSubstrate) CreateEntity(_ context.Context, entityType string, data map[string]any) (string, error) {
 	if f.failWith != nil {
-		return Machine{}, f.failWith
+		return "", f.failWith
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	m, ok := f.machines[id]
-	if !ok {
-		return Machine{}, &XoluError{Status: 404, Code: "XOLU-FSM001", Message: "machine not found"}
+	f.next++
+	id := strconv.Itoa(f.next)
+	f.put(entityType, id, data)
+	return id, nil
+}
+
+// put stores a copy of data; callers hold f.mu.
+func (f *fakeSubstrate) put(entityType, id string, data map[string]any) {
+	if f.entities[entityType] == nil {
+		f.entities[entityType] = map[string]map[string]any{}
 	}
-	return *m, nil
+	doc := map[string]any{"id": id}
+	for k, v := range data {
+		doc[k] = v
+	}
+	f.entities[entityType][id] = doc
 }
 
 func (f *fakeSubstrate) GetEntity(_ context.Context, entityType, id string) (map[string]any, error) {
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	e, ok := f.entities[entityType+":"+id]
+	e, ok := f.entities[entityType][id]
 	if !ok {
 		return nil, &XoluError{Status: 404, Code: "XOLU-ST001", Message: "entity not found"}
 	}
-	return e, nil
+	cp := map[string]any{}
+	for k, v := range e {
+		cp[k] = v
+	}
+	return cp, nil
+}
+
+func (f *fakeSubstrate) PatchEntity(_ context.Context, entityType, id string, data map[string]any) error {
+	if f.failWith != nil {
+		return f.failWith
+	}
+	if f.patchErr != nil {
+		return f.patchErr
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e, ok := f.entities[entityType][id]
+	if !ok {
+		return &XoluError{Status: 404, Code: "XOLU-ST001", Message: "entity not found"}
+	}
+	for k, v := range data {
+		e[k] = v
+	}
+	return nil
+}
+
+func (f *fakeSubstrate) ListEntities(_ context.Context, entityType string) ([]map[string]any, error) {
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []map[string]any
+	for _, e := range f.entities[entityType] {
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i]["id"].(string) < out[j]["id"].(string) })
+	return out, nil
 }
 
 func (f *fakeSubstrate) Walk(_ context.Context, id, input string, payload map[string]any) (WalkResult, error) {
@@ -86,23 +138,20 @@ func (f *fakeSubstrate) Walk(_ context.Context, id, input string, payload map[st
 	case m.Terminal:
 		return WalkResult{}, &XoluError{Status: 409, Code: "XOLU-FSM003",
 			Message: fmt.Sprintf("machine is in terminal state %q", m.State), State: m.State}
-	case prev == "Open" && input == "start":
-		m.State = "InProgress"
-	case prev == "InProgress" && input == "complete":
-		if r, _ := payload["resolution"].(string); r == "" {
+	case prev == StateDraft && input == InputStart:
+		m.State = StateInProgress
+	case prev == StateInProgress && input == InputComplete:
+		if r, _ := payload["technician_signature"].(string); r == "" {
 			return WalkResult{}, &XoluError{Status: 422, Code: "XOLU-FSM004", Message: "transition guard rejected",
-				Detail: "guard: payload.resolution IS NOT NULL AND payload.resolution != '' evaluated false", State: prev}
+				Detail: "guard: payload.technician_signature != '' evaluated false", State: prev}
 		}
-		m.State, m.Terminal = "Completed", true
-		return WalkResult{Previous: prev, Current: "Completed", Terminal: true, Outputs: []string{"order_completed"}}, nil
-	case input == "cancel" && (prev == "Open" || prev == "InProgress"):
-		m.State, m.Terminal = "Cancelled", true
-		return WalkResult{Previous: prev, Current: "Cancelled", Terminal: true}, nil
+		m.State, m.Terminal = StateCompleted, true
+		return WalkResult{Previous: prev, Current: StateCompleted, Terminal: true}, nil
 	default:
 		return WalkResult{}, &XoluError{Status: 409, Code: "XOLU-FSM003",
 			Message:         fmt.Sprintf("no transition for input %q from state %q", input, prev),
 			State:           prev,
-			AvailableInputs: []string{"start", "cancel"}}
+			AvailableInputs: []string{"start"}}
 	}
 	return WalkResult{Previous: prev, Current: m.State}, nil
 }
@@ -115,7 +164,7 @@ func TestOrderService_CreateOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
-	if got.ID == "" || got.State != "Open" || got.Title != "Replace pump" || got.Description != "Pump A" || got.Terminal {
+	if got.ID == "" || got.State != StateDraft || got.Title != "Replace pump" || got.Description != "Pump A" || got.Terminal {
 		t.Fatalf("unexpected order: %+v", got)
 	}
 }
@@ -201,12 +250,12 @@ func TestOrderService_AdvanceOrder_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AdvanceOrder: %v", err)
 	}
-	if res.Previous != "Open" || res.Current != "InProgress" || res.Order.State != "InProgress" || res.Order.Title != "t" {
+	if res.Previous != StateDraft || res.Current != StateInProgress || res.Order.State != StateInProgress || res.Order.Title != "t" {
 		t.Fatalf("unexpected result: %+v", res)
 	}
 
-	done, err := svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: o.ID, Input: "complete", Payload: map[string]any{"resolution": "fixed"}})
-	if err != nil || !done.Order.Terminal || len(done.Outputs) != 1 {
+	done, err := svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: o.ID, Input: "complete", Payload: map[string]any{"technician_signature": "data:image/png;base64,AAAA"}})
+	if err != nil || !done.Order.Terminal || done.Order.State != StateCompleted {
 		t.Fatalf("complete: %+v, %v", done, err)
 	}
 }
@@ -215,7 +264,7 @@ func TestOrderService_AdvanceOrder_InvalidTransitionIsVerbatim(t *testing.T) {
 	svc := NewService(newFake())
 	o, _ := svc.CreateOrder(context.Background(), CreateInput{Title: "t"})
 
-	_, err := svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: o.ID, Input: "complete", Payload: map[string]any{"resolution": "x"}})
+	_, err := svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: o.ID, Input: "complete", Payload: map[string]any{"technician_signature": "x"}})
 	var te *TransitionError
 	if !errors.As(err, &te) {
 		t.Fatalf("want TransitionError, got %v", err)
@@ -223,11 +272,11 @@ func TestOrderService_AdvanceOrder_InvalidTransitionIsVerbatim(t *testing.T) {
 	if te.Code != "XOLU-INVALID_TRANSITION" {
 		t.Errorf("code = %q", te.Code)
 	}
-	wantMsg := `no transition for input "complete" from state "Open"`
+	wantMsg := `no transition for input "complete" from state "draft"`
 	if te.Message != wantMsg {
 		t.Errorf("message = %q, want verbatim %q", te.Message, wantMsg)
 	}
-	if te.Details["xolu_code"] != "XOLU-FSM003" || te.Details["state"] != "Open" {
+	if te.Details["xolu_code"] != "XOLU-FSM003" || te.Details["state"] != StateDraft {
 		t.Errorf("details = %v", te.Details)
 	}
 }
@@ -246,7 +295,7 @@ func TestOrderService_AdvanceOrder_GuardRejectionKeepsDiagnostic(t *testing.T) {
 		t.Errorf("message = %q", te.Message)
 	}
 	if te.Details["xolu_code"] != "XOLU-FSM004" ||
-		te.Details["detail"] != "guard: payload.resolution IS NOT NULL AND payload.resolution != '' evaluated false" {
+		te.Details["detail"] != "guard: payload.technician_signature != '' evaluated false" {
 		t.Errorf("guard diagnostic lost: %v", te.Details)
 	}
 }
@@ -292,5 +341,144 @@ func TestOrderService_SubstrateFailuresAreUnavailable(t *testing.T) {
 				t.Fatalf("CreateOrder: want UnavailableError, got %v", err)
 			}
 		})
+	}
+}
+
+func TestOrderService_CreateOrder_StoresDocumentLikeSeam(t *testing.T) {
+	fs := newFake()
+	svc := NewService(fs)
+	got, err := svc.CreateOrder(context.Background(), CreateInput{Title: "t", AssignedTo: "ana@x.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := fs.entities[EntityType][got.ID]
+	if doc["state"] != StateDraft || doc["assigned_to"] != "ana@x.com" || doc["machine_id"] != int64(1001) {
+		t.Fatalf("document = %v", doc)
+	}
+	if doc["created_at"] == nil || doc["updated_at"] == nil {
+		t.Fatalf("timestamps missing: %v", doc)
+	}
+	if got.AssignedTo != "ana@x.com" {
+		t.Fatalf("order = %+v", got)
+	}
+}
+
+func TestOrderService_AdvanceOrder_DenormalizesStateAndSignature(t *testing.T) {
+	fs := newFake()
+	svc := NewService(fs)
+	o, _ := svc.CreateOrder(context.Background(), CreateInput{Title: "t"})
+
+	_, _ = svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: o.ID, Input: InputStart})
+	if st := fs.entities[EntityType][o.ID]["state"]; st != StateInProgress {
+		t.Fatalf("state on document = %v", st)
+	}
+	_, err := svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: o.ID, Input: InputComplete, Payload: map[string]any{"technician_signature": "sig"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := fs.entities[EntityType][o.ID]
+	if doc["state"] != StateCompleted || doc["technician_signature"] != "sig" {
+		t.Fatalf("document = %v", doc)
+	}
+	got, _ := svc.GetOrder(context.Background(), o.ID)
+	if !got.Terminal || got.State != StateCompleted {
+		t.Fatalf("GetOrder = %+v", got)
+	}
+}
+
+func TestOrderService_AdvanceOrder_RejectedWalkLeavesDocumentUntouched(t *testing.T) {
+	fs := newFake()
+	svc := NewService(fs)
+	o, _ := svc.CreateOrder(context.Background(), CreateInput{Title: "t"})
+	_, _ = svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: o.ID, Input: InputStart})
+	_, err := svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: o.ID, Input: InputComplete})
+	if err == nil {
+		t.Fatal("expected guard rejection")
+	}
+	if st := fs.entities[EntityType][o.ID]["state"]; st != StateInProgress {
+		t.Fatalf("state must not change on a rejected walk, got %v", st)
+	}
+}
+
+func TestOrderService_AdvanceOrder_PatchFailureIsReported(t *testing.T) {
+	fs := newFake()
+	svc := NewService(fs)
+	o, _ := svc.CreateOrder(context.Background(), CreateInput{Title: "t"})
+	fs.patchErr = &XoluError{Status: 500, Code: "XOLU-ST006", Message: "boom"}
+	_, err := svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: o.ID, Input: InputStart})
+	var ue *UnavailableError
+	if !errors.As(err, &ue) {
+		t.Fatalf("want UnavailableError so the drift is not hidden, got %v", err)
+	}
+}
+
+func TestOrderService_AdvanceOrder_TemplateOrderIsNotSupported(t *testing.T) {
+	fs := newFake()
+	fs.put(EntityType, "77", map[string]any{"title": "from template", "state": "Review", "machine_id": int64(0), "template_id": int64(5)})
+	svc := NewService(fs)
+
+	got, err := svc.GetOrder(context.Background(), "77")
+	if err != nil || got.TemplateID != "5" || got.State != "Review" || got.Terminal {
+		t.Fatalf("GetOrder = %+v, %v", got, err)
+	}
+	_, err = svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: "77", Input: InputComplete})
+	var ve *ValidationError
+	if !errors.As(err, &ve) || ve.Fields[0] != "order_id" || ve.Reason == "" {
+		t.Fatalf("want ValidationError with a reason, got %v", err)
+	}
+}
+
+func seedTemplates(fs *fakeSubstrate) {
+	fs.put(TemplateEntityType, "1", map[string]any{"name": "Pump check", "version": 1, "latest": false,
+		"workflow_states": []any{map[string]any{"name": "Open"}, map[string]any{"name": "Done"}}})
+	fs.put(TemplateEntityType, "2", map[string]any{"name": "Pump check", "version": 2, "latest": true, "description": "v2", "asset_type_id": 9,
+		"workflow_states": []any{map[string]any{"name": "Open"}, map[string]any{"name": "Review"}, map[string]any{"name": "Done"}}})
+}
+
+func TestOrderService_ListTemplates_LatestOnlyByDefault(t *testing.T) {
+	fs := newFake()
+	seedTemplates(fs)
+	got, err := NewService(fs).ListTemplates(context.Background(), ListTemplatesInput{})
+	if err != nil || len(got.Templates) != 1 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	tpl := got.Templates[0]
+	if tpl.ID != "2" || tpl.Version != 2 || !tpl.Latest || tpl.AssetTypeID != "9" || len(tpl.WorkflowStates) != 3 || tpl.WorkflowStates[1] != "Review" {
+		t.Fatalf("template = %+v", tpl)
+	}
+}
+
+func TestOrderService_ListTemplates_IncludeOldVersions(t *testing.T) {
+	fs := newFake()
+	seedTemplates(fs)
+	got, _ := NewService(fs).ListTemplates(context.Background(), ListTemplatesInput{IncludeOldVersions: true})
+	if len(got.Templates) != 2 {
+		t.Fatalf("got %d templates, want 2", len(got.Templates))
+	}
+}
+
+func TestOrderService_ListTemplates_NoneYetIsEmptyNotError(t *testing.T) {
+	got, err := NewService(newFake()).ListTemplates(context.Background(), ListTemplatesInput{})
+	if err != nil || got.Templates == nil || len(got.Templates) != 0 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestOrderService_ListTemplates_MissingEntityIsEmpty(t *testing.T) {
+	fs := newFake()
+	fs.failWith = &XoluError{Status: 400, Code: "XOLU-QL004", Message: "entity 'work_order_templates' does not exist"}
+	got, err := NewService(fs).ListTemplates(context.Background(), ListTemplatesInput{})
+	if err != nil || len(got.Templates) != 0 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestOrderService_ListTemplates_SubstrateDown(t *testing.T) {
+	fs := newFake()
+	fs.failWith = errors.New("connection refused")
+	_, err := NewService(fs).ListTemplates(context.Background(), ListTemplatesInput{})
+	var ue *UnavailableError
+	if !errors.As(err, &ue) {
+		t.Fatalf("want UnavailableError, got %v", err)
 	}
 }

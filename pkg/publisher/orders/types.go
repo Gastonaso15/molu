@@ -14,31 +14,50 @@ const (
 	Namespace = "work_orders"
 	// PublisherID identifies this publisher in the Hub catalog.
 	PublisherID = "work-orders-publisher"
-	// EntityType is the xolu entity that stores the order document.
-	EntityType = "work_order"
-	// DefinitionName is the xolu FSM definition that governs the order lifecycle.
-	DefinitionName = "WorkOrderLifecycle"
+	// EntityType is the xolu entity Seam stores work orders in (plural, as in seam-CURE).
+	EntityType = "work_orders"
+	// TemplateEntityType is the xolu entity holding work order templates.
+	TemplateEntityType = "work_order_templates"
+	// DefinitionName is the xolu FSM definition Seam uses for template-less orders.
+	DefinitionName = "seam_work_order_lifecycle"
 	// TokenRef is the reference the Execution Bridge resolves to the bearer token.
 	TokenRef = "orders:api-token"
 )
 
-// WorkOrder is the business view of an order: its document plus FSM state.
+// Lifecycle vocabulary of the legacy (template-less) work order.
+const (
+	StateDraft      = "draft"
+	StateInProgress = "in_progress"
+	StateCompleted  = "completed"
+
+	InputStart    = "start"
+	InputComplete = "complete"
+)
+
+// WorkOrder is the business view of an order, read from Seam's denormalized
+// work_orders entity: the document plus the FSM state copied onto it.
 type WorkOrder struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
+	AssignedTo  string `json:"assigned_to,omitempty"`
 	State       string `json:"state"`
 	Terminal    bool   `json:"terminal"`
+	// TemplateID is set for orders that follow a template workflow. This
+	// publisher can read them but not advance them yet.
+	TemplateID string `json:"template_id,omitempty"`
 }
 
 // CreateInput is the payload of work_orders.CreateOrder.
 type CreateInput struct {
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
+	AssignedTo  string `json:"assigned_to,omitempty"`
 }
 
 // AdvanceInput is the payload of work_orders.AdvanceOrder. Input is the FSM
-// input to fire (for example "start" or "complete").
+// input to fire ("start" or "complete"); "complete" needs
+// payload.technician_signature.
 type AdvanceInput struct {
 	OrderID string         `json:"order_id"`
 	Input   string         `json:"input"`
@@ -53,15 +72,36 @@ type AdvanceResult struct {
 	Outputs  []string  `json:"outputs,omitempty"`
 }
 
+// ListTemplatesInput is the payload of work_orders.ListTemplates. By default
+// only the latest version of each template is returned.
+type ListTemplatesInput struct {
+	IncludeOldVersions bool `json:"include_old_versions,omitempty"`
+}
+
+// Template is the read-only summary of a work order template.
+type Template struct {
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description,omitempty"`
+	Version        int      `json:"version"`
+	Latest         bool     `json:"latest"`
+	AssetTypeID    string   `json:"asset_type_id,omitempty"`
+	WorkflowStates []string `json:"workflow_states"`
+}
+
+// TemplateList is the result of work_orders.ListTemplates.
+type TemplateList struct {
+	Templates []Template `json:"templates"`
+}
+
 // Definition is an FSM definition document as xolu stores it.
 type Definition map[string]any
 
-// Machine is a running FSM instance bound to an entity.
+// Machine is a running FSM instance.
 type Machine struct {
 	ID       string
 	State    string
 	Terminal bool
-	Ref      string // "<entity_type>:<id>"
 }
 
 // WalkResult is the outcome of a committed transition.
@@ -78,11 +118,17 @@ type Substrate interface {
 	// EnsureDefinition returns the id of the named definition, creating it
 	// when it does not exist yet.
 	EnsureDefinition(ctx context.Context, name string, def Definition) (string, error)
-	// CreateMachine mints a machine from a definition bound to a new entity.
-	CreateMachine(ctx context.Context, definitionID, entityType string, entity map[string]any) (Machine, error)
-	GetMachine(ctx context.Context, id string) (Machine, error)
+	// CreateMachine mints a machine from a definition.
+	CreateMachine(ctx context.Context, definitionID string) (Machine, error)
+	// CreateEntity stores a document and returns its id.
+	CreateEntity(ctx context.Context, entityType string, data map[string]any) (string, error)
 	GetEntity(ctx context.Context, entityType, id string) (map[string]any, error)
+	// PatchEntity merges fields into an existing document.
+	PatchEntity(ctx context.Context, entityType, id string, data map[string]any) error
 	Walk(ctx context.Context, machineID, input string, payload map[string]any) (WalkResult, error)
+	// ListEntities returns every document of the entity type (newest first),
+	// each with its "id".
+	ListEntities(ctx context.Context, entityType string) ([]map[string]any, error)
 }
 
 // XoluError is a non-success answer from xolu, kept raw so the service can
@@ -126,9 +172,17 @@ func (e *UnavailableError) Error() string {
 }
 func (e *UnavailableError) Unwrap() error { return e.Cause }
 
-// ValidationError lists the request fields that broke the contract.
-type ValidationError struct{ Fields []string }
+// ValidationError lists the request fields that broke the contract. Reason,
+// when set, explains why a well-formed request cannot be honoured.
+type ValidationError struct {
+	Fields []string
+	Reason string
+}
 
 func (e *ValidationError) Error() string {
-	return "contract violation: invalid fields " + strings.Join(e.Fields, ", ")
+	msg := "contract violation: invalid fields " + strings.Join(e.Fields, ", ")
+	if e.Reason != "" {
+		msg += ": " + e.Reason
+	}
+	return msg
 }

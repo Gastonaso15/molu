@@ -15,7 +15,7 @@ func TestHTTPSubstrate_EnsureDefinition_ReusesExisting(t *testing.T) {
 		if r.Method == http.MethodPost {
 			posts++
 		}
-		_, _ = w.Write([]byte(`{"items":[{"id":7,"name":"Other"},{"id":42,"name":"WorkOrderLifecycle"}]}`))
+		_, _ = w.Write([]byte(`{"items":[{"id":7,"name":"Other"},{"id":42,"name":"seam_work_order_lifecycle"}]}`))
 	}))
 	defer srv.Close()
 
@@ -33,7 +33,7 @@ func TestHTTPSubstrate_EnsureDefinition_CreatesWhenMissing(t *testing.T) {
 			return
 		}
 		_ = json.NewDecoder(r.Body).Decode(&created)
-		_, _ = w.Write([]byte(`{"id":1234567890123,"name":"WorkOrderLifecycle"}`))
+		_, _ = w.Write([]byte(`{"id":1234567890123,"name":"seam_work_order_lifecycle"}`))
 	}))
 	defer srv.Close()
 
@@ -41,50 +41,67 @@ func TestHTTPSubstrate_EnsureDefinition_CreatesWhenMissing(t *testing.T) {
 	if err != nil || id != "1234567890123" {
 		t.Fatalf("id=%q err=%v", id, err)
 	}
-	if created["name"] != DefinitionName || created["initial"] != "Open" {
+	if created["name"] != DefinitionName || created["initial"] != "draft" {
 		t.Fatalf("definition not sent: %v", created)
 	}
 }
 
-func TestHTTPSubstrate_CreateMachineAndWalk(t *testing.T) {
-	var entityBody, machineBody, walkBody map[string]any
+func TestHTTPSubstrate_MachineEntityAndWalk(t *testing.T) {
+	var entityBody, machineBody, walkBody, patchBody map[string]any
 	var auth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth = r.Header.Get("Authorization")
-		switch r.URL.Path {
-		case "/api/v1/work_order":
+		switch {
+		case r.URL.Path == "/api/v1/work_orders" && r.Method == http.MethodPost:
 			_ = json.NewDecoder(r.Body).Decode(&entityBody)
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"id":55,"message":"created"}`))
-		case "/api/v2/fsm/machine":
+		case r.URL.Path == "/api/v1/work_orders/55" && r.Method == http.MethodPatch:
+			_ = json.NewDecoder(r.Body).Decode(&patchBody)
+			_, _ = w.Write([]byte(`{"message":"updated"}`))
+		case r.URL.Path == "/api/v1/work_orders/55" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"title":"t","state":"draft","machine_id":1001}`))
+		case r.URL.Path == "/api/v2/fsm/machine":
 			_ = json.NewDecoder(r.Body).Decode(&machineBody)
-			_, _ = w.Write([]byte(`{"id":1001,"state":"Open","ref":"work_order:55"}`))
-		case "/api/v2/fsm/machine/1001/walk":
+			_, _ = w.Write([]byte(`{"id":1001,"state":"draft"}`))
+		case r.URL.Path == "/api/v2/fsm/machine/1001/walk":
 			_ = json.NewDecoder(r.Body).Decode(&walkBody)
-			_, _ = w.Write([]byte(`{"previous":"Open","current":"InProgress","terminal":false,"outputs":["x"]}`))
+			_, _ = w.Write([]byte(`{"previous":"draft","current":"in_progress","terminal":false,"outputs":["x"]}`))
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer srv.Close()
 	sub := NewHTTPSubstrate(srv.URL, "tok", 0)
+	ctx := context.Background()
 
-	m, err := sub.CreateMachine(context.Background(), "42", EntityType, map[string]any{"title": "t"})
-	if err != nil || m.ID != "1001" || m.State != "Open" || m.Ref != "work_order:55" {
+	m, err := sub.CreateMachine(ctx, "42")
+	if err != nil || m.ID != "1001" || m.State != "draft" {
 		t.Fatalf("machine=%+v err=%v", m, err)
 	}
-	if entityBody["title"] != "t" {
-		t.Errorf("entity body = %v", entityBody)
-	}
-	if machineBody["definition"] != float64(42) || machineBody["ref"] != "work_order:55" { // number, bound by ref
+	if machineBody["definition"] != float64(42) || machineBody["ref"] != nil { // number, not bound by ref
 		t.Errorf("machine body = %#v", machineBody)
 	}
 	if auth != "Bearer tok" {
 		t.Errorf("auth = %q", auth)
 	}
 
-	wr, err := sub.Walk(context.Background(), "1001", "start", map[string]any{"a": 1})
-	if err != nil || wr.Previous != "Open" || wr.Current != "InProgress" || len(wr.Outputs) != 1 {
+	id, err := sub.CreateEntity(ctx, EntityType, map[string]any{"title": "t", "machine_id": int64(1001)})
+	if err != nil || id != "55" || entityBody["title"] != "t" || entityBody["machine_id"] != float64(1001) {
+		t.Fatalf("id=%q err=%v body=%v", id, err, entityBody)
+	}
+
+	doc, err := sub.GetEntity(ctx, EntityType, "55")
+	if err != nil || doc["state"] != "draft" || idString(doc["machine_id"]) != "1001" {
+		t.Fatalf("doc=%v err=%v", doc, err)
+	}
+
+	if err := sub.PatchEntity(ctx, EntityType, "55", map[string]any{"state": "in_progress"}); err != nil || patchBody["state"] != "in_progress" {
+		t.Fatalf("patch err=%v body=%v", err, patchBody)
+	}
+
+	wr, err := sub.Walk(ctx, "1001", "start", map[string]any{"a": 1})
+	if err != nil || wr.Previous != "draft" || wr.Current != "in_progress" || len(wr.Outputs) != 1 {
 		t.Fatalf("walk=%+v err=%v", wr, err)
 	}
 	if walkBody["input"] != "start" {
@@ -92,36 +109,37 @@ func TestHTTPSubstrate_CreateMachineAndWalk(t *testing.T) {
 	}
 }
 
-func TestHTTPSubstrate_CreateMachineFailureRemovesEntity(t *testing.T) {
-	var deleted string
+func TestHTTPSubstrate_ListEntitiesUsesOQL(t *testing.T) {
+	var query string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v1/work_order" && r.Method == http.MethodPost:
-			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"id":77}`))
-		case r.URL.Path == "/api/v2/fsm/machine":
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			_, _ = w.Write([]byte(`{"error":"XOLU-FSM006","message":"bad definition"}`))
-		case r.Method == http.MethodDelete:
-			deleted = r.URL.Path
+		if r.URL.Path != "/api/v1/oql/query" || r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
 		}
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		query = body["query"]
+		_, _ = w.Write([]byte(`{"status":"ok","data":[{"id":3,"name":"A","version":2,"latest":true,"workflow_states":[{"name":"Open"},{"name":"Done"}]}]}`))
 	}))
 	defer srv.Close()
 
-	_, err := NewHTTPSubstrate(srv.URL, "", 0).CreateMachine(context.Background(), "42", EntityType, map[string]any{"title": "t"})
-	var xe *XoluError
-	if !errors.As(err, &xe) || xe.Code != "XOLU-FSM006" {
-		t.Fatalf("want the machine error, got %v", err)
+	svc := NewService(NewHTTPSubstrate(srv.URL, "", 0))
+	got, err := svc.ListTemplates(context.Background(), ListTemplatesInput{})
+	if err != nil || len(got.Templates) != 1 {
+		t.Fatalf("got %+v err=%v", got, err)
 	}
-	if deleted != "/api/v1/work_order/77" {
-		t.Fatalf("orphan entity not removed, delete path = %q", deleted)
+	if query != "SELECT TOP 100 * FROM work_order_templates ORDER BY id DESC" {
+		t.Errorf("query = %q", query)
+	}
+	if tpl := got.Templates[0]; tpl.ID != "3" || tpl.Version != 2 || len(tpl.WorkflowStates) != 2 {
+		t.Errorf("template = %+v", tpl)
 	}
 }
 
 func TestHTTPSubstrate_FSMErrorEnvelopeIsParsed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		_, _ = w.Write([]byte(`{"error":"XOLU-FSM004","message":"transition guard rejected","detail":"guard: x evaluated false","state":"InProgress","available_inputs":["cancel"]}`))
+		_, _ = w.Write([]byte(`{"error":"XOLU-FSM004","message":"transition guard rejected","detail":"guard: x evaluated false","state":"in_progress","available_inputs":["cancel"]}`))
 	}))
 	defer srv.Close()
 
@@ -131,7 +149,7 @@ func TestHTTPSubstrate_FSMErrorEnvelopeIsParsed(t *testing.T) {
 		t.Fatalf("want XoluError, got %v", err)
 	}
 	if xe.Status != 422 || xe.Code != "XOLU-FSM004" || xe.Message != "transition guard rejected" ||
-		xe.Detail != "guard: x evaluated false" || xe.State != "InProgress" || len(xe.AvailableInputs) != 1 {
+		xe.Detail != "guard: x evaluated false" || xe.State != "in_progress" || len(xe.AvailableInputs) != 1 {
 		t.Fatalf("xe = %+v", xe)
 	}
 }

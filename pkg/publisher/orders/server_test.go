@@ -58,7 +58,7 @@ func TestOrderServer_Create(t *testing.T) {
 	srv := newTestServer(newFake())
 	defer srv.Close()
 	resp, out := post(t, srv.URL+"/api/v1/orders/create", testToken, `{"title":"Replace pump","description":"d"}`)
-	if resp.StatusCode != 200 || out["state"] != "Open" || out["title"] != "Replace pump" || out["id"] == "" {
+	if resp.StatusCode != 200 || out["state"] != "draft" || out["title"] != "Replace pump" || out["id"] == "" {
 		t.Fatalf("status=%d body=%v", resp.StatusCode, out)
 	}
 }
@@ -116,15 +116,15 @@ func TestOrderServer_Advance_InvalidTransition409Verbatim(t *testing.T) {
 	_, created := post(t, srv.URL+"/api/v1/orders/create", testToken, `{"title":"t"}`)
 	id := created["id"].(string)
 
-	resp, out := post(t, srv.URL+"/api/v1/orders/advance", testToken, `{"order_id":"`+id+`","input":"complete","payload":{"resolution":"x"}}`)
+	resp, out := post(t, srv.URL+"/api/v1/orders/advance", testToken, `{"order_id":"`+id+`","input":"complete","payload":{"technician_signature":"x"}}`)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("status = %d, want 409 (%v)", resp.StatusCode, out)
 	}
-	if out["code"] != "XOLU-INVALID_TRANSITION" || out["message"] != `no transition for input "complete" from state "Open"` {
+	if out["code"] != "XOLU-INVALID_TRANSITION" || out["message"] != `no transition for input "complete" from state "draft"` {
 		t.Fatalf("envelope = %v", out)
 	}
 	details, _ := out["details"].(map[string]any)
-	if details["xolu_code"] != "XOLU-FSM003" || details["state"] != "Open" {
+	if details["xolu_code"] != "XOLU-FSM003" || details["state"] != "draft" {
 		t.Fatalf("details = %v", details)
 	}
 }
@@ -134,7 +134,7 @@ func TestOrderServer_Advance_Success(t *testing.T) {
 	defer srv.Close()
 	_, created := post(t, srv.URL+"/api/v1/orders/create", testToken, `{"title":"t"}`)
 	resp, out := post(t, srv.URL+"/api/v1/orders/advance", testToken, `{"order_id":"`+created["id"].(string)+`","input":"start"}`)
-	if resp.StatusCode != 200 || out["current"] != "InProgress" {
+	if resp.StatusCode != 200 || out["current"] != "in_progress" {
 		t.Fatalf("status=%d body=%v", resp.StatusCode, out)
 	}
 }
@@ -173,5 +173,25 @@ func TestOrderServer_EchoesRequestID(t *testing.T) {
 	resp, _ := http.DefaultClient.Do(req)
 	if got := resp.Header.Get("X-Request-ID"); got != "req-123" {
 		t.Fatalf("X-Request-ID = %q", got)
+	}
+}
+
+func TestOrderServer_Create_WithAssignedTo(t *testing.T) {
+	srv := newTestServer(newFake())
+	defer srv.Close()
+	resp, out := post(t, srv.URL+"/api/v1/orders/create", testToken, `{"title":"t","assigned_to":"ana"}`)
+	if resp.StatusCode != 200 || out["assigned_to"] != "ana" {
+		t.Fatalf("status=%d body=%v", resp.StatusCode, out)
+	}
+}
+
+func TestOrderServer_Advance_TemplateOrderIs400WithReason(t *testing.T) {
+	fs := newFake()
+	fs.put(EntityType, "77", map[string]any{"title": "x", "state": "Review", "template_id": int64(5)})
+	srv := newTestServer(fs)
+	defer srv.Close()
+	resp, out := post(t, srv.URL+"/api/v1/orders/advance", testToken, `{"order_id":"77","input":"complete"}`)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(out["message"].(string), "template workflow") {
+		t.Fatalf("status=%d body=%v", resp.StatusCode, out)
 	}
 }
