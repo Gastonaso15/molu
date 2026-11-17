@@ -2,6 +2,7 @@ package orders
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
@@ -77,4 +78,118 @@ func TestRealXolu_Lifecycle(t *testing.T) {
 	if first := tpls.Templates[0]; first.Name != "Real xolu template" || len(first.WorkflowStates) != 3 || !first.Latest {
 		t.Fatalf("template parsed wrong: %+v", first)
 	}
+}
+
+// Opens and walks a template order against a live xolu, with a template,
+// crew and assets stored the way seam-CURE stores them.
+func TestRealXolu_TemplateOrder(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+
+	// Entities that do not exist yet must read as "not found", not as an outage.
+	_, err := svc.CreateOrder(ctx, CreateInput{TemplateID: "1", AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: "1"})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("missing template: want ValidationError, got %T %v", err, err)
+	}
+	t.Logf("missing template: %v", err)
+
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	crew := mk("crews", map[string]any{"name": "Cuadrilla real"})
+	assetType := int64(77)
+	asset := mk("assets", map[string]any{"name": "Bomba real", "type_id": assetType})
+	tpl := mk(TemplateEntityType, map[string]any{
+		"name": "Plantilla real", "version": 1, "latest": true, "asset_type_id": assetType, "min_assets": 1, "max_assets": 1,
+		"workflow_states": []map[string]any{{"name": "Pendiente"}, {"name": "En curso"}, {"name": "Cerrada"}},
+		"header_items": []map[string]any{
+			{"tag": "prioridad", "type": "number", "default_value": "2", "to_fill_out": "upon_creating", "required": true},
+			{"tag": "observacion", "type": "text", "to_fill_out": "upon_executing", "required": true},
+		},
+		"blocks": []any{}, "consumables_allowed": false,
+	})
+
+	listed, err := svc.ListTemplates(ctx, ListTemplatesInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tp := range listed.Templates {
+		if tp.ID == tpl {
+			found = tp.Supported && len(tp.HeaderItems) == 2 && len(tp.WorkflowStates) == 3
+		}
+	}
+	if !found {
+		t.Fatalf("seeded template not listed as usable: %+v", listed)
+	}
+
+	o, err := svc.CreateOrder(ctx, CreateInput{
+		TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)},
+	})
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+	t.Logf("created: %+v", o)
+	if o.State != "Pendiente" || o.AssignedTo != "Cuadrilla real" || o.HeaderValues["prioridad"] == nil {
+		t.Fatalf("order = %+v", o)
+	}
+
+	// The wrong asset type is refused.
+	other := mk("assets", map[string]any{"name": "Otra", "type_id": int64(78)})
+	_, err = svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentBoard, ResponsibleType: "user", AssetIDs: []ID{ID(other)}})
+	if !errors.As(err, &ve) {
+		t.Fatalf("wrong asset type: want ValidationError, got %v", err)
+	}
+
+	_, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete})
+	if !errors.As(err, &ve) {
+		t.Fatalf("missing required answer: want ValidationError, got %v", err)
+	}
+	r, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, HeaderValues: map[string]any{"observacion": "lista"}})
+	if err != nil || r.Current != "En curso" {
+		t.Fatalf("step 1: %+v %v", r, err)
+	}
+	var te *TransitionError
+	_, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, WorkflowIndex: new(int)})
+	if !errors.As(err, &te) || te.Details["rule"] != "stale_state" {
+		t.Fatalf("stale step: want stale_state, got %v", err)
+	}
+	t.Logf("stale step: %q", te.Message)
+	r, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, Payload: map[string]any{"technician_signature": "sig"}})
+	if err != nil || r.Current != "Cerrada" || !r.Order.Terminal {
+		t.Fatalf("step 2: %+v %v", r, err)
+	}
+
+	// What xolu holds is what seam-CURE reads.
+	doc, err := sub.GetEntity(ctx, EntityType, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("stored document: %v", doc)
+	if doc["state"] != "Cerrada" || idString(doc["workflow_index"]) != "2" || doc["workflow_mode"] != "template" ||
+		doc["technician_signature"] != "sig" || doc["completed_at"] == nil || idString(doc["machine_id"]) != "0" {
+		t.Fatalf("document = %v", doc)
+	}
+
+	// xolu itself refuses a write made on a stale version.
+	ver := idString(doc["_version"])
+	if err := sub.PatchEntity(ctx, EntityType, o.ID, map[string]any{"title": "a", "_version": json.Number(ver)}); err != nil {
+		t.Fatalf("patch with the current version: %v", err)
+	}
+	err = sub.PatchEntity(ctx, EntityType, o.ID, map[string]any{"title": "b", "_version": json.Number(ver)})
+	var xe *XoluError
+	if !errors.As(err, &xe) || xe.Status != 409 {
+		t.Fatalf("stale version: want a 409 from xolu, got %v", err)
+	}
+	t.Logf("stale version: %v", err)
 }
