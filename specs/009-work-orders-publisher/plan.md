@@ -85,24 +85,26 @@ flowchart TD
 
 ### Fase 2: Publicador Piloto de Work Orders (`bin/publisher-orders`)
 
+> **Actualización 17-nov-2026 (ADR-011):** este plan se alineó con el módulo real de Work Orders de seam-CURE (rama `work_orders`, camino sin plantilla). Se reemplazó el ciclo de vida inventado inicialmente (`created`/`cancelled`, `priority`, `tenant`, input `cancel`) por el real.
+
 #### 1. Dominio y Lógica de Negocio (`pkg/publisher/orders/service.go`)
-- Entidad `WorkOrder`:
-  - `ID`: string (UUID o secuencial `WO-xxxx`).
-  - `Tenant`: string.
-  - `Title`: string.
-  - `Description`: string.
-  - `Priority`: `low` | `medium` | `high` | `critical`.
-  - `State`: FSM de ciclo de vida (`created` $\rightarrow$ `in_progress` $\rightarrow$ `completed` / `cancelled`).
+- Entidad `WorkOrder` (documento `work_orders` de xolu, el mismo que usa Seam):
+  - `ID`: string (id numérico de la entidad).
+  - `Title`, `Description`, `AssignedTo`: string.
+  - `State`: `draft` $\rightarrow$ `in_progress` $\rightarrow$ `completed`. La FSM es `seam_work_order_lifecycle` (`firstmatch`); `complete` está protegido por la guarda `payload.technician_signature != ''`.
+  - `TemplateID`: solo lectura; las órdenes con plantilla no tienen máquina y `AdvanceOrder` las rechaza con 400.
 - Métodos:
-  - `CreateOrder(ctx, req)`: Registra la orden e inicializa la FSM.
-  - `AdvanceOrder(ctx, req)`: Invoca la transición en xolu (`walk`). Si la transición no es válida (ej. saltar de `created` a `completed`), propaga el error `XOLU-INVALID_TRANSITION` con el mensaje exacto de la guarda de xolu.
+  - `CreateOrder(ctx, req)`: Crea la máquina de la FSM y luego la entidad con `state` y `machine_id` (así Seam la ve en su lista).
+  - `AdvanceOrder(ctx, req)`: Invoca la transición en xolu (`walk`) y copia el nuevo `state` (y `technician_signature`) a la entidad con PATCH. Si la transición no es válida (ej. `complete` desde `draft`, o sin firma), propaga el error `XOLU-INVALID_TRANSITION` con el mensaje exacto de xolu.
   - `GetOrder(ctx, id)`: Obtiene la orden. Si no existe, retorna error mapeable a 404 (`NOT_FOUND`).
+  - `ListTemplates(ctx, req)`: Lista plantillas (`work_order_templates`, solo lectura) con nombre, versión y estados del flujo; solo la última versión salvo `include_old_versions`. Si la entidad aún no existe (`XOLU-QL004`), devuelve lista vacía.
 
 #### 2. Servidor HTTP del Publicador (`pkg/publisher/orders/server.go`)
 - Endpoints HTTP en `:8092`:
   - `POST /api/v1/orders/create`
   - `POST /api/v1/orders/advance`
   - `POST /api/v1/orders/get`
+  - `POST /api/v1/orders/templates`
   - `GET /healthz`
 - Middleware de autenticación Bearer: verifica que la cabecera `Authorization: Bearer <token>` coincida con el secreto local del publicador (`MOLU_PUBLISHER_AUTH_TOKEN`).
 
@@ -111,15 +113,19 @@ flowchart TD
   - `work_orders.CreateOrder`:
     - `endpoint`: `http://localhost:8092/api/v1/orders/create`
     - `auth`: `{ mode: "bearer", token_ref: "orders:api-token" }`
-    - `inputSchema`: Schema JSON con campos `tenant`, `title`, `description`, `priority`.
+    - `inputSchema`: Schema JSON con campos `title` (obligatorio), `description`, `assigned_to`.
   - `work_orders.AdvanceOrder`:
     - `endpoint`: `http://localhost:8092/api/v1/orders/advance`
     - `auth`: `{ mode: "bearer", token_ref: "orders:api-token" }`
-    - `inputSchema`: Schema JSON con campos `order_id`, `event` (`start`, `complete`, `cancel`), `payload`.
+    - `inputSchema`: Schema JSON con campos `order_id`, `input` (`start`, `complete`), `payload` (`complete` requiere `technician_signature`).
   - `work_orders.GetOrder`:
     - `endpoint`: `http://localhost:8092/api/v1/orders/get`
     - `auth`: `{ mode: "bearer", token_ref: "orders:api-token" }`
     - `inputSchema`: Schema JSON con campo `order_id`.
+  - `work_orders.ListTemplates`:
+    - `endpoint`: `http://localhost:8092/api/v1/orders/templates`
+    - `auth`: `{ mode: "bearer", token_ref: "orders:api-token" }`
+    - `inputSchema`: Schema JSON con campo opcional `include_old_versions`.
 - Reintentos con backoff exponencial si el Hub no está listo inmediatamente.
 - Desregistro limpio al recibir señales de terminación (`SIGINT`/`SIGTERM`).
 
@@ -140,9 +146,9 @@ flowchart TD
   2. `OrderPublisherServer` en puerto dinámico, auto-registrado en el Hub.
   3. `Molu MCP Server` con `RemoteHubClient` y `ExecutionBridge` configurado con `MOLU_FRONT_TOKEN_ORDERS_API_TOKEN`.
 - Flujo de prueba:
-  - **Paso 1: Descubrimiento**: Invoca `tools/list` con tenant válido. Verifica que `work_orders.CreateOrder`, `work_orders.AdvanceOrder` y `work_orders.GetOrder` están en la lista ofrecida.
-  - **Paso 2: Creación**: Invoca `tools/call` para `work_orders.CreateOrder`. Verifica HTTP 200 y recepción de `order_id` con estado `created`.
-  - **Paso 3: Rechazo FSM visible (Criterio 1)**: Invoca `tools/call` para `work_orders.AdvanceOrder` intentando evento `complete` directo desde `created`. Verifica que la respuesta es un error tipado `isError: true` con código `INVALID_TRANSITION` y diagnóstico de guarda verbatim.
+  - **Paso 1: Descubrimiento**: Invoca `tools/list` con tenant válido. Verifica que `work_orders.CreateOrder`, `work_orders.AdvanceOrder`, `work_orders.GetOrder` y `work_orders.ListTemplates` están en la lista ofrecida.
+  - **Paso 2: Creación**: Invoca `tools/call` para `work_orders.CreateOrder`. Verifica HTTP 200 y recepción de `order_id` con estado `draft`.
+  - **Paso 3: Rechazo FSM visible (Criterio 1)**: Invoca `tools/call` para `work_orders.AdvanceOrder` intentando el input `complete` directo desde `draft`. Verifica que la respuesta es un error tipado `isError: true` con código `INVALID_TRANSITION` y diagnóstico de guarda verbatim.
   - **Paso 4: Not Found**: Invoca `tools/call` para `work_orders.GetOrder` con ID inexistente. Verifica error tipado `NOT_FOUND`.
 
 #### 2. Actualización de Makefile

@@ -17,7 +17,7 @@
 | **Telemetría y auditoría** | Completo | Paquete de trabajo §3.4 | **Completado (Spec 007: 30/30 tasks, coverage 72.8%)** |
 | **RPI — interfaz y proveedores V1** | Completo | Paquete de trabajo §3.6 (admit-all, static-context-rules, test double de Score) | Especificado en constitución |
 | **Documentación** | Completo | Despliegue, configuración, runbook operativo, diagramas .mmd y .pdf | Pendiente |
-| **Motor de Seam** | Parcial | Integración del publicador para funciones piloto Work Orders | Publicador piloto implementado (Spec 009); falta definición final de las funciones por el equipo externo |
+| **Motor de Seam** | Parcial | Integración del publicador para funciones piloto Work Orders | Publicador alineado con el módulo real de Work Orders, camino legacy + `ListTemplates` (ADR-011); pendiente: avance de órdenes con plantilla |
 
 ---
 
@@ -58,6 +58,7 @@
 - **ADR-008** (Spec 008): Execution Bridge (`pkg/bridge`) desacoplado en `HTTPDomainCaller` y `ExecutionBridge` orquestador; passthrough de llamadas POST JSON hacia endpoints de dominio con resolución local de `token_ref` y preservación de sobres de error `XOLU-*` verbatim.
 - **ADR-009** (Spec 009): Desacoplamiento del Hub en un binario independiente (`cmd/hub`) con servicio HTTP (`MOLU_HUB_HTTP_ADDR`, por defecto `:8091`) para que los publicadores externos registren sus contratos vía HTTP, y cliente remoto en `molu` configurable vía `MOLU_FRONT_HUB_URL`.
 - **ADR-010** (Spec 009): el publicador `work-orders` accede a xolu con su propia capa HTTP (`orders.HTTPSubstrate`) y no con `pkg/xolu`, porque las rutas FSM de xolu responden `{"error":"XOLU-FSM00x",...}` (campo `error` como string) y esa forma no la leen ni `pkg/xolu` ni el bridge. El servicio traduce `FSM003`/`FSM004` a `XOLU-INVALID_TRANSITION` conservando `message` y `detail` de xolu verbatim. Un 404 del publicador va sin código `XOLU-` para que el bridge lo mapee a `NOT_FOUND`.
+- **ADR-011** (Spec 009, alineación con Work Orders real, 17-nov-2026): el publicador deja de usar el ciclo de vida inventado (Open/InProgress/Completed/Cancelled) y adopta el de la rama `work_orders` de `Gastonaso15/seam-CURE` (camino *legacy*, sin plantilla): entidad `work_orders`, definición `seam_work_order_lifecycle` (`draft → in_progress → completed`, `firstmatch`, guarda `payload.technician_signature != ''`). Se crea la máquina y luego la entidad con `state` y `machine_id`, y tras cada walk se hace PATCH del `state` (y de `technician_signature`), de modo que las órdenes del Hub se ven en la lista de Seam. Se añade `work_orders.ListTemplates` (solo lectura, vía OQL sobre `work_order_templates`; entidad inexistente = lista vacía, como `entityNotYetCreated` en Seam). Las órdenes con plantilla (`workflow_mode=template`, sin FSM de xolu, avance por PATCH de `workflow_index`) se pueden leer pero `AdvanceOrder` responde 400 con motivo; bloques, almacén móvil y backlog quedan fuera de alcance.
 
 ---
 ## Archivos Creados (Spec 001)
@@ -474,3 +475,13 @@ go test ./...  # Todo en verde
 
 **T5 completada** (12-nov-2026): Spec 010 totalmente implementada y validada de punta a punta. Todos los tests en verde bajo `-race`. Siguiente paso: verificación con xolu real o documentación según prioridades del equipo.
 
+
+
+---
+## Alineación con Work Orders real (17-nov-2026)
+
+Fuente: rama `work_orders` de `Gastonaso15/seam-CURE` (`internal/ui/workorders.go`). Cambios en `pkg/publisher/orders`: `lifecycle.go` (definición real), `types.go` (`EntityType=work_orders`, `AssignedTo`, `Template`, `Substrate` con `CreateEntity`/`PatchEntity`/`ListEntities`), `service.go` (crear máquina → entidad → PATCH tras walk; `ListTemplates`), `substrate_http.go` (OQL para listar), `registrar.go` y `server.go` (4.ª herramienta `work_orders.ListTemplates`, ruta `/api/v1/orders/templates`; el cuerpo vacío cuenta como «sin argumentos»). Se quitó `cancel` y `order_completed`. `AdvanceOrder` exige `technician_signature` para `complete`.
+
+Verificado contra xolu real v0.30.44 (`MOLU_REAL_XOLU_URL=... go test -run TestRealXolu ./pkg/publisher/orders/`): FSM003 y FSM004 llegan verbatim, el documento `work_orders` queda con `state`, `machine_id` y `technician_signature` como los deja Seam, y `ListTemplates` lee una plantilla con `workflow_states`. xolu responde 400 `XOLU-QL004` (no 404) cuando `work_order_templates` aún no existe.
+
+**Pendiente:** avanzar órdenes con plantilla (PATCH de `state`/`workflow_index` con `_version`), `ClaimOrder`/backlog, bloques y almacén móvil.

@@ -2,6 +2,8 @@
 
 Estado: borrador
 
+> **Actualización 17-nov-2026 (ADR-011):** el ciclo de vida descrito más abajo (incluidos `cancel` y los estados `Open`/`InProgress`/`Cancelled`) fue el piloto inventado. La implementación vigente usa el de Work Orders real de seam-CURE: `draft → in_progress → completed`, entidad `work_orders`, guarda `technician_signature`, más la herramienta `work_orders.ListTemplates`. Ver `MEMORY.md`.
+
 ## Contexto y objetivo
 Con la implementación del Hub de herramientas (Spec 005) y el Execution Bridge en Molu (Spec 008), el sistema cuenta con la infraestructura conceptual para registrar, descubrir y despachar llamadas a funciones de dominio (`namespace.Nombre`).
 
