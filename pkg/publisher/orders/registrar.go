@@ -49,7 +49,7 @@ func NewRegistrar(hubURL, publisherURL string, b Backoff) *Registrar {
 	}
 }
 
-// Tools returns the Hub registrations for the three work-order functions.
+// Tools returns the Hub registrations for the four work-order functions.
 func (r *Registrar) Tools() []hub.ToolRegistration {
 	auth := map[string]any{"mode": "bearer", "header": "Authorization", "token_ref": TokenRef}
 	mk := func(fn, desc, route string, schema map[string]any) hub.ToolRegistration {
@@ -64,13 +64,14 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 	}
 	return []hub.ToolRegistration{
 		mk("CreateOrder",
-			"Open a new work order. Returns the order with its initial lifecycle state.",
+			"Open a new work order (no template). Returns the order in its initial state, draft.",
 			"/api/v1/orders/create",
 			map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"title":       map[string]any{"type": "string", "minLength": 1, "description": "Short title of the work to do."},
 					"description": map[string]any{"type": "string", "description": "Optional details."},
+					"assigned_to": map[string]any{"type": "string", "description": "Technician name or email."},
 				},
 				"required":             []any{"title"},
 				"additionalProperties": false,
@@ -85,17 +86,27 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"additionalProperties": false,
 			}),
 		mk("AdvanceOrder",
-			"Move a work order through its lifecycle by firing an input (start, complete, cancel). "+
-				"The state machine may reject the transition; the rejection is returned as-is.",
+			"Move a work order through its lifecycle by firing an input: start (draft to in_progress) or complete (in_progress to completed, "+
+				"requires payload.technician_signature). The state machine may reject the transition; the rejection is returned as-is.",
 			"/api/v1/orders/advance",
 			map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"order_id": map[string]any{"type": "string", "minLength": 1},
-					"input":    map[string]any{"type": "string", "minLength": 1, "description": "Lifecycle input, e.g. start, complete, cancel."},
-					"payload":  map[string]any{"type": "object", "description": "Data the transition guard may inspect, e.g. {\"resolution\": \"...\"} for complete."},
+					"input":    map[string]any{"type": "string", "minLength": 1, "description": "Lifecycle input: start or complete."},
+					"payload":  map[string]any{"type": "object", "description": "Data the transition guard inspects. complete needs {\"technician_signature\": \"...\"}."},
 				},
 				"required":             []any{"order_id", "input"},
+				"additionalProperties": false,
+			}),
+		mk("ListTemplates",
+			"List work order templates (read-only): name, version and workflow states. Only the latest version of each template unless include_old_versions is true.",
+			"/api/v1/orders/templates",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"include_old_versions": map[string]any{"type": "boolean", "description": "Also list superseded template versions."},
+				},
 				"additionalProperties": false,
 			}),
 	}

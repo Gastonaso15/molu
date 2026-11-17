@@ -27,7 +27,7 @@ func newRealHub(t *testing.T) (*httptest.Server, *hub.Registry) {
 	return srv, reg
 }
 
-func TestOrderRegistrar_RegistersThreeNamespacedTools(t *testing.T) {
+func TestOrderRegistrar_RegistersFourNamespacedTools(t *testing.T) {
 	srv, reg := newRealHub(t)
 	r := NewRegistrar(srv.URL, "http://publisher:8092/", fastBackoff())
 
@@ -36,17 +36,18 @@ func TestOrderRegistrar_RegistersThreeNamespacedTools(t *testing.T) {
 	}
 
 	tools := reg.List(PublisherID)
-	if len(tools) != 3 {
-		t.Fatalf("registered %d tools, want 3: %+v", len(tools), tools)
+	if len(tools) != 4 {
+		t.Fatalf("registered %d tools, want 4: %+v", len(tools), tools)
 	}
 	byName := map[string]hub.ToolRegistration{}
 	for _, tl := range tools {
 		byName[tl.Name] = tl
 	}
 	want := map[string]string{
-		"work_orders.CreateOrder":  "http://publisher:8092/api/v1/orders/create",
-		"work_orders.GetOrder":     "http://publisher:8092/api/v1/orders/get",
-		"work_orders.AdvanceOrder": "http://publisher:8092/api/v1/orders/advance",
+		"work_orders.CreateOrder":   "http://publisher:8092/api/v1/orders/create",
+		"work_orders.GetOrder":      "http://publisher:8092/api/v1/orders/get",
+		"work_orders.AdvanceOrder":  "http://publisher:8092/api/v1/orders/advance",
+		"work_orders.ListTemplates": "http://publisher:8092/api/v1/orders/templates",
 	}
 	for name, endpoint := range want {
 		tl, ok := byName[name]
@@ -74,8 +75,8 @@ func TestOrderRegistrar_RegisterIsIdempotent(t *testing.T) {
 			t.Fatalf("Register #%d: %v", i, err)
 		}
 	}
-	if n := len(reg.List(PublisherID)); n != 3 {
-		t.Fatalf("%d tools after re-register, want 3", n)
+	if n := len(reg.List(PublisherID)); n != 4 {
+		t.Fatalf("%d tools after re-register, want 4", n)
 	}
 }
 

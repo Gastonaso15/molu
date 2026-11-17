@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/orders/create", s.guard(http.HandlerFunc(s.create)))
 	mux.Handle("/api/v1/orders/get", s.guard(http.HandlerFunc(s.get)))
 	mux.Handle("/api/v1/orders/advance", s.guard(http.HandlerFunc(s.advance)))
+	mux.Handle("/api/v1/orders/templates", s.guard(http.HandlerFunc(s.templates)))
 	return withRequestID(mux)
 }
 
@@ -81,6 +83,15 @@ func (s *Server) advance(w http.ResponseWriter, r *http.Request) {
 	respond(w, res, err)
 }
 
+func (s *Server) templates(w http.ResponseWriter, r *http.Request) {
+	var in ListTemplatesInput
+	if !decode(w, r, &in) {
+		return
+	}
+	list, err := s.svc.ListTemplates(r.Context(), in)
+	respond(w, list, err)
+}
+
 // respond maps service outcomes to the statuses the bridge understands:
 // 404 without a XOLU- code (bridge -> NOT_FOUND), 409 with the XOLU-
 // INVALID_TRANSITION envelope (passed through verbatim), 503 with
@@ -122,7 +133,7 @@ func respond(w http.ResponseWriter, ok any, err error) {
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
+	if err := dec.Decode(dst); err != nil && !errors.Is(err, io.EOF) { // an empty body means "no arguments"
 		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "invalid JSON body: " + err.Error()})
 		return false
 	}

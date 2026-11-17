@@ -195,3 +195,33 @@ func TestOrderServer_Advance_TemplateOrderIs400WithReason(t *testing.T) {
 		t.Fatalf("status=%d body=%v", resp.StatusCode, out)
 	}
 }
+
+func TestOrderServer_Templates(t *testing.T) {
+	fs := newFake()
+	seedTemplates(fs)
+	srv := newTestServer(fs)
+	defer srv.Close()
+
+	for name, body := range map[string]string{"empty object": `{}`, "empty body": ``} {
+		t.Run(name, func(t *testing.T) {
+			resp, out := post(t, srv.URL+"/api/v1/orders/templates", testToken, body)
+			list, _ := out["templates"].([]any)
+			if resp.StatusCode != 200 || len(list) != 1 {
+				t.Fatalf("status=%d body=%v", resp.StatusCode, out)
+			}
+		})
+	}
+	_, out := post(t, srv.URL+"/api/v1/orders/templates", testToken, `{"include_old_versions":true}`)
+	if list, _ := out["templates"].([]any); len(list) != 2 {
+		t.Fatalf("body=%v", out)
+	}
+}
+
+func TestOrderServer_Templates_RequiresToken(t *testing.T) {
+	srv := newTestServer(newFake())
+	defer srv.Close()
+	resp, _ := post(t, srv.URL+"/api/v1/orders/templates", "", `{}`)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
