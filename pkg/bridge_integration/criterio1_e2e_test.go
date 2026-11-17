@@ -45,7 +45,7 @@ type fakeXolu struct {
 }
 
 type fakeMachine struct {
-	id, state, ref string
+	id, state string
 }
 
 func newFakeXolu() *fakeXolu {
@@ -73,19 +73,11 @@ func (x *fakeXolu) handler() http.Handler {
 	mux.HandleFunc("/api/v2/fsm/machine", func(w http.ResponseWriter, r *http.Request) {
 		x.mu.Lock()
 		defer x.mu.Unlock()
-		var req struct {
-			Ref string `json:"ref"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if _, ok := x.entities[req.Ref]; !ok {
-			xoluError(w, 404, "XOLU-ST001", "bound entity not found")
-			return
-		}
 		x.seq++
 		id := strconv.Itoa(1000 + x.seq)
-		m := &fakeMachine{id: id, state: x.def["initial"].(string), ref: req.Ref}
+		m := &fakeMachine{id: id, state: x.def["initial"].(string)}
 		x.machines[id] = m
-		xoluJSON(w, 200, map[string]any{"id": 1000 + x.seq, "state": m.state, "ref": m.ref})
+		xoluJSON(w, 200, map[string]any{"id": 1000 + x.seq, "state": m.state})
 	})
 	mux.HandleFunc("/api/v2/fsm/machine/", func(w http.ResponseWriter, r *http.Request) {
 		x.mu.Lock()
@@ -97,29 +89,47 @@ func (x *fakeXolu) handler() http.Handler {
 			return
 		}
 		if len(parts) == 1 {
-			xoluJSON(w, 200, map[string]any{"id": m.id, "state": m.state, "ref": m.ref})
+			xoluJSON(w, 200, map[string]any{"id": m.id, "state": m.state})
 			return
 		}
 		x.walk(w, r, m)
 	})
-	mux.HandleFunc("/api/v1/work_order", func(w http.ResponseWriter, r *http.Request) {
+	// Seam's work_orders entity: the machine is linked through machine_id and
+	// the state is denormalized onto the document (create, get, patch).
+	mux.HandleFunc("/api/v1/work_orders", func(w http.ResponseWriter, r *http.Request) {
 		x.mu.Lock()
 		defer x.mu.Unlock()
 		var doc map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&doc)
 		x.entSeq++
-		x.entities["work_order:"+strconv.Itoa(x.entSeq)] = doc
+		x.entities["work_orders:"+strconv.Itoa(x.entSeq)] = doc
 		xoluJSON(w, 201, map[string]any{"id": x.entSeq, "message": "created"})
 	})
-	mux.HandleFunc("/api/v1/work_order/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/work_orders/", func(w http.ResponseWriter, r *http.Request) {
 		x.mu.Lock()
 		defer x.mu.Unlock()
-		doc, ok := x.entities["work_order:"+strings.TrimPrefix(r.URL.Path, "/api/v1/work_order/")]
+		key := "work_orders:" + strings.TrimPrefix(r.URL.Path, "/api/v1/work_orders/")
+		doc, ok := x.entities[key]
 		if !ok {
 			xoluError(w, 404, "XOLU-ST001", "entity not found")
 			return
 		}
+		if r.Method == http.MethodPatch {
+			var patch map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&patch)
+			for k, v := range patch {
+				doc[k] = v
+			}
+			xoluJSON(w, 200, map[string]any{"message": "updated"})
+			return
+		}
 		xoluJSON(w, 200, doc)
+	})
+	mux.HandleFunc("/api/v1/oql/query", func(w http.ResponseWriter, r *http.Request) {
+		xoluJSON(w, 200, map[string]any{"status": "ok", "data": []any{
+			map[string]any{"id": 3, "name": "Pump check", "version": 2, "latest": true,
+				"workflow_states": []any{map[string]any{"name": "Open"}, map[string]any{"name": "Done"}}},
+		}})
 	})
 	return mux
 }
@@ -152,8 +162,8 @@ func (x *fakeXolu) walk(w http.ResponseWriter, r *http.Request, m *fakeMachine) 
 	for _, tr := range matching {
 		guard, _ := tr["guard"].(string)
 		if guard != "" {
-			if res, _ := req.Payload["resolution"].(string); res == "" {
-				continue // the only guard in this lifecycle reads payload.resolution
+			if sig, _ := req.Payload["technician_signature"].(string); sig == "" {
+				continue // the only guard in this lifecycle reads payload.technician_signature
 			}
 		}
 		prev := m.state
@@ -282,7 +292,7 @@ func TestCriterio1_E2E(t *testing.T) {
 			seen[m["name"].(string)] = true
 		}
 	}
-	for _, want := range []string{"work_orders.CreateOrder", "work_orders.GetOrder", "work_orders.AdvanceOrder"} {
+	for _, want := range []string{"work_orders.CreateOrder", "work_orders.GetOrder", "work_orders.AdvanceOrder", "work_orders.ListTemplates"} {
 		if !seen[want] {
 			t.Fatalf("tools/list is missing %s; got %v", want, seen)
 		}
@@ -291,25 +301,25 @@ func TestCriterio1_E2E(t *testing.T) {
 	// 2. An order is created in xolu through the bridge and the publisher.
 	created := e2eSuccess(t, h.call(t, "work_orders.CreateOrder", map[string]any{"title": "Replace pump", "description": "Pump A"}))
 	id, _ := created["id"].(string)
-	if id == "" || created["state"] != "Open" || created["title"] != "Replace pump" {
+	if id == "" || created["state"] != "draft" || created["title"] != "Replace pump" {
 		t.Fatalf("unexpected created order: %v", created)
 	}
 
 	// 3. It can be read back.
 	got := e2eSuccess(t, h.call(t, "work_orders.GetOrder", map[string]any{"order_id": id}))
-	if got["id"] != id || got["state"] != "Open" {
+	if got["id"] != id || got["state"] != "draft" {
 		t.Fatalf("unexpected order: %v", got)
 	}
 
 	// 4. THE CRITERION: an illegal transition is rejected by xolu's FSM and the
 	//    rejection reaches the MCP client intact, as INVALID_TRANSITION.
 	rejected := e2eFailure(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{
-		"order_id": id, "input": "complete", "payload": map[string]any{"resolution": "done"},
+		"order_id": id, "input": "complete", "payload": map[string]any{"technician_signature": "sig"},
 	}))
 	if rejected["code"] != taxonomy.PrefixXolu+string(taxonomy.CodeInvalidTransition) {
 		t.Fatalf("code = %v, want %s%s", rejected["code"], taxonomy.PrefixXolu, taxonomy.CodeInvalidTransition)
 	}
-	if want := `no transition for input "complete" from state "Open"`; rejected["message"] != want {
+	if want := `no transition for input "complete" from state "draft"`; rejected["message"] != want {
 		t.Fatalf("message = %q, want xolu's verbatim %q", rejected["message"], want)
 	}
 	details, _ := rejected["details"].(map[string]any)
@@ -324,21 +334,44 @@ func TestCriterio1_E2E(t *testing.T) {
 
 	// 6. The order is untouched by the rejected attempt.
 	after := e2eSuccess(t, h.call(t, "work_orders.GetOrder", map[string]any{"order_id": id}))
-	if after["state"] != "Open" {
+	if after["state"] != "draft" {
 		t.Fatalf("rejected transition changed the order: %v", after)
 	}
 
 	// 7. A legal path still works, and a guard rejection keeps its diagnostic.
 	adv := e2eSuccess(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{"order_id": id, "input": "start"}))
-	if adv["current"] != "InProgress" {
+	if adv["current"] != "in_progress" {
 		t.Fatalf("start: %v", adv)
 	}
 	guard := e2eFailure(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{"order_id": id, "input": "complete"}))
 	gd, _ := guard["details"].(map[string]any)
 	msg, _ := guard["message"].(string)
 	if guard["code"] != "XOLU-INVALID_TRANSITION" || gd["xolu_code"] != "XOLU-FSM004" ||
-		!strings.HasPrefix(msg, "transition guard rejected: ") || !strings.Contains(msg, "payload.resolution") {
+		!strings.HasPrefix(msg, "transition guard rejected: ") || !strings.Contains(msg, "payload.technician_signature") {
 		t.Fatalf("guard rejection lost its diagnostic: %v", guard)
+	}
+
+	// 8. Completing with the signature closes the order, and Seam's view of it
+	//    (the denormalized state on the work_orders document) follows.
+	done := e2eSuccess(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{
+		"order_id": id, "input": "complete", "payload": map[string]any{"technician_signature": "sig"},
+	}))
+	if done["current"] != "completed" {
+		t.Fatalf("complete: %v", done)
+	}
+	if doc := h.xolu.entities["work_orders:"+id]; doc["state"] != "completed" || doc["technician_signature"] != "sig" {
+		t.Fatalf("work_orders document not denormalized: %v", doc)
+	}
+	final := e2eSuccess(t, h.call(t, "work_orders.GetOrder", map[string]any{"order_id": id}))
+	if final["terminal"] != true {
+		t.Fatalf("completed order must be terminal: %v", final)
+	}
+
+	// 9. Templates are listed read-only through the same path.
+	tpls := e2eSuccess(t, h.call(t, "work_orders.ListTemplates", map[string]any{}))
+	found, _ := tpls["templates"].([]any)
+	if len(found) != 1 || found[0].(map[string]any)["name"] != "Pump check" {
+		t.Fatalf("templates = %v", tpls)
 	}
 }
 
