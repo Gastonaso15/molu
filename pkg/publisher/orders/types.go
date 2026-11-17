@@ -4,7 +4,9 @@
 package orders
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -34,6 +36,26 @@ const (
 	InputComplete = "complete"
 )
 
+// ID is a xolu entity id. It is sent as a string everywhere, but clients that
+// send a JSON number are accepted too.
+type ID string
+
+func (i *ID) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*i = ID(strings.TrimSpace(s))
+		return nil
+	}
+	var n json.Number
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	if err := dec.Decode(&n); err != nil {
+		return fmt.Errorf("an id must be a string or a number")
+	}
+	*i = ID(n.String())
+	return nil
+}
+
 // WorkOrder is the business view of an order, read from Seam's denormalized
 // work_orders entity: the document plus the FSM state copied onto it.
 type WorkOrder struct {
@@ -43,25 +65,55 @@ type WorkOrder struct {
 	AssignedTo  string `json:"assigned_to,omitempty"`
 	State       string `json:"state"`
 	Terminal    bool   `json:"terminal"`
-	// TemplateID is set for orders that follow a template workflow. This
-	// publisher can read them but not advance them yet.
-	TemplateID string `json:"template_id,omitempty"`
+
+	AssignmentType  string `json:"assignment_type,omitempty"`
+	ResponsibleType string `json:"responsible_type,omitempty"`
+	ResponsibleID   string `json:"responsible_id,omitempty"`
+
+	// Set for orders that follow a template workflow (no xolu FSM): the
+	// position in the template's list of states, and the header answers.
+	TemplateID      string         `json:"template_id,omitempty"`
+	TemplateVersion int            `json:"template_version,omitempty"`
+	WorkflowIndex   *int           `json:"workflow_index,omitempty"`
+	HeaderValues    map[string]any `json:"header_values,omitempty"`
+	AssetIDs        []string       `json:"asset_ids,omitempty"`
+	CompletedAt     string         `json:"completed_at,omitempty"`
 }
 
-// CreateInput is the payload of work_orders.CreateOrder.
+// CreateInput is the payload of work_orders.CreateOrder. Without TemplateID it
+// opens a legacy order driven by a xolu FSM. With TemplateID the order follows
+// the template's workflow, and the assignment, header answers and assets of
+// the template apply.
 type CreateInput struct {
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
 	AssignedTo  string `json:"assigned_to,omitempty"`
+
+	TemplateID      ID             `json:"template_id,omitempty"`
+	TemplateVersion int            `json:"template_version,omitempty"`
+	AssignmentType  string         `json:"assignment_type,omitempty"`  // direct_assignment | board_posting
+	ResponsibleType string         `json:"responsible_type,omitempty"` // user | crew | third_party
+	ResponsibleID   ID             `json:"responsible_id,omitempty"`
+	HeaderValues    map[string]any `json:"header_values,omitempty"` // answers by header tag (upon_creating items)
+	AssetIDs        []ID           `json:"asset_ids,omitempty"`
 }
 
-// AdvanceInput is the payload of work_orders.AdvanceOrder. Input is the FSM
-// input to fire ("start" or "complete"); "complete" needs
-// payload.technician_signature.
+// AdvanceInput is the payload of work_orders.AdvanceOrder.
+//
+// Legacy orders: Input is the FSM input to fire ("start" or "complete");
+// "complete" needs payload.technician_signature.
+//
+// Template orders: the only input is "complete", which moves the order to the
+// next state of the template. HeaderValues carries the answers of the
+// upon_executing header items; the step that reaches the last state also
+// needs payload.technician_signature. WorkflowIndex, when set, is the step
+// the caller believes the order is at: a mismatch is rejected as stale.
 type AdvanceInput struct {
-	OrderID string         `json:"order_id"`
-	Input   string         `json:"input"`
-	Payload map[string]any `json:"payload,omitempty"`
+	OrderID       string         `json:"order_id"`
+	Input         string         `json:"input"`
+	Payload       map[string]any `json:"payload,omitempty"`
+	HeaderValues  map[string]any `json:"header_values,omitempty"`
+	WorkflowIndex *int           `json:"workflow_index,omitempty"`
 }
 
 // AdvanceResult reports the transition that xolu committed.
@@ -78,15 +130,32 @@ type ListTemplatesInput struct {
 	IncludeOldVersions bool `json:"include_old_versions,omitempty"`
 }
 
-// Template is the read-only summary of a work order template.
+// TemplateHeaderItem describes one header answer a template asks for.
+type TemplateHeaderItem struct {
+	Tag          string `json:"tag"`
+	Type         string `json:"type"` // text | number | boolean | date | asset | gps
+	FilledAt     string `json:"filled_at"`
+	Required     bool   `json:"required"`
+	DefaultValue string `json:"default_value,omitempty"`
+}
+
+// Template is the read-only summary of a work order template: what is needed
+// to open an order from it with work_orders.CreateOrder.
 type Template struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	Description    string   `json:"description,omitempty"`
-	Version        int      `json:"version"`
-	Latest         bool     `json:"latest"`
-	AssetTypeID    string   `json:"asset_type_id,omitempty"`
-	WorkflowStates []string `json:"workflow_states"`
+	ID             string               `json:"id"`
+	Name           string               `json:"name"`
+	Description    string               `json:"description,omitempty"`
+	Version        int                  `json:"version"`
+	Latest         bool                 `json:"latest"`
+	AssetTypeID    string               `json:"asset_type_id,omitempty"`
+	MinAssets      int                  `json:"min_assets,omitempty"`
+	MaxAssets      int                  `json:"max_assets,omitempty"`
+	WorkflowStates []string             `json:"workflow_states"`
+	HeaderItems    []TemplateHeaderItem `json:"header_items"`
+	// Supported is false for templates this publisher cannot open or advance
+	// yet (blocks, mobile warehouse); Reason says why.
+	Supported bool   `json:"supported"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // TemplateList is the result of work_orders.ListTemplates.
@@ -173,13 +242,18 @@ func (e *UnavailableError) Error() string {
 func (e *UnavailableError) Unwrap() error { return e.Cause }
 
 // ValidationError lists the request fields that broke the contract. Reason,
-// when set, explains why a well-formed request cannot be honoured.
+// when set, explains why: for per-field problems it reads "field: why; ...".
 type ValidationError struct {
 	Fields []string
 	Reason string
+	// perField is set when Reason already names every field.
+	perField bool
 }
 
 func (e *ValidationError) Error() string {
+	if e.perField {
+		return "contract violation: " + e.Reason
+	}
 	msg := "contract violation: invalid fields " + strings.Join(e.Fields, ", ")
 	if e.Reason != "" {
 		msg += ": " + e.Reason

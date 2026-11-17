@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"sync"
@@ -103,8 +104,17 @@ func (f *fakeSubstrate) PatchEntity(_ context.Context, entityType, id string, da
 	if !ok {
 		return &XoluError{Status: 404, Code: "XOLU-ST001", Message: "entity not found"}
 	}
+	// xolu's optimistic concurrency: a stale _version is a 409.
+	if want, ok := data["_version"]; ok {
+		if cur, has := e["_version"]; has && idString(cur) != idString(want) {
+			return &XoluError{Status: 409, Code: "XOLU-ST009", Message: "version conflict"}
+		}
+	}
 	for k, v := range data {
 		e[k] = v
+	}
+	if cur, has := e["_version"]; has {
+		e["_version"] = intOf(cur) + 1
 	}
 	return nil
 }
@@ -220,7 +230,7 @@ func TestOrderService_GetOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrder: %v", err)
 	}
-	if got != created {
+	if !reflect.DeepEqual(got, created) {
 		t.Fatalf("got %+v, want %+v", got, created)
 	}
 }
@@ -412,16 +422,10 @@ func TestOrderService_AdvanceOrder_PatchFailureIsReported(t *testing.T) {
 	}
 }
 
-func TestOrderService_AdvanceOrder_TemplateOrderIsNotSupported(t *testing.T) {
+func TestOrderService_AdvanceOrder_OrderWithoutMachineIsRejected(t *testing.T) {
 	fs := newFake()
-	fs.put(EntityType, "77", map[string]any{"title": "from template", "state": "Review", "machine_id": int64(0), "template_id": int64(5)})
-	svc := NewService(fs)
-
-	got, err := svc.GetOrder(context.Background(), "77")
-	if err != nil || got.TemplateID != "5" || got.State != "Review" || got.Terminal {
-		t.Fatalf("GetOrder = %+v, %v", got, err)
-	}
-	_, err = svc.AdvanceOrder(context.Background(), AdvanceInput{OrderID: "77", Input: InputComplete})
+	fs.put(EntityType, "77", map[string]any{"title": "orphan", "state": "draft", "machine_id": int64(0)})
+	_, err := NewService(fs).AdvanceOrder(context.Background(), AdvanceInput{OrderID: "77", Input: InputStart})
 	var ve *ValidationError
 	if !errors.As(err, &ve) || ve.Fields[0] != "order_id" || ve.Reason == "" {
 		t.Fatalf("want ValidationError with a reason, got %v", err)

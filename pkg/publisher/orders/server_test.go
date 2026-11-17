@@ -185,17 +185,6 @@ func TestOrderServer_Create_WithAssignedTo(t *testing.T) {
 	}
 }
 
-func TestOrderServer_Advance_TemplateOrderIs400WithReason(t *testing.T) {
-	fs := newFake()
-	fs.put(EntityType, "77", map[string]any{"title": "x", "state": "Review", "template_id": int64(5)})
-	srv := newTestServer(fs)
-	defer srv.Close()
-	resp, out := post(t, srv.URL+"/api/v1/orders/advance", testToken, `{"order_id":"77","input":"complete"}`)
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(out["message"].(string), "template workflow") {
-		t.Fatalf("status=%d body=%v", resp.StatusCode, out)
-	}
-}
-
 func TestOrderServer_Templates(t *testing.T) {
 	fs := newFake()
 	seedTemplates(fs)
@@ -223,5 +212,46 @@ func TestOrderServer_Templates_RequiresToken(t *testing.T) {
 	resp, _ := post(t, srv.URL+"/api/v1/orders/templates", "", `{}`)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
+
+func TestOrderServer_TemplateOrder_EndToEndOverHTTP(t *testing.T) {
+	fs := newFake()
+	seedWorld(fs)
+	srv := newTestServer(fs)
+	defer srv.Close()
+
+	// Ids may be sent as JSON numbers or strings.
+	resp, out := post(t, srv.URL+"/api/v1/orders/create", testToken,
+		`{"template_id":1,"assignment_type":"direct_assignment","responsible_type":"crew","responsible_id":7,"asset_ids":[11],"header_values":{"prioridad":2}}`)
+	if resp.StatusCode != 200 || out["state"] != "Pending" || out["template_id"] != "1" || out["workflow_index"] != float64(0) {
+		t.Fatalf("create: status=%d body=%v", resp.StatusCode, out)
+	}
+	id := out["id"].(string)
+
+	resp, out = post(t, srv.URL+"/api/v1/orders/advance", testToken,
+		`{"order_id":"`+id+`","input":"complete","workflow_index":0,"header_values":{"observacion":"hecho"}}`)
+	if resp.StatusCode != 200 || out["current"] != "Working" {
+		t.Fatalf("advance: status=%d body=%v", resp.StatusCode, out)
+	}
+
+	// A stale step is a 409 INVALID_TRANSITION that says the rule is the publisher's own.
+	resp, out = post(t, srv.URL+"/api/v1/orders/advance", testToken,
+		`{"order_id":"`+id+`","input":"complete","workflow_index":0}`)
+	details, _ := out["details"].(map[string]any)
+	if resp.StatusCode != http.StatusConflict || out["code"] != "XOLU-INVALID_TRANSITION" ||
+		details["rule"] != "stale_state" || details["source"] != publisherSourceID {
+		t.Fatalf("stale: status=%d body=%v", resp.StatusCode, out)
+	}
+
+	// A bad request names every field.
+	resp, out = post(t, srv.URL+"/api/v1/orders/create", testToken, `{"template_id":1,"assignment_type":"x"}`)
+	if resp.StatusCode != http.StatusBadRequest || out["invalid_fields"] == nil || !strings.Contains(out["message"].(string), "assignment_type") {
+		t.Fatalf("invalid: status=%d body=%v", resp.StatusCode, out)
+	}
+	// An id that is neither a string nor a number is a bad request, not a crash.
+	resp, _ = post(t, srv.URL+"/api/v1/orders/create", testToken, `{"template_id":{"a":1}}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad id: status=%d", resp.StatusCode)
 	}
 }
