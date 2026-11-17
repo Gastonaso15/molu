@@ -64,16 +64,26 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 	}
 	return []hub.ToolRegistration{
 		mk("CreateOrder",
-			"Open a new work order (no template). Returns the order in its initial state, draft.",
+			"Open a new work order. Without template_id it is a simple order (draft, then in_progress, then completed). "+
+				"With template_id (see ListTemplates) it follows that template's workflow: assignment_type and responsible_type are required, "+
+				"header_values answers the template's header items filled at creation, and asset_ids picks its assets. "+
+				"Templates marked supported=false (blocks, mobile warehouse) are rejected. A direct assignment needs a crew or third_party "+
+				"responsible_id; a user cannot be assigned directly from here, use board_posting instead.",
 			"/api/v1/orders/create",
 			map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"title":       map[string]any{"type": "string", "minLength": 1, "description": "Short title of the work to do."},
-					"description": map[string]any{"type": "string", "description": "Optional details."},
-					"assigned_to": map[string]any{"type": "string", "description": "Technician name or email."},
+					"title":            map[string]any{"type": "string", "description": "Short title of the work to do. Required, except with a template (defaults to the template's name)."},
+					"description":      map[string]any{"type": "string", "description": "Optional details (defaults to the template's description)."},
+					"assigned_to":      map[string]any{"type": "string", "description": "Simple orders only: technician name or email. Ignored when an assignment resolves the responsible."},
+					"template_id":      idSchema("Id of the template the order follows."),
+					"template_version": map[string]any{"type": "integer", "description": "Optional: fail if the template is not at this version."},
+					"assignment_type":  map[string]any{"type": "string", "enum": []any{AssignmentDirect, AssignmentBoard}, "description": "direct_assignment: assign now. board_posting: publish for someone to claim."},
+					"responsible_type": map[string]any{"type": "string", "enum": []any{"user", "crew", "third_party"}, "description": "Who is responsible, or who may claim it."},
+					"responsible_id":   idSchema("Direct assignment: id of the crew or outsourced party. Omit for a board posting."),
+					"header_values":    map[string]any{"type": "object", "description": "Answers by header tag, for the header items filled at creation (see ListTemplates header_items)."},
+					"asset_ids":        map[string]any{"type": "array", "items": idSchema("Asset id."), "description": "Assets the order is about, within the template's min/max and asset type."},
 				},
-				"required":             []any{"title"},
 				"additionalProperties": false,
 			}),
 		mk("GetOrder",
@@ -86,21 +96,26 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"additionalProperties": false,
 			}),
 		mk("AdvanceOrder",
-			"Move a work order through its lifecycle by firing an input: start (draft to in_progress) or complete (in_progress to completed, "+
-				"requires payload.technician_signature). The state machine may reject the transition; the rejection is returned as-is.",
+			"Move a work order forward. Simple orders: fire an input, start (draft to in_progress) or complete (in_progress to completed, "+
+				"requires payload.technician_signature); the state machine may reject it and the rejection is returned as-is. "+
+				"Template orders: the only input is complete, which moves to the next state of the template; header_values answers "+
+				"the header items filled while executing, and the step that reaches the last state needs payload.technician_signature. "+
+				"Rejected steps (stale step, final state, board posting not claimed) come back as INVALID_TRANSITION with details.rule.",
 			"/api/v1/orders/advance",
 			map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"order_id": map[string]any{"type": "string", "minLength": 1},
-					"input":    map[string]any{"type": "string", "minLength": 1, "description": "Lifecycle input: start or complete."},
-					"payload":  map[string]any{"type": "object", "description": "Data the transition guard inspects. complete needs {\"technician_signature\": \"...\"}."},
+					"order_id":       map[string]any{"type": "string", "minLength": 1},
+					"input":          map[string]any{"type": "string", "minLength": 1, "description": "start or complete (template orders: complete)."},
+					"payload":        map[string]any{"type": "object", "description": "complete needs {\"technician_signature\": \"...\"} (simple orders, and the last step of a template order)."},
+					"header_values":  map[string]any{"type": "object", "description": "Template orders: answers by header tag for the items filled while executing."},
+					"workflow_index": map[string]any{"type": "integer", "description": "Template orders, optional: the step you believe the order is at; a mismatch is rejected as stale."},
 				},
 				"required":             []any{"order_id", "input"},
 				"additionalProperties": false,
 			}),
 		mk("ListTemplates",
-			"List work order templates (read-only): name, version and workflow states. Only the latest version of each template unless include_old_versions is true.",
+			"List work order templates (read-only): workflow states, header items to answer, asset limits, and whether CreateOrder can use them (supported). Only the latest version of each template unless include_old_versions is true.",
 			"/api/v1/orders/templates",
 			map[string]any{
 				"type": "object",
@@ -189,4 +204,9 @@ func (r *Registrar) post(ctx context.Context, path string, body any) error {
 	default:
 		return permanentError{fmt.Errorf("hub answered %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
 	}
+}
+
+// idSchema describes an entity id: a string, or a number, of digits.
+func idSchema(desc string) map[string]any {
+	return map[string]any{"type": []any{"string", "integer"}, "description": desc}
 }
