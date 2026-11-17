@@ -97,7 +97,9 @@ flowchart TD
   - `CreateOrder(ctx, req)`: Crea la máquina de la FSM y luego la entidad con `state` y `machine_id` (así Seam la ve en su lista).
   - `AdvanceOrder(ctx, req)`: Invoca la transición en xolu (`walk`) y copia el nuevo `state` (y `technician_signature`) a la entidad con PATCH. Si la transición no es válida (ej. `complete` desde `draft`, o sin firma), propaga el error `XOLU-INVALID_TRANSITION` con el mensaje exacto de xolu.
   - `GetOrder(ctx, id)`: Obtiene la orden. Si no existe, retorna error mapeable a 404 (`NOT_FOUND`).
-  - `ListTemplates(ctx, req)`: Lista plantillas (`work_order_templates`, solo lectura) con nombre, versión y estados del flujo; solo la última versión salvo `include_old_versions`. Si la entidad aún no existe (`XOLU-QL004`), devuelve lista vacía.
+  - `CreateOrder` con `template_id` (ADR-012): la orden sigue el flujo de la plantilla (`workflow_mode=template`, sin FSM de xolu). Requiere `assignment_type` y `responsible_type`; acepta `header_values` (ítems `upon_creating`, con su `default_value`) y `asset_ids` (límites y tipo de activo de la plantilla). Se rechazan plantillas con bloques o consumables.
+  - `AdvanceOrder` sobre una orden con plantilla: solo el input `complete`; mueve al siguiente estado con un PATCH de `state`, `workflow_index` y `header_values` protegido por `_version`. El paso que llega al último estado exige `payload.technician_signature`. Las reglas del flujo se devuelven como `XOLU-INVALID_TRANSITION` con `details.rule` (`invalid_input`, `final_state`, `stale_state`, `awaiting_claim`, `template_version`, `invalid_workflow`, `template_unavailable`).
+  - `ListTemplates(ctx, req)`: Lista plantillas (`work_order_templates`, solo lectura) con nombre, versión, estados del flujo, ítems de cabecera, límites de activos y `supported`; solo la última versión salvo `include_old_versions`. Si la entidad aún no existe (`XOLU-QL004`), devuelve lista vacía.
 
 #### 2. Servidor HTTP del Publicador (`pkg/publisher/orders/server.go`)
 - Endpoints HTTP en `:8092`:
