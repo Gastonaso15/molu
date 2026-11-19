@@ -22,6 +22,11 @@ func NewAdmitAllProvider() *AdmitAllProvider {
 	return &AdmitAllProvider{}
 }
 
+// Capabilities declares that admit-all implements only the Admit stage (§2.5).
+func (p *AdmitAllProvider) Capabilities() rpi.Capabilities {
+	return rpi.Capabilities{Admit: true, Score: false}
+}
+
 // Admit returns a copy of all candidates in their original order, ignoring
 // tenant, roles and query. An empty catalog yields an empty, non-nil slice.
 func (p *AdmitAllProvider) Admit(ctx context.Context, actx rpi.AdmitContext, candidates []rpi.ToolCandidate) ([]rpi.ToolCandidate, error) {

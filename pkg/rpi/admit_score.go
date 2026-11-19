@@ -33,10 +33,18 @@ type ScoredTool struct {
 	Rationale string  `json:"rationale,omitempty"`
 }
 
+// Capabilities declares which stages of the RPI contract a provider implements
+// (§2.5). Every V1 provider implements Admit; Score is optional.
+type Capabilities struct {
+	Admit bool `json:"admit"`
+	Score bool `json:"score"`
+}
+
 // RPIProvider decides which tools are offered to an agent. Admit returns the
 // admitted subset of candidates; Score returns the admitted tools ordered by
 // descending relevance.
 type RPIProvider interface {
+	Capabilities() Capabilities
 	Admit(ctx context.Context, actx AdmitContext, candidates []ToolCandidate) ([]ToolCandidate, error)
 	Score(ctx context.Context, actx AdmitContext, admitted []ToolCandidate) ([]ScoredTool, error)
 	SetLogger(logger telemetry.Logger)

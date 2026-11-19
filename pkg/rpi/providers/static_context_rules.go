@@ -26,6 +26,12 @@ type StaticContextRulesProvider struct {
 
 var _ rpi.RPIProvider = (*StaticContextRulesProvider)(nil)
 
+// Capabilities declares that static-context-rules implements only the Admit
+// stage (tenant/role scope, without semantic relevance scoring, §2.5).
+func (p *StaticContextRulesProvider) Capabilities() rpi.Capabilities {
+	return rpi.Capabilities{Admit: true, Score: false}
+}
+
 // NewStaticContextRulesProvider builds the provider from rules keyed by
 // "tenant:role". The rules are copied, so later changes by the caller do not
 // affect the provider.

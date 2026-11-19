@@ -24,6 +24,7 @@ type ScoreCall struct {
 // delegated to AdmitFunc/ScoreFunc; an unset func returns an error.
 type MockRPIProvider struct {
 	mu         sync.Mutex
+	Caps       *Capabilities
 	AdmitFunc  func(ctx context.Context, actx AdmitContext, candidates []ToolCandidate) ([]ToolCandidate, error)
 	ScoreFunc  func(ctx context.Context, actx AdmitContext, admitted []ToolCandidate) ([]ScoredTool, error)
 	AdmitCalls []AdmitCall
@@ -33,6 +34,15 @@ type MockRPIProvider struct {
 }
 
 var _ RPIProvider = (*MockRPIProvider)(nil)
+
+func (m *MockRPIProvider) Capabilities() Capabilities {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.Caps != nil {
+		return *m.Caps
+	}
+	return Capabilities{Admit: true, Score: true}
+}
 
 func (m *MockRPIProvider) Admit(ctx context.Context, actx AdmitContext, candidates []ToolCandidate) ([]ToolCandidate, error) {
 	m.mu.Lock()
