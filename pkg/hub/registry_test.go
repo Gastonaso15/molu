@@ -327,10 +327,16 @@ func TestRegistry_ReservedPrimitives(t *testing.T) {
 	for _, name := range []string{
 		"describe", "get", "list", "create", "update", "query",
 		"walk", "machine_state", "machine_history",
-		"cal_list", "cal_openings", "cal_propose", "cal_confirm", "find",
+		"cal_check", "cal_openings", "cal_propose", "cal_confirm",
 	} {
 		if !IsReservedPrimitive(name) {
 			t.Errorf("IsReservedPrimitive(%q) = false, want true", name)
+		}
+	}
+	// Names that look like primitives but are not ones stay available.
+	for _, name := range []string{"cal_list", "find"} {
+		if IsReservedPrimitive(name) {
+			t.Errorf("IsReservedPrimitive(%q) = true, but molu has no such primitive", name)
 		}
 	}
 	if IsReservedPrimitive("work_orders.CreateOrder") {
@@ -351,7 +357,7 @@ func TestRegistry_ReservedPrimitives(t *testing.T) {
 	}
 
 	// RegisterExternal rejects even when publisher sets Primitive: true for a reserved name (§2.6).
-	for _, name := range []string{"walk", "get", "find", "describe", "cal_confirm"} {
+	for _, name := range []string{"walk", "get", "cal_check", "describe", "cal_confirm"} {
 		te := requireTyped(t, r.RegisterExternal(primitiveTool("ext-pub", name)), taxonomy.CodeContractViolation)
 		if fields, _ := te.Details["fields"].([]string); !reflect.DeepEqual(fields, []string{"name"}) {
 			t.Fatalf("RegisterExternal(%q): expected fields [name], got %v", name, fields)

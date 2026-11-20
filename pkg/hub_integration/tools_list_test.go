@@ -169,3 +169,19 @@ func TestIntegration_ToolsListTypedErrors(t *testing.T) {
 		t.Fatalf("expected CONTRACT_VIOLATION, got %s", got)
 	}
 }
+
+// The Hub's reserved names must be exactly the generic primitives molu serves,
+// or a publisher could shadow a real primitive (or lose a name for nothing).
+// pkg/hub cannot import pkg/mcp, so the comparison lives here.
+func TestIntegration_ReservedNamesAreTheStandardPrimitives(t *testing.T) {
+	for _, p := range mcp.StandardPrimitives() {
+		if !hub.IsReservedPrimitive(p.Name) {
+			t.Errorf("primitive %q is not reserved in the Hub registry", p.Name)
+		}
+	}
+	for _, name := range []string{"cal_list", "find", "search", "delete"} {
+		if hub.IsReservedPrimitive(name) && !mcp.IsStandardPrimitive(name) {
+			t.Errorf("%q is reserved in the Hub but molu has no such primitive", name)
+		}
+	}
+}

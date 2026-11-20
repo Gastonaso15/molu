@@ -50,11 +50,10 @@ var reservedPrimitives = map[string]struct{}{
 	"walk":            {},
 	"machine_state":   {},
 	"machine_history": {},
-	"cal_list":        {},
+	"cal_check":       {},
 	"cal_openings":    {},
 	"cal_propose":     {},
 	"cal_confirm":     {},
-	"find":            {},
 }
 
 // IsReservedPrimitive reports whether name matches one of the generic
