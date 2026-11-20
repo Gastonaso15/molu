@@ -21,8 +21,12 @@
 #
 # xolu se arranca con /api/v2 y calendario activados (XOLU_API_V2_ENABLED y
 # XOLU_CAL_ENABLED): sin ellos, walk, machine_history y cal_* dan 404.
-# La semilla 01 no registra esquemas en /api/v1/schemas; molu usa sus 13
-# primitivos fijos.
+# La semilla 01 se carga con --schemas (Seam 0.4.5 y xolu 0.31.0 en adelante):
+# registra un esquema por entidad, así que /api/v1/schemas y describe devuelven
+# esquemas reales y no inferidos. Las demás semillas no lo soportan y siguen sin
+# esquemas (has_schema: false); molu usa sus 13 primitivos fijos. Los esquemas
+# solo se pueden registrar antes de sembrar: una base ya sembrada sin ellos
+# necesita --reset.
 
 set -euo pipefail
 
@@ -178,7 +182,11 @@ if $DO_SEED; then
     say "La semilla $SEED ya estaba cargada (usa --reset para recargar)"
   else
     say "Cargando semilla $SEED ($(basename "$SEED_FILE"))"
-    "$PYTHON_CMD" -I "$SEED_FILE" --url "$URL" >"$STATE/seed-$PORT.log" 2>&1 \
+    SEED_ARGS=""
+    # --schemas solo existe en las semillas nuevas (la 01); se detecta en el archivo
+    # para no romper con una carpeta de semillas anterior.
+    if grep -q -- '--schemas' "$SEED_FILE" 2>/dev/null; then SEED_ARGS="--schemas"; fi
+    "$PYTHON_CMD" -I "$SEED_FILE" --url "$URL" $SEED_ARGS >"$STATE/seed-$PORT.log" 2>&1 \
       || { tail -15 "$STATE/seed-$PORT.log" >&2; die "falló la semilla (log: $STATE/seed-$PORT.log)"; }
     touch "$MARK"
     sed -n '/Entities created:/,$p' "$STATE/seed-$PORT.log"
