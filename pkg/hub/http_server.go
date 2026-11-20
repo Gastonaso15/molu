@@ -62,7 +62,7 @@ func (s *HubHTTPServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.registry.Register(reg); err != nil {
+	if err := s.registry.RegisterExternal(reg); err != nil {
 		writeTypedError(w, err)
 		return
 	}

@@ -322,3 +322,47 @@ func TestConcurrentAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistry_ReservedPrimitives(t *testing.T) {
+	for _, name := range []string{
+		"describe", "get", "list", "create", "update", "query",
+		"walk", "machine_state", "machine_history",
+		"cal_list", "cal_openings", "cal_propose", "cal_confirm", "find",
+	} {
+		if !IsReservedPrimitive(name) {
+			t.Errorf("IsReservedPrimitive(%q) = false, want true", name)
+		}
+	}
+	if IsReservedPrimitive("work_orders.CreateOrder") {
+		t.Error("domain tool must not be marked as reserved primitive")
+	}
+
+	r := NewRegistry()
+
+	// Domain registration attempting to claim a reserved primitive name fails with CONTRACT_VIOLATION on "name".
+	te := requireTyped(t, r.Register(ToolRegistration{
+		PublisherID: "ext-pub",
+		Name:        "walk",
+		Namespace:   "walk",
+		Primitive:   false,
+	}), taxonomy.CodeContractViolation)
+	if fields, _ := te.Details["fields"].([]string); !reflect.DeepEqual(fields, []string{"name"}) {
+		t.Fatalf("expected fields [name], got %v", fields)
+	}
+
+	// RegisterExternal rejects even when publisher sets Primitive: true for a reserved name (§2.6).
+	for _, name := range []string{"walk", "get", "find", "describe", "cal_confirm"} {
+		te := requireTyped(t, r.RegisterExternal(primitiveTool("ext-pub", name)), taxonomy.CodeContractViolation)
+		if fields, _ := te.Details["fields"].([]string); !reflect.DeepEqual(fields, []string{"name"}) {
+			t.Fatalf("RegisterExternal(%q): expected fields [name], got %v", name, fields)
+		}
+	}
+
+	// Valid namespaced domain tools are accepted by RegisterExternal.
+	if err := r.RegisterExternal(domainTool("ext-pub", "work_orders", "CreateOrder")); err != nil {
+		t.Fatalf("expected valid domain tool to register, got: %v", err)
+	}
+	if err := r.RegisterExternal(domainTool("ext-pub", "work_orders", "walk")); err != nil {
+		t.Fatalf("expected namespaced domain tool work_orders.walk to register, got: %v", err)
+	}
+}

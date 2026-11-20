@@ -37,6 +37,43 @@ func NewRegistry() *Registry {
 	}
 }
 
+// reservedPrimitives lists the bare names reserved for molu's generic
+// primitives (§2.6). External publishers cannot register tools under these
+// names; primitives always win on collision.
+var reservedPrimitives = map[string]struct{}{
+	"describe":        {},
+	"get":             {},
+	"list":            {},
+	"create":          {},
+	"update":          {},
+	"query":           {},
+	"walk":            {},
+	"machine_state":   {},
+	"machine_history": {},
+	"cal_list":        {},
+	"cal_openings":    {},
+	"cal_propose":     {},
+	"cal_confirm":     {},
+	"find":            {},
+}
+
+// IsReservedPrimitive reports whether name matches one of the generic
+// primitive names reserved for molu (§2.6).
+func IsReservedPrimitive(name string) bool {
+	_, ok := reservedPrimitives[name]
+	return ok
+}
+
+// RegisterExternal validates and stores a tool published by an external
+// publisher, rejecting any collision with reserved generic primitive names
+// (§2.6) with CONTRACT_VIOLATION.
+func (r *Registry) RegisterExternal(reg ToolRegistration) error {
+	if IsReservedPrimitive(reg.Name) {
+		return taxonomy.NewContractViolation("", "registry.register", []string{"name"})
+	}
+	return r.Register(reg)
+}
+
 // Register validates and stores reg. Re-registering the same (publisher_id,
 // name) overwrites the previous entry without error. Invalid payloads and
 // names already owned by another publisher yield CONTRACT_VIOLATION.

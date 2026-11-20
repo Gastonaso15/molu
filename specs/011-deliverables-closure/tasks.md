@@ -14,7 +14,7 @@
   - **Archivos**: `pkg/rpi/admit_score.go`, `pkg/rpi/providers/admit_all.go`, `pkg/rpi/providers/static_context_rules.go`, `pkg/rpi/provider_mock.go`, `pkg/rpi/score_double_test.go`, `pkg/hub/discovery.go`, `docs/rpi-extensibility.md`
   - **Hecho cuando**: `go test -v -race ./pkg/rpi/... ./pkg/hub/...` pasa verificando `Capabilities()`, `ScoreWithLogging` y todas las garantías de §2.5 sobre `ScoringOnlyDouble`, y existe `docs/rpi-extensibility.md`.
 
-- [ ] **T2. Protección contra colisión con nombres reservados de primitivos en `hub.Registry`.** RF-5
+- [x] **T2. Protección contra colisión con nombres reservados de primitivos en `hub.Registry`.** RF-5
   - **Archivos**: `pkg/hub/registry.go`, `pkg/hub/registry_test.go`
   - **Hecho cuando**: `go test -v -race ./pkg/hub/... -run "TestRegistry"` pasa demostrando que registrar una herramienta que colisiona con los nombres reservados de primitivos genéricos retorna `CONTRACT_VIOLATION` con `details.fields: ["name"]`.
 
