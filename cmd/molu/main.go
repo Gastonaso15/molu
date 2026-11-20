@@ -126,6 +126,8 @@ func main() {
 
 	if cfg.HubURL != "" {
 		remoteHub := hub.NewRemoteHubClient(cfg.HubURL, cfg.DomainCallTimeout)
+		remoteHub.SetLogger(logger)
+		remoteHub.StartPolling(ctx, cfg.CataloguePollInterval)
 		catalogLookup = remoteHub
 		discovery = remoteHub
 		logger.System().Info().Str("hub_url", cfg.HubURL).Msg("Connected to remote Hub service")
@@ -174,10 +176,12 @@ func main() {
 		logger.System().Info().Str("name", p.Name).Msg("Registering primitive")
 	}
 
-	// Iniciar servidor MCP sobre stdio
+	// Iniciar servidor MCP sobre el transporte configurado (stdio | streamable-http)
+	transportDone := make(chan struct{})
 	go func() {
-		if err := mcpServer.ServeStdio(ctx); err != nil && ctx.Err() == nil {
-			logger.System().Error().Err(err).Msg("MCP stdio server terminated")
+		defer close(transportDone)
+		if err := serveTransport(ctx, mcpServer, cfg, logger); err != nil && ctx.Err() == nil {
+			logger.System().Error().Err(err).Str("transport", cfg.Transport).Msg("MCP server terminated")
 			cancel()
 		}
 	}()
@@ -222,6 +226,15 @@ func main() {
 	}()
 
 	<-ctx.Done()
+
+	// En streamable-http, esperar el apagado ordenado del servidor. En stdio la
+	// lectura de os.Stdin no es cancelable, así que no se espera.
+	if cfg.Transport == "streamable-http" {
+		select {
+		case <-transportDone:
+		case <-time.After(httpShutdownTimeout + time.Second):
+		}
+	}
 
 	// Shutdown telemetry server
 	if telemetryCfg.TelemetryEnabled {

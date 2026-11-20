@@ -30,7 +30,7 @@
   - **Archivos**: `pkg/mcp/server.go`, `pkg/mcp/server_hub_test.go`, `pkg/hub_integration/tools_list_test.go`
   - **Hecho cuando**: `go test -v -race ./pkg/mcp/... ./pkg/hub_integration/... ./pkg/bridge_integration/...` pasa verificando que `tools/list` con Hub conectado devuelve los 13 primitivos genéricos + funciones admitidas del Hub, fallback a primitivos ante `EMPTY`, `CONTRACT_VIOLATION` sin tenant ni `DefaultTenant`, y precedencia del primitivo ante colisión.
 
-- [ ] **T6. Transporte `streamable-http` completo y wiring en `cmd/molu/main.go`.** RF-2, RF-3
+- [x] **T6. Transporte `streamable-http` completo y wiring en `cmd/molu/main.go`.** RF-2, RF-3
   - **Archivos**: `pkg/mcp/http_transport.go`, `pkg/mcp/http_transport_test.go`, `cmd/molu/main.go`
   - **Hecho cuando**: `go test -v -race ./pkg/mcp/... -run "TestHTTPTransport"` pasa cubriendo POST JSON, POST SSE (`Accept: text/event-stream`), GET SSE (`notifications/tools/list_changed`), auth `none`/`bearer`, y `cmd/molu` selecciona `stdio` vs `streamable-http` e inicia `remoteHub.StartPolling`.
 
