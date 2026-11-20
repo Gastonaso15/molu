@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Gastonaso15/molu/pkg/hub"
 	"github.com/Gastonaso15/molu/pkg/rpi"
@@ -74,6 +75,27 @@ func scored(name string, score float64, schemaMap map[string]any) rpi.ScoredTool
 	}
 }
 
+// primitiveCount is the number of generic primitives molu always offers.
+var primitiveCount = len(StandardPrimitives())
+
+func toolNames(tools []ToolDescriptor) []string {
+	out := make([]string, 0, len(tools))
+	for _, tl := range tools {
+		out = append(out, tl.Name)
+	}
+	return out
+}
+
+func countName(tools []ToolDescriptor, name string) int {
+	n := 0
+	for _, tl := range tools {
+		if tl.Name == name {
+			n++
+		}
+	}
+	return n
+}
+
 func TestToolsListHubParsesAdmitContextFromParams(t *testing.T) {
 	d := &mockDiscoverer{fn: func(context.Context, rpi.AdmitContext) ([]rpi.ScoredTool, error) {
 		return []rpi.ScoredTool{scored("walk", 1, nil)}, nil
@@ -90,20 +112,20 @@ func TestToolsListHubParsesAdmitContextFromParams(t *testing.T) {
 
 func TestToolsListHubAcceptsStandardCursorParam(t *testing.T) {
 	d := &mockDiscoverer{fn: func(context.Context, rpi.AdmitContext) ([]rpi.ScoredTool, error) {
-		return []rpi.ScoredTool{scored("walk", 1, nil)}, nil
+		return []rpi.ScoredTool{scored("work_orders.GetOrder", 1, nil)}, nil
 	}}
 	reply := toolsList(t, NewServer(ServerConfig{Discovery: d}), `{"tenant":"t1","cursor":"abc"}`)
-	if reply.Error != nil || len(reply.Result.Tools) != 1 {
+	if reply.Error != nil || len(reply.Result.Tools) != primitiveCount+1 {
 		t.Fatalf("cursor must not break the call: %+v", reply)
 	}
 }
 
-func TestToolsListHubReturnsDescriptorsInRelevanceOrder(t *testing.T) {
+func TestToolsListHubReturnsPrimitivesThenDomainFunctionsInRelevanceOrder(t *testing.T) {
 	custom := map[string]any{"type": "object", "required": []any{"id"}}
 	d := &mockDiscoverer{fn: func(context.Context, rpi.AdmitContext) ([]rpi.ScoredTool, error) {
 		return []rpi.ScoredTool{
 			scored("work_orders.CreateOrder", 0.9, custom),
-			scored("walk", 0.4, nil),
+			scored("work_orders.GetOrder", 0.4, nil),
 		}, nil
 	}}
 	reply := toolsList(t, NewServer(ServerConfig{Discovery: d}), `{"tenant":"t1"}`)
@@ -112,14 +134,74 @@ func TestToolsListHubReturnsDescriptorsInRelevanceOrder(t *testing.T) {
 		t.Fatalf("unexpected error: %+v", reply.Error)
 	}
 	got := reply.Result.Tools
-	if len(got) != 2 || got[0].Name != "work_orders.CreateOrder" || got[1].Name != "walk" {
-		t.Fatalf("expected provider order, got %+v", got)
+	if len(got) != primitiveCount+2 {
+		t.Fatalf("expected %d primitives + 2 domain functions, got %v", primitiveCount, toolNames(got))
 	}
-	if got[0].Description != "d-work_orders.CreateOrder" || !reflect.DeepEqual(got[0].InputSchema, custom) {
-		t.Fatalf("descriptor fields lost: %+v", got[0])
+	for i, p := range StandardPrimitives() {
+		if got[i].Name != p.Name {
+			t.Fatalf("primitives must come first in their own order: position %d is %q, want %q", i, got[i].Name, p.Name)
+		}
 	}
-	if got[1].InputSchema["type"] != "object" {
-		t.Fatalf("missing schema must default to an object schema, got %v", got[1].InputSchema)
+	create, get := got[primitiveCount], got[primitiveCount+1]
+	if create.Name != "work_orders.CreateOrder" || get.Name != "work_orders.GetOrder" {
+		t.Fatalf("domain functions must follow in provider order, got %q then %q", create.Name, get.Name)
+	}
+	if create.Description != "d-work_orders.CreateOrder" || !reflect.DeepEqual(create.InputSchema, custom) {
+		t.Fatalf("descriptor fields lost: %+v", create)
+	}
+	if get.InputSchema["type"] != "object" {
+		t.Fatalf("missing schema must default to an object schema, got %v", get.InputSchema)
+	}
+}
+
+func TestToolsListHubEmptyStillServesPrimitives(t *testing.T) {
+	d := &mockDiscoverer{fn: func(context.Context, rpi.AdmitContext) ([]rpi.ScoredTool, error) {
+		return nil, taxonomy.NewEmpty("t1", "tools/list", nil)
+	}}
+	reply := toolsList(t, NewServer(ServerConfig{Discovery: d}), `{"tenant":"t1"}`)
+
+	if reply.Error != nil {
+		t.Fatalf("EMPTY from the Hub must not fail tools/list: %+v", reply.Error)
+	}
+	if len(reply.Result.Tools) != primitiveCount {
+		t.Fatalf("expected the %d primitives alone, got %v", primitiveCount, toolNames(reply.Result.Tools))
+	}
+}
+
+func TestToolsListHubNameCollisionKeepsThePrimitive(t *testing.T) {
+	d := &mockDiscoverer{fn: func(context.Context, rpi.AdmitContext) ([]rpi.ScoredTool, error) {
+		return []rpi.ScoredTool{
+			scored("walk", 1, map[string]any{"type": "object", "x-hub": true}),
+			scored("work_orders.CreateOrder", 0.5, nil),
+		}, nil
+	}}
+	reply := toolsList(t, NewServer(ServerConfig{Discovery: d}), `{"tenant":"t1"}`)
+
+	got := reply.Result.Tools
+	if countName(got, "walk") != 1 {
+		t.Fatalf("a colliding Hub function must be dropped: walk appears %d times", countName(got, "walk"))
+	}
+	for _, tl := range got {
+		if tl.Name == "walk" && tl.Description == "d-walk" {
+			t.Fatal("the surviving walk must be the generic primitive, not the Hub's")
+		}
+		if _, ok := tl.InputSchema["x-hub"]; ok {
+			t.Fatalf("Hub schema leaked through for %q", tl.Name)
+		}
+	}
+	if len(got) != primitiveCount+1 {
+		t.Fatalf("expected primitives + CreateOrder, got %v", toolNames(got))
+	}
+}
+
+func TestToolsListHubUsesDefaultTenantWhenParamsHaveNone(t *testing.T) {
+	d := &mockDiscoverer{fn: func(context.Context, rpi.AdmitContext) ([]rpi.ScoredTool, error) {
+		return []rpi.ScoredTool{scored("work_orders.GetOrder", 1, nil)}, nil
+	}}
+	reply := toolsList(t, NewServer(ServerConfig{Discovery: d, DefaultTenant: "acme"}), "")
+
+	if reply.Error != nil || len(d.calls) != 1 || d.calls[0].Tenant != "acme" {
+		t.Fatalf("DefaultTenant must reach discovery: %+v calls=%+v", reply.Error, d.calls)
 	}
 }
 
@@ -131,7 +213,7 @@ func TestToolsListHubTypedErrorsKeepTheirCode(t *testing.T) {
 		hasField string
 	}{
 		"contract violation": {taxonomy.NewContractViolation("", "tools/list", []string{"tenant"}), taxonomy.CodeContractViolation, -32602, "fields"},
-		"empty":              {taxonomy.NewEmpty("t1", "tools/list", nil), taxonomy.CodeEmpty, -32000, "tenant"},
+		"substrate":          {taxonomy.NewSubstrateUnavailable(taxonomy.NowRFC3339(), taxonomy.NextRetryRFC3339(1, 100*time.Millisecond, 2*time.Second), 1, 3), taxonomy.CodeSubstrateUnavailable, -32000, "attemptNumber"},
 	}
 	for label, tc := range cases {
 		t.Run(label, func(t *testing.T) {
@@ -219,13 +301,14 @@ func TestToolsListHubWithRealDiscovery(t *testing.T) {
 	srv := NewServer(ServerConfig{Discovery: hub.NewDiscovery(reg, providers.NewStaticContextRulesProvider(rules))})
 
 	reply := toolsList(t, srv, `{"tenant":"t1","roles":["operator"]}`)
-	if reply.Error != nil || len(reply.Result.Tools) != 1 || reply.Result.Tools[0].Name != "work_orders.CreateOrder" {
-		t.Fatalf("expected only the admitted tool, got %+v", reply)
+	got := reply.Result.Tools
+	if reply.Error != nil || len(got) != primitiveCount+1 || got[len(got)-1].Name != "work_orders.CreateOrder" {
+		t.Fatalf("expected the primitives plus only the admitted domain function, got %+v", reply)
 	}
 
 	reply = toolsList(t, srv, `{"tenant":"t1","roles":["intruder"]}`)
-	if te := errData(t, reply); te.Code != taxonomy.PrefixMolu+string(taxonomy.CodeEmpty) {
-		t.Fatalf("expected EMPTY for a role without rules, got %s", te.Code)
+	if reply.Error != nil || len(reply.Result.Tools) != primitiveCount {
+		t.Fatalf("a role without rules gets EMPTY from the Hub, which still leaves the primitives: %+v", reply)
 	}
 }
 

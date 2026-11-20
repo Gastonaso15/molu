@@ -26,7 +26,7 @@
   - **Archivos**: `pkg/hub/client.go`, `pkg/hub/client_test.go`
   - **Hecho cuando**: `go test -v -race ./pkg/hub/... -run "TestRemoteHubClient"` pasa verificando `StartPolling(ctx, interval)`, retención del último catálogo válido ante caída transitoria del Hub y `SUBSTRATE_UNAVAILABLE` si nunca hubo catálogo.
 
-- [ ] **T5. Superficie unificada en `tools/list` en `pkg/mcp/server.go`.** RF-1
+- [x] **T5. Superficie unificada en `tools/list` en `pkg/mcp/server.go`.** RF-1
   - **Archivos**: `pkg/mcp/server.go`, `pkg/mcp/server_hub_test.go`, `pkg/hub_integration/tools_list_test.go`
   - **Hecho cuando**: `go test -v -race ./pkg/mcp/... ./pkg/hub_integration/... ./pkg/bridge_integration/...` pasa verificando que `tools/list` con Hub conectado devuelve los 13 primitivos genéricos + funciones admitidas del Hub, fallback a primitivos ante `EMPTY`, `CONTRACT_VIOLATION` sin tenant ni `DefaultTenant`, y precedencia del primitivo ante colisión.
 

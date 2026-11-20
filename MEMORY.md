@@ -42,7 +42,7 @@
 | **008** | `execution-bridge` — Execution Bridge para funciones de dominio del Hub (`namespace.Nombre`, HTTP passthrough, auth `token_ref`, validación y mapeo de taxonomía) | **En curso (T1–T7 hechas: 7/8 tasks)** | Proceder con T8 (Diagrama de secuencia Mermaid y documentación operativa) |
 | **009** | `work-orders-publisher` — Hub Standalone (`bin/hub`) y Publicador Piloto de Work Orders (desacoplamiento de binarios, endpoints HTTP, FSM xolu y validación de Criterio 1) | **Implementada (T1–T9, 9/9 tasks)**; E2E del Criterio 1 en `pkg/bridge_integration/criterio1_e2e_test.go` contra un xolu simulado a nivel de red | Verificar contra un xolu real (`make xolu-up`) y documentar `bin/publisher-orders` (`MOLU_PUBLISHER_*`) |
 | **010** | `issue-tracker-publisher` — Publicador de Issue Tracker (cálculo de SLA, criticidad de activo, FSM de 8 estados e integración con xolu) | **Implementada (T1–T5, 5/5 tasks)**; E2E completada en `pkg/bridge_integration/issues_e2e_test.go` | Documentación operativa y verificación contra xolu real |
-| **011** | `deliverables-closure` — Cierre de brechas de auditoría y entregables normativos (superficie unificada MCP, retención de catálogo, `streamable-http`, telemetría y auth por namespace en Hub, extensibilidad RPI, documentación §2.3.1 y diagramas `.mmd`/`.pdf`) | **En curso (T1–T4 hechas: 4/10 tasks)** | Continuar con T5 (Superficie unificada en `tools/list`) |
+| **011** | `deliverables-closure` — Cierre de brechas de auditoría y entregables normativos (superficie unificada MCP, retención de catálogo, `streamable-http`, telemetría y auth por namespace en Hub, extensibilidad RPI, documentación §2.3.1 y diagramas `.mmd`/`.pdf`) | **En curso (T1–T5 hechas: 5/10 tasks)** | Continuar con T6 (Transporte `streamable-http` y wiring en `cmd/molu`) |
 
 
 
@@ -492,7 +492,7 @@ Verificado contra xolu real v0.30.44 (`MOLU_REAL_XOLU_URL=... go test -run TestR
 
 ---
 
-## Archivos Creados y Modificados (Spec 011 — Cierre de Brechas y Entregables Normativos, T1–T4)
+## Archivos Creados y Modificados (Spec 011 — Cierre de Brechas y Entregables Normativos, T1–T5)
 
 | Archivo | Descripción | RF Cubiertos |
 | :--- | :--- | :--- |
@@ -504,7 +504,10 @@ Verificado contra xolu real v0.30.44 (`MOLU_REAL_XOLU_URL=... go test -run TestR
 | `pkg/hub/registry.go`, `registry_test.go`, `http_server.go` | Conjunto `reservedPrimitives` (`IsReservedPrimitive`) y `RegisterExternal` rechazando colisiones con primitivos genéricos (`CONTRACT_VIOLATION`, `fields: ["name"]`) | RF-5 |
 | `pkg/hub/auth.go`, `auth_test.go`, `http_server.go`, `http_server_test.go`, `cmd/hub/main.go` | `PublisherAuthorizer` (mapa `token -> []namespace` con `MOLU_HUB_PUBLISHER_TOKENS_JSON`/`_FILE`, 401/403 `NOT_OFFERED`, modo abierto) + telemetría completa (`pkg/telemetry`, correlación `X-Request-ID`/`traceparent`, `/metrics`) en Hub Standalone | RF-4, RF-14 |
 | `pkg/hub/client.go`, `client_test.go` | `RemoteHubClient` con caché thread-safe del catálogo (`sync.RWMutex`), `StartPolling(ctx, interval)` con retención del último catálogo válido (stale-while-error, log en dominio Network vía `SetLogger`), `Lookup` desde caché con refresco bajo demanda, y retención por contexto de la última respuesta válida de `ListTools` ante `SUBSTRATE_UNAVAILABLE` (`EMPTY` no se enmascara) | RF-2 |
+| `pkg/mcp/server.go`, `server_hub_test.go`, `pkg/hub_integration/tools_list_test.go` | `tools/list` con Hub devuelve la superficie unificada: los 13 primitivos (en su orden) y luego las funciones de dominio admitidas en el orden de relevancia del RPI; `EMPTY` del Hub devuelve solo los primitivos; `CONTRACT_VIOLATION`/`SUBSTRATE_UNAVAILABLE` y el tenant vacío sin `DefaultTenant` siguen como error tipado; ante colisión de nombre gana el primitivo (§2.6). Corrige el hallazgo de que con Hub los primitivos quedaban ocultos | RF-1 |
 
 **T3 completada** (20-nov-2026): `go test -race ./...` en verde.
 
 **T4 completada**: `go test -race ./...` en verde. Siguiente paso: T5 (Superficie unificada en `tools/list`). El arranque del sondeo en `cmd/molu` (`StartPolling` con `MOLU_FRONT_CATALOGUE_POLL_INTERVAL`) queda para T6.
+
+**T5 completada**: `go test -race ./...` en verde y verificada contra el stack real (13 primitivos + 4 `work_orders.*`). Siguiente paso: T6 (Transporte `streamable-http` y wiring en `cmd/molu`).

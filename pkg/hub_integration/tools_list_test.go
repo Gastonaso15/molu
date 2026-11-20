@@ -84,6 +84,19 @@ func names(r reply) []string {
 	return out
 }
 
+// primitiveNames are the generic primitives every tools/list carries first.
+func primitiveNames() []string {
+	out := []string{}
+	for _, p := range mcp.StandardPrimitives() {
+		out = append(out, p.Name)
+	}
+	return out
+}
+
+func withPrimitives(domain ...string) []string {
+	return append(primitiveNames(), domain...)
+}
+
 func errCode(t *testing.T, r reply) string {
 	t.Helper()
 	if r.Error == nil {
@@ -104,7 +117,7 @@ func TestIntegration_ProviderSwitchChangesDiscovery(t *testing.T) {
 	all := toolsList(t, serverFromEnv(t, map[string]string{
 		"MOLU_HUB_RPI_PROVIDER": "admit-all",
 	}), params)
-	if want := []string{"inventory.ReserveStock", "walk", "work_orders.CreateOrder"}; !reflect.DeepEqual(names(all), want) {
+	if want := withPrimitives("inventory.ReserveStock", "work_orders.CreateOrder"); !reflect.DeepEqual(names(all), want) {
 		t.Fatalf("admit-all: expected %v, got %v", want, names(all))
 	}
 
@@ -112,7 +125,7 @@ func TestIntegration_ProviderSwitchChangesDiscovery(t *testing.T) {
 		"MOLU_HUB_RPI_PROVIDER":   "static-context-rules",
 		"MOLU_HUB_RPI_RULES_JSON": rulesJSON,
 	}), params)
-	if want := []string{"walk"}; !reflect.DeepEqual(names(static), want) {
+	if want := withPrimitives(); !reflect.DeepEqual(names(static), want) {
 		t.Fatalf("static-context-rules: expected %v, got %v", want, names(static))
 	}
 }
@@ -128,11 +141,11 @@ func TestIntegration_StaticRulesFromFileAndRoles(t *testing.T) {
 	})
 
 	op := toolsList(t, srv, `{"tenant":"acme","roles":["operator"]}`)
-	if want := []string{"walk", "work_orders.CreateOrder"}; !reflect.DeepEqual(names(op), want) {
+	if want := withPrimitives("work_orders.CreateOrder"); !reflect.DeepEqual(names(op), want) {
 		t.Fatalf("operator: expected %v, got %v", want, names(op))
 	}
 	viewer := toolsList(t, srv, `{"tenant":"acme","roles":["viewer"]}`)
-	if want := []string{"walk"}; !reflect.DeepEqual(names(viewer), want) {
+	if want := withPrimitives(); !reflect.DeepEqual(names(viewer), want) {
 		t.Fatalf("viewer: expected %v, got %v", want, names(viewer))
 	}
 }
@@ -144,9 +157,11 @@ func TestIntegration_ToolsListTypedErrors(t *testing.T) {
 		"MOLU_HUB_RPI_RULES_JSON": rulesJSON,
 	})
 
+	// EMPTY from the Hub is not an error of the unified surface: the generic
+	// primitives remain.
 	empty := toolsList(t, srv, `{"tenant":"acme","roles":["intruder"]}`)
-	if got := errCode(t, empty); got != taxonomy.PrefixMolu+string(taxonomy.CodeEmpty) {
-		t.Fatalf("expected EMPTY, got %s", got)
+	if empty.Error != nil || !reflect.DeepEqual(names(empty), withPrimitives()) {
+		t.Fatalf("expected the primitives alone, got error=%v names=%v", empty.Error, names(empty))
 	}
 
 	noTenant := toolsList(t, srv, `{"roles":["operator"]}`)

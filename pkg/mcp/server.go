@@ -37,8 +37,7 @@ type SubstrateExecutor interface {
 }
 
 // ToolDiscoverer resolves the catalog tools offered to a requester (e.g.
-// *hub.Discovery). When set, tools/list serves its result instead of the
-// primitives.
+// *hub.Discovery). When set, tools/list serves the primitives plus its result.
 type ToolDiscoverer interface {
 	ListTools(ctx context.Context, actx rpi.AdmitContext) ([]rpi.ScoredTool, error)
 }
@@ -220,8 +219,8 @@ type listParams struct {
 	Cursor string   `json:"cursor"`
 }
 
-// handleDiscoveryList serves tools/list from the Hub catalog filtered by the
-// RPI. Typed errors keep their code and details in the JSON-RPC error data.
+// handleDiscoveryList serves the unified tools/list surface: the generic
+// primitives plus the Hub catalog filtered by the RPI. Typed errors keep their code and details in the JSON-RPC error data.
 func (s *Server) handleDiscoveryList(ctx context.Context, params json.RawMessage) (interface{}, *jsonRPCError) {
 	var p listParams
 	if trimmed := bytes.TrimSpace(params); len(trimmed) > 0 && string(trimmed) != "null" {
@@ -239,13 +238,28 @@ func (s *Server) handleDiscoveryList(ctx context.Context, params json.RawMessage
 	if err != nil {
 		var te *taxonomy.TypedError
 		if errors.As(err, &te) {
+			// EMPTY means the Hub offers no domain functions for this
+			// requester: the generic primitives remain usable (§0.5, §2.1).
+			if taxonomy.CodeFromError(err) == taxonomy.PrefixMolu+string(taxonomy.CodeEmpty) {
+				return map[string]interface{}{"tools": s.HandleListTools(ctx)}, nil
+			}
 			return nil, typedRPCError(te)
 		}
 		return nil, &jsonRPCError{Code: -32603, Message: err.Error()}
 	}
 
-	tools := make([]ToolDescriptor, 0, len(scored))
+	// Unified surface: the generic primitives first, then the domain
+	// functions the Hub admitted, in the provider's relevance order. A Hub
+	// tool whose name equals a primitive is dropped: the primitive wins (§2.6).
+	tools := s.HandleListTools(ctx)
+	taken := make(map[string]struct{}, len(tools))
+	for _, t := range tools {
+		taken[t.Name] = struct{}{}
+	}
 	for _, t := range scored {
+		if _, collides := taken[t.Name]; collides {
+			continue
+		}
 		schemaMap := t.InputSchema
 		if schemaMap == nil {
 			schemaMap = map[string]interface{}{"type": "object"}
