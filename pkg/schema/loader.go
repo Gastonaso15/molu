@@ -23,6 +23,7 @@ type SchemaLoader struct {
 	primitives    []PrimitiveSchema // atomic snapshot for MCP registration
 	stateMachines []StateMachine
 	payloadTypes  []PayloadType
+	entities      []EntitySchema
 	lastLoad      time.Time
 	lastError     error
 	stopCh        chan struct{}
@@ -78,6 +79,7 @@ func (l *SchemaLoader) swap(schemas Schemas) {
 	l.primitives = schemas.Primitives
 	l.stateMachines = schemas.StateMachines
 	l.payloadTypes = schemas.PayloadTypes
+	l.entities = schemas.Entities
 	l.lastLoad = time.Now()
 	l.lastError = nil
 }
@@ -89,6 +91,16 @@ func (l *SchemaLoader) GetPrimitives() []PrimitiveSchema {
 	// copy to avoid aliasing
 	out := make([]PrimitiveSchema, len(l.primitives))
 	copy(out, l.primitives)
+	return out
+}
+
+// GetEntitySchemas: snapshot of the entity schemas registered in xolu
+// (concurrent read safe; the caller may modify its copy).
+func (l *SchemaLoader) GetEntitySchemas() []EntitySchema {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	out := make([]EntitySchema, len(l.entities))
+	copy(out, l.entities)
 	return out
 }
 

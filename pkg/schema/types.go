@@ -30,9 +30,24 @@ type PayloadType struct {
 	Schema map[string]interface{} `json:"schema"` // JSON Schema
 }
 
-// Schemas: complete response from GET /schemas
+// EntitySchema: the JSON Schema xolu has registered for one entity type
+// (GET /api/v1/schema/{entity}).
+type EntitySchema struct {
+	Name   string                 `json:"name"`
+	Schema map[string]interface{} `json:"schema"`
+}
+
+// Schemas: what molu knows about xolu's schemas.
+//
+// xolu does not publish primitives, state machines or payload types: its
+// GET /api/v1/schemas lists only the entity types that have a registered
+// schema, and the schema of each one is read from GET /api/v1/schema/{entity}.
+// Entities holds those. Primitives, StateMachines and PayloadTypes keep the
+// shape this package was first written for and stay empty against xolu; the
+// 13 generic primitives are molu's own (see mcp.StandardPrimitives).
 type Schemas struct {
 	Primitives    []PrimitiveSchema `json:"primitives"`
 	StateMachines []StateMachine    `json:"stateMachines"`
 	PayloadTypes  []PayloadType     `json:"payloadTypes"`
+	Entities      []EntitySchema    `json:"-"`
 }

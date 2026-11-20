@@ -53,3 +53,15 @@
 
 - [x] **T18. Ejecutar suite completa con race detector y cobertura.** RF-1..RF-6
   - Hecho cuando: `go test -v -race ./...` pasa limpio (cero data races) y cobertura > 70% en `pkg/schema/`, > 60% en `pkg/taxonomy/`.
+
+---
+
+## Ajuste al formato real de xolu (T19)
+
+**Decisión (20-nov-2026)**: xolu 0.31.0 y Seam 0.4.5 quedan como están, así que el lector se adapta a lo que xolu ofrece. xolu no publica primitivos, máquinas de estado ni tipos de payload: `GET /api/v1/schemas` solo lista las entidades con esquema registrado (`{"count":N,"schemas":[{"name":...}]}`) y el esquema de cada una sale de `GET /api/v1/schema/{entity}`. Los 13 primitivos genéricos son de molu.
+
+- [x] **T19. `XoluSchemaClient` lee el formato real y el cargador conserva los esquemas por entidad.** RF-1, RF-3, RF-4
+  - **Archivos**: `pkg/schema/types.go` (`EntitySchema`, `Schemas.Entities`), `client.go`, `loader.go` (`GetEntitySchemas`), `client_test.go`, `loader_test.go`, `cmd/molu/main.go`
+  - **Hecho cuando**: `go test -v -race ./pkg/schema/...` pasa cubriendo el formato real (lista más detalle por entidad, orden determinista, lista vacía sin llamadas de detalle, 404 de una entidad omitida, 5xx que falla la carga y conserva la foto anterior, nombres escapados, 30 entidades con lectura acotada), el formato original que sigue funcionando, y la recarga en caliente de `GetEntitySchemas`. Contra xolu real: 20 esquemas con la semilla 01 `--schemas`, 0 con semillas sin esquemas; `main` lo informa en el log al arrancar y al recargar con SIGHUP.
+  - **Límite conocido**: los esquemas se leen y se mantienen, pero ningún primitivo los usa todavía para validar `create`/`update`. Los esquemas registrados por las semillas no traen `required`.
+

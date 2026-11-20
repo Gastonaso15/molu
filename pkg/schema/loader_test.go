@@ -423,3 +423,51 @@ func TestValidateInputNestedObject(t *testing.T) {
 		t.Errorf("expected nested field in invalidFields, got %v", result.InvalidFields)
 	}
 }
+
+func TestLoaderKeepsEntitySchemasAndRefreshSwapsThem(t *testing.T) {
+	client := &MockSchemaClient{schemas: Schemas{Entities: []EntitySchema{{Name: "assets", Schema: map[string]interface{}{"type": "object"}}}}}
+	loader := NewSchemaLoader(client, LoaderConfig{RetryFloor: time.Millisecond, RetryCeiling: time.Millisecond, MaxAttempts: 1})
+
+	if got := loader.GetEntitySchemas(); len(got) != 0 {
+		t.Fatalf("nothing loaded yet, got %+v", got)
+	}
+	if err := loader.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := loader.GetEntitySchemas()
+	if len(got) != 1 || got[0].Name != "assets" {
+		t.Fatalf("expected assets, got %+v", got)
+	}
+
+	// A schema registered later shows up on the next refresh.
+	client.SetSchemas(Schemas{Entities: []EntitySchema{{Name: "assets"}, {Name: "brands"}}})
+	if err := loader.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(loader.GetEntitySchemas()); n != 2 {
+		t.Fatalf("expected 2 entities after refresh, got %d", n)
+	}
+
+	// A failed refresh keeps the previous snapshot.
+	client.mu.Lock()
+	client.failCount, client.err = 1, errors.New("xolu down")
+	client.mu.Unlock()
+	if err := loader.Refresh(context.Background()); err == nil {
+		t.Fatal("expected the refresh error")
+	}
+	if n := len(loader.GetEntitySchemas()); n != 2 {
+		t.Fatalf("a failed refresh must keep the last snapshot, got %d", n)
+	}
+}
+
+func TestLoaderEntitySchemasSnapshotIsACopy(t *testing.T) {
+	client := &MockSchemaClient{schemas: Schemas{Entities: []EntitySchema{{Name: "assets"}}}}
+	loader := NewSchemaLoader(client, LoaderConfig{MaxAttempts: 1})
+	_ = loader.Load(context.Background())
+
+	snap := loader.GetEntitySchemas()
+	snap[0].Name = "tampered"
+	if loader.GetEntitySchemas()[0].Name != "assets" {
+		t.Fatal("callers must not be able to modify the loader's snapshot")
+	}
+}

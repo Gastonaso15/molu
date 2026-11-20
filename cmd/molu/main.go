@@ -171,10 +171,13 @@ func main() {
 		DefaultTenant:  cfg.DefaultTenant,
 	})
 
-	primitives := schemaLoader.GetPrimitives()
-	for _, p := range primitives {
+	// xolu no publica primitivos: los 13 genéricos son de molu (loaderProvider).
+	// Lo que sí lee de xolu son los esquemas registrados por entidad.
+	for _, p := range (&loaderProvider{loader: schemaLoader}).GetPrimitives() {
 		logger.System().Info().Str("name", p.Name).Msg("Registering primitive")
 	}
+	logger.System().Info().Int("entity_schemas", len(schemaLoader.GetEntitySchemas())).
+		Msg("Entity schemas loaded from xolu")
 
 	// Iniciar servidor MCP sobre el transporte configurado (stdio | streamable-http)
 	transportDone := make(chan struct{})
@@ -218,7 +221,7 @@ func main() {
 				if err := schemaLoader.Refresh(ctx); err != nil {
 					logger.System().Error().Err(err).Msg("schema refresh failed")
 				} else {
-					logger.System().Info().Msg("Schemas refreshed successfully")
+					logger.System().Info().Int("entity_schemas", len(schemaLoader.GetEntitySchemas())).Msg("Schemas refreshed successfully")
 					mcpServer.UpdatePrimitives(schemaLoader.GetPrimitives())
 				}
 			}
