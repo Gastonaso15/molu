@@ -22,7 +22,7 @@
   - **Archivos**: `pkg/hub/auth.go`, `pkg/hub/auth_test.go`, `pkg/hub/http_server.go`, `pkg/hub/http_server_test.go`, `cmd/hub/main.go`, `cmd/hub/main_test.go`
   - **Hecho cuando**: `go test -v -race ./pkg/hub/... ./cmd/hub/...` pasa cubriendo mapa `token -> []namespace` (401, 403 `NOT_OFFERED`, 200 autorizado, modo abierto), correlación `X-Request-ID`/`traceparent`, logs estructurados y métricas en `cmd/hub`.
 
-- [ ] **T4. Caché thread-safe y sondeo periódico con retención en `RemoteHubClient`.** RF-2
+- [x] **T4. Caché thread-safe y sondeo periódico con retención en `RemoteHubClient`.** RF-2
   - **Archivos**: `pkg/hub/client.go`, `pkg/hub/client_test.go`
   - **Hecho cuando**: `go test -v -race ./pkg/hub/... -run "TestRemoteHubClient"` pasa verificando `StartPolling(ctx, interval)`, retención del último catálogo válido ante caída transitoria del Hub y `SUBSTRATE_UNAVAILABLE` si nunca hubo catálogo.
 
