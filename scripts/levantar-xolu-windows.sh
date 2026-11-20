@@ -120,9 +120,27 @@ fi
 
 mkdir -p "$STATE"
 
-if [ -z "$XOLU_BIN" ] && [ ! -x "$BIN" ]; then
+# Compila xolu la primera vez y vuelve a compilarlo cuando la carpeta del código
+# es de otra versión que el binario guardado en .dev-xolu/ (si no, quedaría
+# corriendo un xolu viejo aunque se haya copiado uno nuevo).
+NEED_BUILD=false
+if [ -z "$XOLU_BIN" ]; then
+  if [ ! -x "$BIN" ]; then
+    NEED_BUILD=true
+  elif [ -n "$XOLU_SRC" ] && [ -f "$XOLU_SRC/VERSION" ]; then
+    SRC_VER="$(tr -d '[:space:]' < "$XOLU_SRC/VERSION")"
+    BIN_VER="$("$BIN" --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)"
+    if [ "$SRC_VER" != "$BIN_VER" ]; then
+      say "El binario es xolu ${BIN_VER:-desconocido} y el código es ${SRC_VER}: se recompila"
+      NEED_BUILD=true
+    fi
+  fi
+fi
+if $NEED_BUILD; then
   say "Compilando xolu desde $XOLU_SRC (la primera vez tarda)"
   command -v go >/dev/null || die "hace falta Go para compilar xolu"
+  # Si hay un xolu viejo corriendo, se apaga para arrancar el nuevo (los datos se conservan).
+  if is_running; then stop_xolu; fi
   (cd "$XOLU_SRC" && go build -o "$BIN" ./cmd/xolu)
 fi
 
