@@ -18,7 +18,7 @@
   - **Archivos**: `pkg/hub/registry.go`, `pkg/hub/registry_test.go`
   - **Hecho cuando**: `go test -v -race ./pkg/hub/... -run "TestRegistry"` pasa demostrando que registrar una herramienta que colisiona con los nombres reservados de primitivos genéricos retorna `CONTRACT_VIOLATION` con `details.fields: ["name"]`.
 
-- [ ] **T3. Autorización de publicadores por namespace (§2.6) y telemetría en Hub Standalone.** RF-4, RF-14
+- [x] **T3. Autorización de publicadores por namespace (§2.6) y telemetría en Hub Standalone.** RF-4, RF-14
   - **Archivos**: `pkg/hub/auth.go`, `pkg/hub/auth_test.go`, `pkg/hub/http_server.go`, `pkg/hub/http_server_test.go`, `cmd/hub/main.go`, `cmd/hub/main_test.go`
   - **Hecho cuando**: `go test -v -race ./pkg/hub/... ./cmd/hub/...` pasa cubriendo mapa `token -> []namespace` (401, 403 `NOT_OFFERED`, 200 autorizado, modo abierto), correlación `X-Request-ID`/`traceparent`, logs estructurados y métricas en `cmd/hub`.
 

@@ -5,16 +5,21 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Gastonaso15/molu/pkg/rpi"
 	"github.com/Gastonaso15/molu/pkg/taxonomy"
+	"github.com/Gastonaso15/molu/pkg/telemetry"
 )
 
 // HubHTTPServer exposes the Hub catalog and discovery service over HTTP REST.
 type HubHTTPServer struct {
-	registry  *Registry
-	discovery *Discovery
-	mux       *http.ServeMux
+	registry   *Registry
+	discovery  *Discovery
+	authorizer *PublisherAuthorizer
+	logger     telemetry.Logger
+	metrics    telemetry.Metrics
+	mux        *http.ServeMux
 }
 
 // NewHubHTTPServer creates a new HTTP server wrapping the catalog and discovery.
@@ -28,9 +33,39 @@ func NewHubHTTPServer(registry *Registry, discovery *Discovery) *HubHTTPServer {
 	return s
 }
 
-// Handler returns the underlying http.Handler.
+// SetAuthorizer attaches a namespace-scoped publisher authorizer (§2.6).
+func (s *HubHTTPServer) SetAuthorizer(auth *PublisherAuthorizer) {
+	s.authorizer = auth
+}
+
+// SetTelemetry attaches structured logger and Prometheus metrics to the Hub server.
+func (s *HubHTTPServer) SetTelemetry(logger telemetry.Logger, metrics telemetry.Metrics) {
+	s.logger = logger
+	s.metrics = metrics
+}
+
+// Handler returns the underlying http.Handler wrapped with correlation and telemetry.
 func (s *HubHTTPServer) Handler() http.Handler {
-	return s.mux
+	var h http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/metrics" && s.metrics != nil {
+			s.metrics.Handler().ServeHTTP(w, r)
+			return
+		}
+		start := time.Now()
+		// Echo X-Request-ID even when no telemetry logger is configured.
+		if reqID := r.Header.Get("X-Request-ID"); reqID != "" && w.Header().Get("X-Request-ID") == "" {
+			w.Header().Set("X-Request-ID", reqID)
+		}
+		s.mux.ServeHTTP(w, r)
+		if s.metrics != nil {
+			s.metrics.IncRequests(telemetry.ComponentHubRegistry, r.URL.Path, "", "OK")
+			s.metrics.ObserveLatency(telemetry.ComponentHubRegistry, r.URL.Path, float64(time.Since(start).Milliseconds()))
+		}
+	})
+	if s.logger != nil {
+		h = telemetry.NewMiddleware(s.logger).Wrap(h)
+	}
+	return h
 }
 
 func (s *HubHTTPServer) routes() {
@@ -49,6 +84,31 @@ func (s *HubHTTPServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+func (s *HubHTTPServer) authorizePublisher(w http.ResponseWriter, r *http.Request, namespace, toolName string) bool {
+	if !s.authorizer.Enabled() {
+		return true
+	}
+	token := ExtractBearerToken(r)
+	err := s.authorizer.Authorize(token, namespace)
+	if err == nil {
+		return true
+	}
+	if s.logger != nil {
+		s.logger.WithContext(r.Context()).Security().Warn().
+			Str("decision", telemetry.DecisionDeny).
+			Str("namespace", namespace).
+			Str("tool", toolName).
+			Str("reason", err.Error()).
+			Msg("publisher authorization denied")
+	}
+	if errors.Is(err, ErrUnauthorized) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		return false
+	}
+	writeJSON(w, http.StatusForbidden, taxonomy.NewNotOffered("", toolName))
+	return false
+}
+
 func (s *HubHTTPServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -59,6 +119,16 @@ func (s *HubHTTPServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&reg); err != nil {
 		errResp := taxonomy.NewContractViolation("", "registry.register", []string{"body"})
 		writeJSON(w, http.StatusBadRequest, errResp)
+		return
+	}
+
+	ns := reg.Namespace
+	if ns == "" {
+		if prefix, _, ok := strings.Cut(reg.Name, "."); ok {
+			ns = prefix
+		}
+	}
+	if !s.authorizePublisher(w, r, ns, reg.Name) {
 		return
 	}
 
@@ -83,6 +153,11 @@ func (s *HubHTTPServer) handleUnregister(w http.ResponseWriter, r *http.Request)
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		errResp := taxonomy.NewContractViolation("", "registry.unregister", []string{"body"})
 		writeJSON(w, http.StatusBadRequest, errResp)
+		return
+	}
+
+	ns, _, _ := strings.Cut(p.Name, ".")
+	if !s.authorizePublisher(w, r, ns, p.Name) {
 		return
 	}
 

@@ -251,3 +251,121 @@ func TestHubHTTPServer_Concurrency(t *testing.T) {
 	}
 }
 
+func TestHubHTTPServer_PublisherAuth(t *testing.T) {
+	registry := hub.NewRegistry()
+	server := hub.NewHubHTTPServer(registry, nil)
+	auth := hub.NewPublisherAuthorizer(map[string][]string{
+		"tok-orders": {"work_orders"},
+	})
+	server.SetAuthorizer(auth)
+
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	post := func(path, token string, payload any) *http.Response {
+		b, _ := json.Marshal(payload)
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+path, bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("POST %s failed: %v", path, err)
+		}
+		return resp
+	}
+
+	orderTool := hub.ToolRegistration{
+		PublisherID: "orders-pub",
+		Name:        "work_orders.CreateOrder",
+		Description: "Create order",
+		InputSchema: map[string]any{"type": "object"},
+		Namespace:   "work_orders",
+	}
+	issueTool := hub.ToolRegistration{
+		PublisherID: "issues-pub",
+		Name:        "issues.CreateIssue",
+		Description: "Create issue",
+		InputSchema: map[string]any{"type": "object"},
+		Namespace:   "issues",
+	}
+
+	// 1. Missing token -> 401
+	resp := post("/api/v1/registry/register", "", orderTool)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("missing token: want 401, got %d", resp.StatusCode)
+	}
+
+	// 2. Wrong token -> 401
+	resp = post("/api/v1/registry/register", "bad-token", orderTool)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong token: want 401, got %d", resp.StatusCode)
+	}
+
+	// 3. Valid token but disallowed namespace -> 403 NOT_OFFERED
+	resp = post("/api/v1/registry/register", "tok-orders", issueTool)
+	var te taxonomy.TypedError
+	_ = json.NewDecoder(resp.Body).Decode(&te)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("forbidden namespace: want 403, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(te.Code, string(taxonomy.CodeNotOffered)) {
+		t.Fatalf("expected NOT_OFFERED, got %q", te.Code)
+	}
+
+	// 4. Valid token + allowed namespace -> 200
+	resp = post("/api/v1/registry/register", "tok-orders", orderTool)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("allowed namespace: want 200, got %d", resp.StatusCode)
+	}
+
+	// 5. Unregister disallowed namespace -> 403
+	resp = post("/api/v1/registry/unregister", "tok-orders", map[string]string{
+		"publisher_id": "issues-pub",
+		"name":         "issues.CreateIssue",
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("unregister forbidden namespace: want 403, got %d", resp.StatusCode)
+	}
+
+	// 6. Unregister allowed namespace -> 200
+	resp = post("/api/v1/registry/unregister", "tok-orders", map[string]string{
+		"publisher_id": "orders-pub",
+		"name":         "work_orders.CreateOrder",
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unregister allowed namespace: want 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestHubHTTPServer_TelemetryCorrelation(t *testing.T) {
+	registry := hub.NewRegistry()
+	server := hub.NewHubHTTPServer(registry, nil)
+	server.SetTelemetry(nil, nil) // nil-safe check; also tested with real telemetry in cmd/hub
+
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/healthz", nil)
+	req.Header.Set("X-Request-ID", "01J0000000000000000000TEST")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /healthz failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("X-Request-ID"); got != "01J0000000000000000000TEST" {
+		t.Fatalf("expected X-Request-ID echoed back, got %q", got)
+	}
+}
+

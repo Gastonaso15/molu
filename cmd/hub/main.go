@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Gastonaso15/molu/pkg/hub"
+	"github.com/Gastonaso15/molu/pkg/telemetry"
 )
 
 func run(ctx context.Context, getenv func(string) string) error {
@@ -25,14 +26,39 @@ func run(ctx context.Context, getenv func(string) string) error {
 	rulesFile := getenv("MOLU_HUB_RPI_RULES_FILE")
 	rulesJSON := getenv("MOLU_HUB_RPI_RULES_JSON")
 
+	// Initialize telemetry (RF-4)
+	telemetryCfg := telemetry.LoadConfigFromEnv()
+	telemetryCfg.Component = telemetry.ComponentHubRegistry
+	logger := telemetry.NewLogger(telemetryCfg)
+	metrics := telemetry.NewMetrics()
+
+	// Initialize publisher namespace authorizer (§2.6, RF-14)
+	authorizer, err := hub.LoadPublisherAuthorizer(
+		getenv("MOLU_HUB_PUBLISHER_TOKENS_FILE"),
+		getenv("MOLU_HUB_PUBLISHER_TOKENS_JSON"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialize publisher authorizer: %w", err)
+	}
+
 	registry := hub.NewRegistry()
 	provider, err := hub.NewRPIProvider(providerName, rulesFile, rulesJSON)
 	if err != nil {
 		return fmt.Errorf("failed to initialize RPI provider: %w", err)
 	}
+	provider.SetLogger(logger)
+	provider.SetMetrics(metrics)
 
 	discovery := hub.NewDiscovery(registry, provider)
 	hubServer := hub.NewHubHTTPServer(registry, discovery)
+	hubServer.SetAuthorizer(authorizer)
+	hubServer.SetTelemetry(logger, metrics)
+
+	logger.System().Info().
+		Str("addr", addr).
+		Str("rpi_provider", providerName).
+		Bool("publisher_auth_enabled", authorizer.Enabled()).
+		Msg("Starting Hub Standalone")
 
 	srv := &http.Server{
 		Addr:         addr,
@@ -53,6 +79,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 	case err := <-errCh:
 		return fmt.Errorf("http server error: %w", err)
 	case <-ctx.Done():
+		logger.System().Info().Msg("Hub Standalone shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -71,4 +98,3 @@ func main() {
 		os.Exit(1)
 	}
 }
-
