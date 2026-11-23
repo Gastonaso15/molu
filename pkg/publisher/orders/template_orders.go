@@ -10,7 +10,7 @@ import (
 
 const unsupportedTemplateReason = "this template uses consumables (a mobile warehouse), which this publisher does not support yet"
 
-const blocksNotAdvanceableReason = "orders with blocks or a mobile warehouse cannot be advanced from here yet"
+const mobileWarehouseNotAdvanceableReason = "orders with a mobile warehouse cannot be advanced from here yet"
 
 // createTemplateOrder opens an order that follows a template's workflow. It
 // writes the same work_orders document seam-CURE writes for such an order:
@@ -112,8 +112,8 @@ func (s *Service) advanceTemplateOrder(ctx context.Context, in AdvanceInput, doc
 	if doc["assignment_type"] == AssignmentBoard && intOf(doc["responsible_id"]) == 0 {
 		return AdvanceResult{}, rejection("awaiting_claim", "the order is on the board and nobody has claimed it yet", state)
 	}
-	if intOf(doc["block_count"]) > 0 || intOf(doc["mobile_warehouse_id"]) > 0 {
-		return AdvanceResult{}, &ValidationError{Fields: []string{"order_id"}, Reason: blocksNotAdvanceableReason}
+	if intOf(doc["mobile_warehouse_id"]) > 0 {
+		return AdvanceResult{}, &ValidationError{Fields: []string{"order_id"}, Reason: mobileWarehouseNotAdvanceableReason}
 	}
 
 	tpl, err := s.loadTemplate(ctx, idString(doc["template_id"]))
@@ -154,6 +154,15 @@ func (s *Service) advanceTemplateOrder(ctx context.Context, in AdvanceInput, doc
 	if err != nil {
 		return AdvanceResult{}, err
 	}
+	var storedBlocks map[string]any
+	if err := roundTrip(doc["block_values"], &storedBlocks); err != nil {
+		storedBlocks = nil
+	}
+	blocks, blockProblems, err := s.blockAnswers(ctx, tpl, in.BlockValues, storedBlocks)
+	if err != nil {
+		return AdvanceResult{}, err
+	}
+	problems = append(problems, blockProblems...)
 	// The step that reaches the last state is the sign-off.
 	signs := idx == last-1
 	signature, _ := in.Payload["technician_signature"].(string)
@@ -168,6 +177,7 @@ func (s *Service) advanceTemplateOrder(ctx context.Context, in AdvanceInput, doc
 	now := time.Now().UTC().Format(time.RFC3339)
 	patch := map[string]any{
 		"header_values":  headers,
+		"block_values":   blocks,
 		"updated_at":     now,
 		"state":          next,
 		"workflow_index": idx + 1,

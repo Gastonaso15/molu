@@ -476,12 +476,6 @@ func TestTemplateOrder_Advance_Rejections(t *testing.T) {
 		_, err := advance(svc, o.ID, nil)
 		wantRule(t, err, "awaiting_claim")
 	})
-	t.Run("order with blocks", func(t *testing.T) {
-		fs, svc, o := newTemplateOrder(t)
-		fs.entities[EntityType][o.ID]["block_count"] = 2
-		_, err := advance(svc, o.ID, nil)
-		wantInvalid(t, err, "order_id")
-	})
 	t.Run("order with a mobile warehouse", func(t *testing.T) {
 		fs, svc, o := newTemplateOrder(t)
 		fs.entities[EntityType][o.ID]["mobile_warehouse_id"] = int64(5)

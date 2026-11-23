@@ -680,3 +680,63 @@ func TestRealXolu_CommitIsAtomic(t *testing.T) {
 		t.Fatalf("a rejected commit must save nothing, got %v", err)
 	}
 }
+
+// Advances an order with blocks, answering block lines by name, against the
+// real xolu: the answers must land under Seam's keys and read back by name.
+func TestRealXolu_AdvanceOrderWithBlockAnswers(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
+	crew := mk("crews", map[string]any{"name": "Cuadrilla respuestas " + tag})
+	assetType := int64(81)
+	asset := mk("assets", map[string]any{"name": "Equipo respuestas", "type_id": assetType})
+	tpl := mk(TemplateEntityType, map[string]any{
+		"name": "Plantilla respuestas " + tag, "version": 1, "latest": true, "asset_type_id": assetType, "min_assets": 1, "max_assets": 1,
+		"workflow_states": []map[string]any{{"name": "Pendiente"}, {"name": "En curso"}, {"name": "Cerrada"}},
+		"header_items":    []map[string]any{},
+		"blocks": []map[string]any{
+			{"name": "Preparacion", "predecessor": "", "responsible_type": "user", "lines": []map[string]any{{"name": "aislado", "type": "boolean"}, {"name": "nota", "type": "text"}}},
+			{"name": "Trabajo", "predecessor": "Preparacion", "responsible_type": "crew", "lines": []map[string]any{{"name": "horas", "type": "number"}}},
+		},
+		"consumables_allowed": false,
+	})
+	o, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, BlockValues: map[string]any{"Trabajo": map[string]any{"horas": "muchas"}}}); err == nil {
+		t.Fatal("a badly typed answer must be rejected")
+	}
+	r, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, BlockValues: map[string]any{"Preparacion": map[string]any{"aislado": true, "nota": "listo"}}})
+	if err != nil || r.Current != "En curso" {
+		t.Fatalf("step 1 = %+v err=%v", r, err)
+	}
+	r, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete,
+		BlockValues: map[string]any{"Trabajo": map[string]any{"horas": 2.5}}, Payload: map[string]any{"technician_signature": "firma"}})
+	if err != nil || r.Current != "Cerrada" || !r.Order.Terminal {
+		t.Fatalf("step 2 = %+v err=%v", r, err)
+	}
+
+	doc, err := sub.GetEntity(ctx, EntityType, o.ID)
+	bv, _ := doc["block_values"].(map[string]any)
+	if err != nil || bv["template_block_0_line_0"] != true || bv["template_block_0_line_1"] != "listo" || len(bv) != 3 {
+		t.Fatalf("stored block_values = %v err=%v", bv, err)
+	}
+	d, err := svc.GetOrder(ctx, o.ID)
+	if err != nil || d.BlockAnswers["Preparacion"]["nota"] != "listo" || d.BlockAnswers["Trabajo"]["horas"] != json.Number("2.5") && d.BlockAnswers["Trabajo"]["horas"] != 2.5 || !d.Signed {
+		t.Fatalf("answers = %v signed=%v err=%v", d.BlockAnswers, d.Signed, err)
+	}
+}

@@ -102,7 +102,8 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			"Move a work order forward. Simple orders: fire an input, start (draft to in_progress) or complete (in_progress to completed, "+
 				"requires payload.technician_signature); the state machine may reject it and the rejection is returned as-is. "+
 				"Template orders: the only input is complete, which moves to the next state of the template; header_values answers "+
-				"the header items filled while executing, and the step that reaches the last state needs payload.technician_signature. "+
+				"the header items filled while executing, block_values answers the lines of the template's blocks (GetOrder shows them as block_answers), "+
+				"and the step that reaches the last state needs payload.technician_signature. "+
 				"Rejected steps (stale step, final state, board posting not claimed) come back as INVALID_TRANSITION with details.rule.",
 			"/api/v1/orders/advance",
 			map[string]any{
@@ -112,6 +113,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 					"input":          map[string]any{"type": "string", "minLength": 1, "description": "start or complete (template orders: complete)."},
 					"payload":        map[string]any{"type": "object", "description": "complete needs {\"technician_signature\": \"...\"} (simple orders, and the last step of a template order)."},
 					"header_values":  map[string]any{"type": "object", "description": "Template orders: answers by header tag for the items filled while executing."},
+					"block_values":   map[string]any{"type": "object", "description": "Template orders with blocks, optional: answers to the blocks' lines by block name then line name, e.g. {\"Preparacion\": {\"aislado\": true}}. Checked against each line's type; a missing or blank answer keeps the stored one."},
 					"workflow_index": map[string]any{"type": "integer", "description": "Template orders, optional: the step you believe the order is at; a mismatch is rejected as stale."},
 				},
 				"required":             []any{"order_id", "input"},

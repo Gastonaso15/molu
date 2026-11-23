@@ -69,7 +69,7 @@ func blockTemplate(fs *fakeSubstrate, id string, blocks []any) {
 		"name": "Con bloques", "description": "d", "version": 2, "latest": true,
 		"asset_type_id": 5, "min_assets": 1, "max_assets": 2,
 		"workflow_states":     []any{map[string]any{"name": "Pendiente"}, map[string]any{"name": "En curso"}, map[string]any{"name": "Cerrada"}},
-		"header_items":        []any{},
+		"header_items":        []any{map[string]any{"tag": "observacion", "type": "text", "to_fill_out": "upon_executing", "required": true}},
 		"blocks":              blocks,
 		"consumables_allowed": false,
 	})

@@ -2,6 +2,7 @@ package orders
 
 import (
 	"context"
+	"errors"
 	"math"
 	"sort"
 	"strings"
@@ -40,6 +41,16 @@ func (s *Service) GetOrder(ctx context.Context, id string) (OrderDetail, error) 
 		d.BlockValues = bv
 	}
 
+	if len(d.BlockValues) > 0 && templateOrder(doc) {
+		tpl, err := s.loadTemplate(ctx, idString(doc["template_id"]))
+		var ve *ValidationError
+		switch {
+		case err == nil:
+			d.BlockAnswers = decodeBlockAnswers(tpl, d.BlockValues)
+		case !errors.As(err, &ve): // a template that cannot be read leaves the raw values
+			return OrderDetail{}, err
+		}
+	}
 	if d.Blocks, err = s.orderBlocks(ctx, id); err != nil {
 		return OrderDetail{}, err
 	}

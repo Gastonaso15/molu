@@ -109,10 +109,14 @@ type CreateInput struct {
 // needs payload.technician_signature. WorkflowIndex, when set, is the step
 // the caller believes the order is at: a mismatch is rejected as stale.
 type AdvanceInput struct {
-	OrderID       string         `json:"order_id"`
-	Input         string         `json:"input"`
-	Payload       map[string]any `json:"payload,omitempty"`
-	HeaderValues  map[string]any `json:"header_values,omitempty"`
+	OrderID      string         `json:"order_id"`
+	Input        string         `json:"input"`
+	Payload      map[string]any `json:"payload,omitempty"`
+	HeaderValues map[string]any `json:"header_values,omitempty"`
+	// BlockValues answers the lines of the template's blocks, by block name and
+	// then line name: {"Preparacion": {"aislado": true}}. Optional; an answer
+	// that is not given (or is blank) keeps the one already stored.
+	BlockValues   map[string]any `json:"block_values,omitempty"`
 	WorkflowIndex *int           `json:"workflow_index,omitempty"`
 }
 
@@ -376,13 +380,16 @@ type MobileWarehouse struct {
 // returned.
 type OrderDetail struct {
 	WorkOrder
-	CreatedAt       string           `json:"created_at,omitempty"`
-	UpdatedAt       string           `json:"updated_at,omitempty"`
-	ClaimedByUserID string           `json:"claimed_by_user_id,omitempty"`
-	Signed          bool             `json:"signed"`
-	BlockValues     map[string]any   `json:"block_values,omitempty"`
-	Blocks          []OrderBlock     `json:"blocks,omitempty"`
-	MobileWarehouse *MobileWarehouse `json:"mobile_warehouse,omitempty"`
+	CreatedAt       string         `json:"created_at,omitempty"`
+	UpdatedAt       string         `json:"updated_at,omitempty"`
+	ClaimedByUserID string         `json:"claimed_by_user_id,omitempty"`
+	Signed          bool           `json:"signed"`
+	BlockValues     map[string]any `json:"block_values,omitempty"` // as stored: keys template_block_<block>_line_<line>
+	// BlockAnswers is BlockValues by block and line name (template orders whose
+	// template can still be read).
+	BlockAnswers    map[string]map[string]any `json:"block_answers,omitempty"`
+	Blocks          []OrderBlock              `json:"blocks,omitempty"`
+	MobileWarehouse *MobileWarehouse          `json:"mobile_warehouse,omitempty"`
 	// History is the FSM history of orders driven by a xolu machine (those
 	// opened without a template).
 	History []HistoryEntry `json:"history,omitempty"`
