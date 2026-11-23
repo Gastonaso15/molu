@@ -87,7 +87,9 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"additionalProperties": false,
 			}),
 		mk("GetOrder",
-			"Fetch a work order and its current lifecycle state by id.",
+			"Fetch one work order in full by id: state, assignment and who claimed it, header and block answers, its blocks with their own state and values (in order, with predecessors), "+
+				"the mobile warehouse with the stock it holds, whether it is signed (the signature image is not returned), and for orders without a template the FSM history of its transitions. "+
+				"Use ListOrders to find orders.",
 			"/api/v1/orders/get",
 			map[string]any{
 				"type":                 "object",

@@ -23,6 +23,7 @@ type fakeSubstrate struct {
 	ensureErr   error
 	failWith    error // when set, every call returns it
 	patchErr    error
+	history     map[string][]HistoryEntry // machine id -> FSM history
 }
 
 func newFake() *fakeSubstrate {
@@ -230,8 +231,8 @@ func TestOrderService_GetOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrder: %v", err)
 	}
-	if !reflect.DeepEqual(got, created) {
-		t.Fatalf("got %+v, want %+v", got, created)
+	if !reflect.DeepEqual(got.WorkOrder, created) {
+		t.Fatalf("got %+v, want %+v", got.WorkOrder, created)
 	}
 }
 

@@ -273,6 +273,8 @@ type Substrate interface {
 	// ListEntities returns every document of the entity type (newest first),
 	// each with its "id".
 	ListEntities(ctx context.Context, entityType string) ([]map[string]any, error)
+	// MachineHistory returns the FSM history of a machine, oldest first.
+	MachineHistory(ctx context.Context, machineID string) ([]HistoryEntry, error)
 	// FindEntities returns the documents matching every condition, newest
 	// first, at most q.Limit of them (each with its "id").
 	FindEntities(ctx context.Context, entityType string, q EntityQuery) ([]map[string]any, error)
@@ -290,6 +292,66 @@ type Condition struct {
 type EntityQuery struct {
 	Where []Condition
 	Limit int
+	// OrderBy lists fields to sort by, each newest/highest first. Empty means
+	// created_at, then id.
+	OrderBy []string
+}
+
+// HistoryEntry is one step of an FSM machine: the creation (empty From and
+// Input) or a transition fired with Input from From to To.
+type HistoryEntry struct {
+	At    string `json:"at"`
+	From  string `json:"from,omitempty"`
+	Input string `json:"input,omitempty"`
+	To    string `json:"to"`
+	Note  string `json:"note,omitempty"`
+}
+
+// OrderBlock is the execution of one template block inside an order. Its State
+// (pending, in_progress, completed) is a copy of the block's own FSM.
+type OrderBlock struct {
+	ID               string         `json:"id"`
+	Index            int            `json:"index"`
+	Name             string         `json:"name"`
+	State            string         `json:"state"`
+	PredecessorIndex *int           `json:"predecessor_index,omitempty"` // nil: no predecessor
+	Values           map[string]any `json:"values,omitempty"`
+	StartedAt        string         `json:"started_at,omitempty"`
+	CompletedAt      string         `json:"completed_at,omitempty"`
+}
+
+// StockLine is the quantity of one consumable held by a warehouse.
+type StockLine struct {
+	ConsumableID string  `json:"consumable_id"`
+	Name         string  `json:"name"`
+	Unit         string  `json:"unit,omitempty"`
+	Quantity     float64 `json:"quantity"`
+}
+
+// MobileWarehouse is the temporary warehouse an order opens for its supplies.
+type MobileWarehouse struct {
+	ID                string      `json:"id"`
+	Name              string      `json:"name"`
+	Enabled           bool        `json:"enabled"`
+	ResponsibleUserID string      `json:"responsible_user_id,omitempty"`
+	Stock             []StockLine `json:"stock"`
+}
+
+// OrderDetail is the full record of an order: what GetOrder returns. Signed
+// says a technician signature is stored; the signature image itself is not
+// returned.
+type OrderDetail struct {
+	WorkOrder
+	CreatedAt       string           `json:"created_at,omitempty"`
+	UpdatedAt       string           `json:"updated_at,omitempty"`
+	ClaimedByUserID string           `json:"claimed_by_user_id,omitempty"`
+	Signed          bool             `json:"signed"`
+	BlockValues     map[string]any   `json:"block_values,omitempty"`
+	Blocks          []OrderBlock     `json:"blocks,omitempty"`
+	MobileWarehouse *MobileWarehouse `json:"mobile_warehouse,omitempty"`
+	// History is the FSM history of orders driven by a xolu machine (those
+	// opened without a template).
+	History []HistoryEntry `json:"history,omitempty"`
 }
 
 // XoluError is a non-success answer from xolu, kept raw so the service can

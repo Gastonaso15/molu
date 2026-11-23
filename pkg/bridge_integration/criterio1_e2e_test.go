@@ -93,6 +93,12 @@ func (x *fakeXolu) handler() http.Handler {
 			xoluJSON(w, 200, map[string]any{"id": m.id, "state": m.state})
 			return
 		}
+		if len(parts) == 2 && parts[1] == "history" {
+			xoluJSON(w, 200, map[string]any{"machine": m.id, "entries": []any{
+				map[string]any{"at": "2026-11-23T10:00:00Z", "from": nil, "input": nil, "note": "machine created", "to": x.def["initial"]},
+			}})
+			return
+		}
 		x.walk(w, r, m)
 	})
 	// Seam's work_orders entity: the machine is linked through machine_id and
@@ -141,6 +147,14 @@ func (x *fakeXolu) handler() http.Handler {
 		})
 	}
 	mux.HandleFunc("/api/v1/oql/query", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Query string `json:"query"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&q)
+		if !strings.Contains(q.Query, "work_order_templates") {
+			xoluJSON(w, 200, map[string]any{"status": "ok", "data": []any{}}) // blocks, stock, ...: none
+			return
+		}
 		xoluJSON(w, 200, map[string]any{"status": "ok", "data": []any{
 			map[string]any{"id": 3, "name": "Pump check", "version": 2, "latest": true,
 				"workflow_states": []any{map[string]any{"name": "Open"}, map[string]any{"name": "Done"}}},
@@ -324,6 +338,9 @@ func TestCriterio1_E2E(t *testing.T) {
 	got := e2eSuccess(t, h.call(t, "work_orders.GetOrder", map[string]any{"order_id": id}))
 	if got["id"] != id || got["state"] != "draft" {
 		t.Fatalf("unexpected order: %v", got)
+	}
+	if hist, _ := got["history"].([]any); len(hist) != 1 {
+		t.Fatalf("GetOrder should carry the FSM history: %v", got)
 	}
 
 	// 4. THE CRITERION: an illegal transition is rejected by xolu's FSM and the

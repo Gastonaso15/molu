@@ -89,18 +89,6 @@ func (s *Service) CreateOrder(ctx context.Context, in CreateInput) (WorkOrder, e
 	return orderFromDoc(id, doc), nil
 }
 
-// GetOrder returns the order or NotFoundError.
-func (s *Service) GetOrder(ctx context.Context, id string) (WorkOrder, error) {
-	if strings.TrimSpace(id) == "" {
-		return WorkOrder{}, &ValidationError{Fields: []string{"order_id"}}
-	}
-	doc, err := s.sub.GetEntity(ctx, EntityType, id)
-	if err != nil {
-		return WorkOrder{}, classify(err, id)
-	}
-	return orderFromDoc(id, doc), nil
-}
-
 // AdvanceOrder fires an FSM input on the order's machine and then copies the
 // new state onto the order document, as Seam does. A rejection by xolu (no
 // transition, or a guard that evaluated false) becomes a TransitionError whose

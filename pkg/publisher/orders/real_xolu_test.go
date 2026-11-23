@@ -304,3 +304,78 @@ func TestRealXolu_GetTemplate(t *testing.T) {
 		t.Fatal("want NotFoundError")
 	}
 }
+
+// Reads an order with blocks, a mobile warehouse (legacy balance plus a
+// stock_by_warehouse consumable) and the FSM history of a legacy order.
+func TestRealXolu_GetOrderDetail(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+
+	// Legacy order: the history comes from its machine.
+	legacy, err := svc.CreateOrder(ctx, CreateInput{Title: "Historial real"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: legacy.ID, Input: InputStart}); err != nil {
+		t.Fatal(err)
+	}
+	ld, err := svc.GetOrder(ctx, legacy.ID)
+	if err != nil || len(ld.History) != 2 || ld.History[0].To != "draft" || ld.History[1].Input != "start" || ld.History[1].To != "in_progress" {
+		t.Fatalf("history = %+v err=%v", ld.History, err)
+	}
+
+	// Template order with blocks and a mobile warehouse.
+	unit := mk("unit", map[string]any{"symbol": "uD", "name": "unidad detalle"})
+	migrated := mk("consumable", map[string]any{"name": "Migrado detalle", "consumable_unit": json.Number(unit), "enabled": true})
+	plain := mk("consumable", map[string]any{"name": "Legado detalle", "enabled": true})
+	wh := mk("warehouse", map[string]any{
+		"name": "Movil detalle", "type": "mobile", "enabled": true,
+		"consumables": []map[string]any{{"consumable_id": json.Number(plain), "stock": 2.5}},
+	})
+	if err := sub.PatchEntity(ctx, "consumable", migrated, map[string]any{"stock_by_warehouse": map[string]any{wh: 150}}); err != nil {
+		t.Fatalf("stock_by_warehouse: %v", err)
+	}
+	order := mk(EntityType, map[string]any{
+		"title": "Con bloques", "state": "Pendiente", "workflow_mode": "template", "workflow_index": 0,
+		"mobile_warehouse_id": json.Number(wh), "block_count": 2, "created_at": "2026-11-23T10:00:00Z",
+	})
+	for i, name := range []string{"Preparacion", "Trabajo"} {
+		pred := -1
+		if i == 1 {
+			pred = 0
+		}
+		mk("work_order_blocks", map[string]any{
+			"work_order_id": json.Number(order), "block_index": 1 - i, "predecessor_index": pred, "name": name,
+			"machine_id": 0, "state": "pending", "values": map[string]any{},
+		})
+	}
+	d, err := svc.GetOrder(ctx, order)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Blocks) != 2 || d.Blocks[0].Index != 0 || d.Blocks[1].Index != 1 {
+		t.Fatalf("blocks = %+v", d.Blocks)
+	}
+	w := d.MobileWarehouse
+	if w == nil || w.Name != "Movil detalle" || len(w.Stock) != 2 {
+		t.Fatalf("warehouse = %+v", w)
+	}
+	// Sorted by name: "Legado detalle" (legacy 2.5), then "Migrado detalle" (1.5 uD).
+	if w.Stock[0].Name != "Legado detalle" || w.Stock[0].Quantity != 2.5 || w.Stock[1].Name != "Migrado detalle" ||
+		w.Stock[1].Quantity != 1.5 || w.Stock[1].Unit != "uD" {
+		t.Fatalf("stock = %+v", w.Stock)
+	}
+	t.Logf("detail ok: %d blocks, stock %+v", len(d.Blocks), w.Stock)
+}

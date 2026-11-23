@@ -138,7 +138,21 @@ func (h *HTTPSubstrate) FindEntities(ctx context.Context, entityType string, q E
 		}
 		fmt.Fprintf(&sb, "%s %s %s", c.Field, c.Op, lit)
 	}
-	sb.WriteString(" ORDER BY created_at DESC, id DESC")
+	order := q.OrderBy
+	if len(order) == 0 {
+		order = []string{"created_at", "id"}
+	}
+	for i, f := range order {
+		if !safeIdent(f) {
+			return nil, fmt.Errorf("invalid order field %q", f)
+		}
+		if i == 0 {
+			sb.WriteString(" ORDER BY ")
+		} else {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(f + " DESC")
+	}
 	var out struct {
 		Data []map[string]any `json:"data"`
 	}
@@ -170,6 +184,27 @@ func oqlLiteral(v any) (string, error) {
 		return "'" + strings.ReplaceAll(t, "'", "''") + "'", nil
 	}
 	return "", fmt.Errorf("unsupported value type %T", v)
+}
+
+// MachineHistory reads the transitions of a machine, oldest first.
+func (h *HTTPSubstrate) MachineHistory(ctx context.Context, machineID string) ([]HistoryEntry, error) {
+	var out struct {
+		Entries []map[string]any `json:"entries"`
+	}
+	if err := h.do(ctx, http.MethodGet, "/api/v2/fsm/machine/"+url.PathEscape(machineID)+"/history", nil, &out); err != nil {
+		return nil, err
+	}
+	entries := make([]HistoryEntry, 0, len(out.Entries))
+	for _, e := range out.Entries {
+		var he HistoryEntry
+		he.At, _ = e["at"].(string)
+		he.From, _ = e["from"].(string)
+		he.Input, _ = e["input"].(string)
+		he.To, _ = e["to"].(string)
+		he.Note, _ = e["note"].(string)
+		entries = append(entries, he)
+	}
+	return entries, nil
 }
 
 func (h *HTTPSubstrate) Walk(ctx context.Context, machineID, input string, payload map[string]any) (WalkResult, error) {
