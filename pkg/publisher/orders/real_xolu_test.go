@@ -1079,3 +1079,55 @@ func TestRealXolu_InventoryWrite(t *testing.T) {
 		t.Fatalf("UpdateConsumable: %+v err=%v", consUpd, err)
 	}
 }
+
+// Verifies CreateTemplate and PublishTemplateVersion (atomic latest flip +
+// version+1) against a real xolu.
+func TestRealXolu_TemplateWrite(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
+
+	v1, err := svc.CreateTemplate(ctx, CreateTemplateInput{
+		Name:           "Plantilla CRUD " + tag,
+		Description:    "v1",
+		WorkflowStates: []string{"Pendiente", "Cerrada"},
+		Blocks: []TemplateBlock{
+			{Name: "Paso 1", ResponsibleType: "crew", Lines: []TemplateBlockLine{{Name: "ok", Type: "boolean"}}},
+		},
+	})
+	if err != nil || v1.Version != 1 || !v1.Latest || !v1.Supported {
+		t.Fatalf("CreateTemplate: %+v err=%v", v1, err)
+	}
+	v2, err := svc.PublishTemplateVersion(ctx, PublishTemplateVersionInput{
+		PreviousTemplateID: ID(v1.ID),
+		CreateTemplateInput: CreateTemplateInput{
+			Name:           "Plantilla CRUD " + tag,
+			Description:    "v2",
+			WorkflowStates: []string{"Pendiente", "En curso", "Cerrada"},
+			Blocks: []TemplateBlock{
+				{Name: "Paso 1", ResponsibleType: "crew", Lines: []TemplateBlockLine{{Name: "ok", Type: "boolean"}}},
+			},
+		},
+	})
+	if err != nil || v2.Version != 2 || !v2.Latest {
+		t.Fatalf("PublishTemplateVersion: %+v err=%v", v2, err)
+	}
+	// v1 must now be latest=false and reject a second publish.
+	v1Read, err := svc.GetTemplate(ctx, GetTemplateInput{TemplateID: ID(v1.ID)})
+	if err != nil || v1Read.Latest {
+		t.Fatalf("v1 after publish = %+v err=%v", v1Read, err)
+	}
+	_, err = svc.PublishTemplateVersion(ctx, PublishTemplateVersionInput{
+		PreviousTemplateID: ID(v1.ID),
+		CreateTemplateInput: CreateTemplateInput{
+			Name:           "Plantilla CRUD " + tag,
+			WorkflowStates: []string{"Pendiente", "Cerrada"},
+		},
+	})
+	wantRule(t, err, "not_latest")
+}

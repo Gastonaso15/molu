@@ -452,6 +452,16 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				},
 				"additionalProperties": false,
 			}),
+		mk("CreateTemplate",
+			"Create version 1 (latest=true) of a work order template after validating workflow states (at least 2 distinct), header items, blocks (acyclic predecessors, max 25 commit records including mobile warehouse), "+
+				"consumables, actions, rules and numbering. Templates are immutable once created; use PublishTemplateVersion for a new version.",
+			"/api/v1/orders/templates/create",
+			templateWriteSchema(false)),
+		mk("PublishTemplateVersion",
+			"Publish a new version (version+1, latest=true) of an existing latest work order template, atomically setting latest=false on previous_template_id in one Commit guarded by _version. "+
+				"Rejects already-superseded versions with INVALID_TRANSITION (details.rule=not_latest) and concurrent changes with stale_state.",
+			"/api/v1/orders/templates/publish-version",
+			templateWriteSchema(true)),
 	}
 }
 
@@ -554,6 +564,38 @@ func getSchema(field, desc string) map[string]any {
 		"type":                 "object",
 		"properties":           map[string]any{field: idSchema(desc)},
 		"required":             []string{field},
+		"additionalProperties": false,
+	}
+}
+
+func templateWriteSchema(withPrevious bool) map[string]any {
+	props := map[string]any{
+		"name":                      map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
+		"description":               map[string]any{"type": "string"},
+		"color":                     map[string]any{"type": "string"},
+		"icon":                      map[string]any{"type": "string"},
+		"asset_type_id":             idSchema("Optional asset type id required for selected assets."),
+		"min_assets":                map[string]any{"type": "integer", "minimum": 0},
+		"max_assets":                map[string]any{"type": "integer", "minimum": 0},
+		"workflow_states":           map[string]any{"type": "array", "minItems": 2, "items": map[string]any{"type": "string", "minLength": 1}},
+		"header_items":              map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+		"blocks":                    map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+		"consumables_enabled":       map[string]any{"type": "boolean"},
+		"extra_consumables_allowed": map[string]any{"type": "boolean"},
+		"consumables":               map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+		"actions":                   map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+		"rules":                     map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+		"numbering":                 map[string]any{"type": "object"},
+	}
+	req := []string{"name", "workflow_states"}
+	if withPrevious {
+		props["previous_template_id"] = idSchema("Id of the current latest template version to supersede.")
+		req = append([]string{"previous_template_id"}, req...)
+	}
+	return map[string]any{
+		"type":                 "object",
+		"properties":           props,
+		"required":             req,
 		"additionalProperties": false,
 	}
 }
