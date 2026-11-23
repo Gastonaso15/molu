@@ -67,7 +67,8 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			"Open a new work order. Without template_id it is a simple order (draft, then in_progress, then completed). "+
 				"With template_id (see ListTemplates) it follows that template's workflow: assignment_type and responsible_type are required, "+
 				"header_values answers the template's header items filled at creation, and asset_ids picks its assets. "+
-				"Templates marked supported=false (blocks, mobile warehouse) are rejected. A direct assignment needs a crew or third_party "+
+				"If the template has blocks, each one gets its own record and lifecycle (pending) in one atomic write; ids of such orders are large numbers, treat them as opaque strings. "+
+				"Templates marked supported=false (consumables / mobile warehouse yet unsupported, or invalid blocks) are rejected. A direct assignment needs a crew or third_party "+
 				"responsible_id; a user cannot be assigned directly from here, use board_posting instead.",
 			"/api/v1/orders/create",
 			map[string]any{

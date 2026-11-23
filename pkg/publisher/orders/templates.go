@@ -55,8 +55,10 @@ type workOrderTemplate struct {
 	Headers     []headerItem
 	States      []string
 
-	// Blocks and the mobile warehouse are not supported yet: a template that
-	// uses them cannot be opened here, or Seam would show an incomplete order.
+	// Blocks become one record and one machine each when an order is opened.
+	// The mobile warehouse (consumables) is not supported yet: a template that
+	// uses it cannot be opened here, or Seam would show an incomplete order.
+	Blocks          []TemplateBlock
 	HasBlocks       bool
 	UsesConsumables bool
 }
@@ -83,11 +85,10 @@ func parseTemplateDoc(id string, doc map[string]any) (workOrderTemplate, error) 
 	if err := roundTrip(doc["header_items"], &t.Headers); err != nil {
 		return t, fmt.Errorf("decode header_items: %w", err)
 	}
-	var blocks []json.RawMessage
-	if err := roundTrip(doc["blocks"], &blocks); err != nil {
+	if err := roundTrip(doc["blocks"], &t.Blocks); err != nil {
 		return t, fmt.Errorf("decode blocks: %w", err)
 	}
-	t.HasBlocks = len(blocks) > 0
+	t.HasBlocks = len(t.Blocks) > 0
 	return t, nil
 }
 

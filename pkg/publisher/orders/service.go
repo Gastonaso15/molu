@@ -3,6 +3,7 @@ package orders
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,9 @@ type Service struct {
 
 	defMu sync.Mutex
 	defID string
+
+	blockDefMu sync.Mutex
+	blockDefID string
 }
 
 func NewService(sub Substrate) *Service { return &Service{sub: sub} }
@@ -69,13 +73,14 @@ func (s *Service) CreateOrder(ctx context.Context, in CreateInput) (WorkOrder, e
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	doc := map[string]any{
-		"title":       title,
-		"description": in.Description,
-		"assigned_to": assigned,
-		"state":       m.State,
-		"machine_id":  numericOrString(m.ID),
-		"created_at":  now,
-		"updated_at":  now,
+		"title":        title,
+		"description":  in.Description,
+		"assigned_to":  assigned,
+		"state":        m.State,
+		"machine_id":   numericOrString(m.ID),
+		"block_values": map[string]any{},
+		"created_at":   now,
+		"updated_at":   now,
 	}
 	if asg.Type != "" {
 		doc["assignment_type"] = asg.Type
@@ -221,8 +226,12 @@ func templateFromRow(row map[string]any) Template {
 			t.HeaderItems = append(t.HeaderItems, TemplateHeaderItem{Tag: h.Tag, Type: h.Type, FilledAt: h.ToFillOut, Required: h.Required, DefaultValue: h.DefaultValue})
 		}
 		switch {
-		case parsed.HasBlocks || parsed.UsesConsumables:
+		case parsed.UsesConsumables:
 			t.Supported, t.Reason = false, unsupportedTemplateReason
+		case len(parsed.Blocks) > maxCommitAppends:
+			t.Supported, t.Reason = false, fmt.Sprintf("the template has %d blocks but one commit holds at most %d records", len(parsed.Blocks), maxCommitAppends)
+		case blocksInvalid(parsed.Blocks) != nil:
+			t.Supported, t.Reason = false, "the template blocks are invalid: "+blocksInvalid(parsed.Blocks).Error()
 		case parsed.validateWorkflow() != nil:
 			t.Supported, t.Reason = false, "the template workflow is invalid: "+parsed.validateWorkflow().Error()
 		}
@@ -272,5 +281,11 @@ func classify(err error, orderID string) error {
 	case xe.Status >= 500:
 		return &UnavailableError{Cause: err}
 	}
+	return err
+}
+
+// blocksInvalid reports why a template's blocks cannot be opened, or nil.
+func blocksInvalid(blocks []TemplateBlock) error {
+	_, err := blockPredecessors(blocks)
 	return err
 }

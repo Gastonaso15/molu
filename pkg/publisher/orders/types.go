@@ -264,6 +264,14 @@ type Substrate interface {
 	EnsureDefinition(ctx context.Context, name string, def Definition) (string, error)
 	// CreateMachine mints a machine from a definition.
 	CreateMachine(ctx context.Context, definitionID string) (Machine, error)
+	// CreateMachineWithRef mints a machine bound to an external reference, so
+	// an operator can find it later even if the answer is lost.
+	CreateMachineWithRef(ctx context.Context, definitionID, ref string) (Machine, error)
+	// DeleteMachine removes a machine and its history.
+	DeleteMachine(ctx context.Context, machineID string) error
+	// Commit saves one entity (insert or update by id) together with up to 25
+	// appended records, all or nothing.
+	Commit(ctx context.Context, req CommitRequest) error
 	// CreateEntity stores a document and returns its id.
 	CreateEntity(ctx context.Context, entityType string, data map[string]any) (string, error)
 	GetEntity(ctx context.Context, entityType, id string) (map[string]any, error)
@@ -279,6 +287,32 @@ type Substrate interface {
 	// first, at most q.Limit of them (each with its "id").
 	FindEntities(ctx context.Context, entityType string, q EntityQuery) ([]map[string]any, error)
 }
+
+// CommitUpdate is the primary write of a Commit: an upsert of entity ID. A nil
+// Version writes unconditionally.
+type CommitUpdate struct {
+	Entity  string         `json:"entity"`
+	ID      int64          `json:"id"`
+	Version *int           `json:"version,omitempty"`
+	Data    map[string]any `json:"data"`
+}
+
+// CommitAppend is one more record saved by the same Commit. A nil ID lets xolu
+// assign it.
+type CommitAppend struct {
+	Entity string         `json:"entity"`
+	ID     *int64         `json:"id,omitempty"`
+	Data   map[string]any `json:"data"`
+}
+
+// CommitRequest is the payload of xolu's atomic multi-entity write.
+type CommitRequest struct {
+	Update CommitUpdate   `json:"update"`
+	Append []CommitAppend `json:"append"`
+}
+
+// maxCommitAppends is how many records one xolu Commit can append.
+const maxCommitAppends = 25
 
 // Condition is one comparison of a document field. Op is "=", ">=" or "<=".
 // Integer values (int, int64) are compared as numbers; strings as text.

@@ -8,7 +8,9 @@ import (
 	"time"
 )
 
-const unsupportedTemplateReason = "this template uses blocks or a mobile warehouse (consumables), which this publisher does not support yet"
+const unsupportedTemplateReason = "this template uses consumables (a mobile warehouse), which this publisher does not support yet"
+
+const blocksNotAdvanceableReason = "orders with blocks or a mobile warehouse cannot be advanced from here yet"
 
 // createTemplateOrder opens an order that follows a template's workflow. It
 // writes the same work_orders document seam-CURE writes for such an order:
@@ -24,7 +26,7 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 		return WorkOrder{}, &ValidationError{Fields: []string{"template_version"},
 			Reason: fmt.Sprintf("template %s is at version %d, not %d", tpl.ID, tpl.Version, in.TemplateVersion)}
 	}
-	if tpl.HasBlocks || tpl.UsesConsumables {
+	if tpl.UsesConsumables {
 		return WorkOrder{}, &ValidationError{Fields: []string{"template_id"}, Reason: unsupportedTemplateReason}
 	}
 	if err := tpl.validateWorkflow(); err != nil {
@@ -86,9 +88,17 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 		"header_values":    headers,
 		"asset_ids":        assets,
 	}
-	id, err := s.sub.CreateEntity(ctx, EntityType, doc)
+	var id string
+	if len(tpl.Blocks) > 0 {
+		id, err = s.createOrderWithBlocks(ctx, tpl, doc)
+	} else {
+		id, err = s.sub.CreateEntity(ctx, EntityType, doc)
+		if err != nil {
+			err = classify(err, "")
+		}
+	}
 	if err != nil {
-		return WorkOrder{}, classify(err, "")
+		return WorkOrder{}, err
 	}
 	return orderFromDoc(id, doc), nil
 }
@@ -103,7 +113,7 @@ func (s *Service) advanceTemplateOrder(ctx context.Context, in AdvanceInput, doc
 		return AdvanceResult{}, rejection("awaiting_claim", "the order is on the board and nobody has claimed it yet", state)
 	}
 	if intOf(doc["block_count"]) > 0 || intOf(doc["mobile_warehouse_id"]) > 0 {
-		return AdvanceResult{}, &ValidationError{Fields: []string{"order_id"}, Reason: unsupportedTemplateReason}
+		return AdvanceResult{}, &ValidationError{Fields: []string{"order_id"}, Reason: blocksNotAdvanceableReason}
 	}
 
 	tpl, err := s.loadTemplate(ctx, idString(doc["template_id"]))

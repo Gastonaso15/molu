@@ -24,6 +24,15 @@ type fakeSubstrate struct {
 	failWith    error // when set, every call returns it
 	patchErr    error
 	history     map[string][]HistoryEntry // machine id -> FSM history
+
+	// block creation: machine refs, deleted machines and commit behaviour
+	refs               map[string]string // machine id -> ref
+	deleted            []string
+	commits            int
+	commitErr          error // Commit fails before saving anything
+	commitSavesThenErr error // Commit saves, then answers with this error
+	failMachineAt      int   // the Nth CreateMachineWithRef fails (1-based)
+	machineCalls       int
 }
 
 func newFake() *fakeSubstrate {

@@ -67,6 +67,30 @@ func (h *HTTPSubstrate) CreateMachine(ctx context.Context, definitionID string) 
 	return m, nil
 }
 
+// CreateMachineWithRef is CreateMachine with the machine's external reference.
+func (h *HTTPSubstrate) CreateMachineWithRef(ctx context.Context, definitionID, ref string) (Machine, error) {
+	body := map[string]any{"definition": numericOrString(definitionID), "ref": ref}
+	var out map[string]any
+	if err := h.do(ctx, http.MethodPost, "/api/v2/fsm/machine", body, &out); err != nil {
+		return Machine{}, err
+	}
+	m := machineFrom(out)
+	if m.ID == "" {
+		return Machine{}, fmt.Errorf("xolu created a machine without an id")
+	}
+	return m, nil
+}
+
+// DeleteMachine removes a machine and its history.
+func (h *HTTPSubstrate) DeleteMachine(ctx context.Context, machineID string) error {
+	return h.do(ctx, http.MethodDelete, "/api/v2/fsm/machine/"+url.PathEscape(machineID), nil, nil)
+}
+
+// Commit is xolu's atomic multi-entity write: POST /api/v1/commit.
+func (h *HTTPSubstrate) Commit(ctx context.Context, req CommitRequest) error {
+	return h.do(ctx, http.MethodPost, "/api/v1/commit", req, nil)
+}
+
 func (h *HTTPSubstrate) CreateEntity(ctx context.Context, entityType string, data map[string]any) (string, error) {
 	var created map[string]any
 	if err := h.do(ctx, http.MethodPost, "/api/v1/"+url.PathEscape(entityType), data, &created); err != nil {

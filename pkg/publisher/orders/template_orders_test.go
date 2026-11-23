@@ -269,7 +269,6 @@ func TestTemplateOrder_Create_HeaderTypes(t *testing.T) {
 
 func TestTemplateOrder_Create_UnsupportedTemplates(t *testing.T) {
 	for name, patch := range map[string]map[string]any{
-		"blocks":      {"blocks": []any{map[string]any{"name": "B", "lines": []any{}}}},
 		"consumables": {"consumables_allowed": true},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -559,9 +558,9 @@ func TestOrder_Advance_LegacyRejectsTemplateOnlyFields(t *testing.T) {
 func TestListTemplates_SaysWhatCanBeUsed(t *testing.T) {
 	fs := newFake()
 	seedWorld(fs)
-	fs.put(TemplateEntityType, "2", map[string]any{"name": "With blocks", "version": 1, "latest": true,
-		"workflow_states": []any{map[string]any{"name": "A"}, map[string]any{"name": "B"}},
-		"blocks":          []any{map[string]any{"name": "B1"}}})
+	fs.put(TemplateEntityType, "2", map[string]any{"name": "With consumables", "version": 1, "latest": true,
+		"workflow_states":     []any{map[string]any{"name": "A"}, map[string]any{"name": "B"}},
+		"consumables_allowed": true})
 	got, err := NewService(fs).ListTemplates(context.Background(), ListTemplatesInput{})
 	if err != nil || len(got.Templates) != 2 {
 		t.Fatalf("got %+v, %v", got, err)
@@ -578,7 +577,7 @@ func TestListTemplates_SaysWhatCanBeUsed(t *testing.T) {
 	if h.Tag != "prioridad" || h.Type != "number" || h.FilledAt != "upon_creating" || !h.Required || h.DefaultValue != "1" {
 		t.Fatalf("header item = %+v", h)
 	}
-	if blocked.Supported || !strings.Contains(blocked.Reason, "blocks") {
-		t.Fatalf("template with blocks = %+v", blocked)
+	if blocked.Supported || !strings.Contains(blocked.Reason, "consumables") {
+		t.Fatalf("template with consumables = %+v", blocked)
 	}
 }

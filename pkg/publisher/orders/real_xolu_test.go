@@ -585,3 +585,98 @@ func TestRealXolu_ClaimOrder(t *testing.T) {
 		t.Fatalf("race: %d wins, %d losses", wins, losses)
 	}
 }
+
+// Opens an order from a template with blocks against the real xolu: one
+// pending machine per block (bound to its ref), the block records and the order
+// saved by a single Commit under a client-chosen id.
+func TestRealXolu_CreateOrderWithBlocks(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
+	crew := mk("crews", map[string]any{"name": "Cuadrilla bloques " + tag})
+	assetType := int64(80)
+	asset := mk("assets", map[string]any{"name": "Equipo bloques", "type_id": assetType})
+	tpl := mk(TemplateEntityType, map[string]any{
+		"name": "Plantilla bloques " + tag, "version": 1, "latest": true, "asset_type_id": assetType, "min_assets": 1, "max_assets": 1,
+		"workflow_states": []map[string]any{{"name": "Pendiente"}, {"name": "Cerrada"}},
+		"header_items":    []map[string]any{},
+		"blocks": []map[string]any{
+			{"name": "Preparacion", "predecessor": "", "responsible_type": "user", "lines": []map[string]any{{"name": "aislado", "type": "boolean"}}},
+			{"name": "Trabajo", "predecessor": "Preparacion", "responsible_type": "crew", "lines": []map[string]any{}},
+		},
+		"consumables_allowed": false,
+	})
+
+	o, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)}})
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+	if n := intOf(o.ID); n <= 0 || n >= 1<<52 {
+		t.Fatalf("order id %s outside JavaScript's exact range", o.ID)
+	}
+	d, err := svc.GetOrder(ctx, o.ID)
+	if err != nil || d.State != "Pendiente" || len(d.Blocks) != 2 || d.Blocks[0].Name != "Preparacion" || d.Blocks[1].Name != "Trabajo" ||
+		d.Blocks[1].PredecessorIndex == nil || *d.Blocks[1].PredecessorIndex != 0 || d.Blocks[0].State != "pending" {
+		t.Fatalf("detail = %+v err=%v", d, err)
+	}
+	doc, err := sub.GetEntity(ctx, EntityType, o.ID)
+	if err != nil || intOf(doc["block_count"]) != 2 || intOf(doc["block_execution_version"]) != 1 || doc["creation_token"] == nil {
+		t.Fatalf("stored order = %v err=%v", doc, err)
+	}
+	// Each block has a live machine in its initial state, findable by ref.
+	for i := range d.Blocks {
+		rows, err := sub.FindEntities(ctx, "work_order_blocks", EntityQuery{Where: []Condition{{Field: "work_order_id", Op: "=", Value: numericOrString(o.ID)}, {Field: "block_index", Op: "=", Value: int64(i)}}, Limit: 1})
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("block %d record: %v %v", i, rows, err)
+		}
+		hist, err := sub.MachineHistory(ctx, idString(rows[0]["machine_id"]))
+		if err != nil || len(hist) != 1 || hist[0].To != "pending" {
+			t.Fatalf("block %d machine history = %+v err=%v", i, hist, err)
+		}
+	}
+	// The block definition is shared: opening a second order reuses it.
+	if _, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)}}); err != nil {
+		t.Fatalf("second order: %v", err)
+	}
+	listed, _ := svc.ListTemplates(ctx, ListTemplatesInput{})
+	for _, tp := range listed.Templates {
+		if tp.ID == tpl && !tp.Supported {
+			t.Fatalf("template with blocks should be usable: %+v", tp)
+		}
+	}
+}
+
+// A Commit xolu rejects saves nothing: the order id stays free.
+func TestRealXolu_CommitIsAtomic(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	orderID := int64(4_000_000_000_000) + time.Now().UnixNano()%1_000_000
+	appends := make([]CommitAppend, 26) // one more than a commit can hold
+	for i := range appends {
+		appends[i] = CommitAppend{Entity: "work_order_blocks", Data: map[string]any{"work_order_id": orderID, "block_index": i}}
+	}
+	err := sub.Commit(ctx, CommitRequest{Update: CommitUpdate{Entity: EntityType, ID: orderID, Data: map[string]any{"title": "no debe quedar"}}, Append: appends})
+	xe, ok := err.(*XoluError)
+	if !ok || !commitRejected(xe.Status) {
+		t.Fatalf("want a rejected commit, got %T %v", err, err)
+	}
+	if _, err := sub.GetEntity(ctx, EntityType, strconv.FormatInt(orderID, 10)); !isMissing(err) {
+		t.Fatalf("a rejected commit must save nothing, got %v", err)
+	}
+}

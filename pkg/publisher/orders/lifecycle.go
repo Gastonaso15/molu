@@ -31,3 +31,30 @@ func LifecycleDefinition() Definition {
 		},
 	}
 }
+
+// BlockDefinitionName is the FSM definition every block of every order uses.
+const BlockDefinitionName = "seam_work_order_block_lifecycle_v1"
+
+// BlockLifecycleDefinition is the lifecycle of one work order block, as Seam's
+// order creation defines it:
+//
+//	pending --start--> in_progress --complete--> completed
+//
+// Every block of every order gets its own machine of this definition.
+func BlockLifecycleDefinition() Definition {
+	return Definition{
+		"name":        BlockDefinitionName,
+		"description": "Work order block lifecycle",
+		"initial":     "pending",
+		"determinism": "firstmatch",
+		"states": map[string]any{
+			"pending":     map[string]any{"terminal": false},
+			"in_progress": map[string]any{"terminal": false},
+			"completed":   map[string]any{"terminal": true},
+		},
+		"transitions": []any{
+			map[string]any{"from": "pending", "input": InputStart, "to": "in_progress"},
+			map[string]any{"from": "in_progress", "input": InputComplete, "to": "completed"},
+		},
+	}
+}
