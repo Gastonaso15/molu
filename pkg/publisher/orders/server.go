@@ -111,6 +111,13 @@ func (s *Server) Handler() http.Handler {
 		}
 		return c.AssignOrder(r.Context(), in)
 	})))
+	mux.Handle("/api/v1/orders/movements/register", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in MovementInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.RegisterMovement(r.Context(), in)
+	})))
 	mux.Handle("/api/v1/orders/templates", s.guard(http.HandlerFunc(s.templates)))
 	return withRequestID(mux)
 }

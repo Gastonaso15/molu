@@ -21,6 +21,8 @@ type Service struct {
 
 	blockDefMu sync.Mutex
 	blockDefID string
+
+	movementMu sync.Mutex
 }
 
 func NewService(sub Substrate) *Service { return &Service{sub: sub} }

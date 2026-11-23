@@ -49,7 +49,30 @@ func (f *fakeSubstrate) Commit(_ context.Context, req CommitRequest) error {
 	if len(req.Append) > 25 {
 		return &XoluError{Status: 400, Message: "too many appends"}
 	}
-	f.put(req.Update.Entity, strconv.FormatInt(req.Update.ID, 10), req.Update.Data)
+	updateID := strconv.FormatInt(req.Update.ID, 10)
+	var nextVer int64
+	if req.Update.Version != nil {
+		e, ok := f.entities[req.Update.Entity][updateID]
+		if !ok {
+			return &XoluError{Status: 404, Code: "XOLU-ST001", Message: "entity not found"}
+		}
+		if cur := intOf(e["_version"]); cur != int64(*req.Update.Version) {
+			return &XoluError{Status: 409, Code: "XOLU-ST005", Message: "version conflict"}
+		}
+		nextVer = int64(*req.Update.Version) + 1
+	}
+	for _, a := range req.Append {
+		if a.ID != nil {
+			aid := strconv.FormatInt(*a.ID, 10)
+			if _, exists := f.entities[a.Entity][aid]; exists {
+				return &XoluError{Status: 409, Code: "XOLU-ST009", Message: "entity id already exists"}
+			}
+		}
+	}
+	f.put(req.Update.Entity, updateID, req.Update.Data)
+	if nextVer > 0 {
+		f.entities[req.Update.Entity][updateID]["_version"] = nextVer
+	}
 	for _, a := range req.Append {
 		id := ""
 		if a.ID != nil {

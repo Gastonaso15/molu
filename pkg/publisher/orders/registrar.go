@@ -249,6 +249,29 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"required":             []string{"order_id", "responsible_type"},
 				"additionalProperties": false,
 			}),
+		mk("RegisterMovement",
+			"Register an atomic inventory movement (entry, exit, transfer or adjust) for a consumable. Updates consumable.stock_by_warehouse (stored in hundredths, "+
+				"guarded by _version) and appends both the movement record and an idempotent movement_request receipt in one Commit. "+
+				"entry/adjust take target_warehouse_id only (adjust sets physical stock and allows 0); exit takes origin_warehouse_id only; transfer takes distinct origin and target. "+
+				"Provide a 32-char lowercase hex request_id (or let the service generate one) for safe idempotent retries: repeating the same request returns already_processed=true, "+
+				"reusing request_id with different content fails with INVALID_TRANSITION (details.rule=request_reused). Other domain rejections: insufficient_stock, consumable_disabled, warehouse_disabled, stock_overflow, stale_state.",
+			"/api/v1/orders/movements/register",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"type":                map[string]any{"type": "string", "enum": []any{string(MovementEntry), string(MovementExit), string(MovementTransfer), string(MovementAdjust)}},
+					"consumable_id":       idSchema("Id of the consumable."),
+					"user_id":             idSchema("Id of the user performing the movement."),
+					"origin_warehouse_id": idSchema("Origin warehouse id (exit and transfer)."),
+					"target_warehouse_id": idSchema("Destination warehouse id (entry, transfer and adjust)."),
+					"quantity":            map[string]any{"type": "number", "minimum": 0, "description": "Quantity with at most 2 decimals (>0 for entry/exit/transfer; >=0 physical stock for adjust)."},
+					"reason":              map[string]any{"type": "string", "minLength": 1, "description": "Mandatory reason for the movement."},
+					"reference":           map[string]any{"type": "string", "description": "Optional external reference (e.g. receipt or work order number)."},
+					"request_id":          map[string]any{"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Optional 32 lowercase hex idempotency key; generated if omitted."},
+				},
+				"required":             []string{"type", "consumable_id", "user_id", "quantity", "reason"},
+				"additionalProperties": false,
+			}),
 		mk("ListTemplates",
 			"List work order templates (read-only): workflow states, header items to answer, blocks, default consumables, actions and rules, asset limits, and whether CreateOrder can use them (supported). "+
 				"Names of consumables and actions are not resolved here; use GetTemplate for one template with names. Only the latest version of each template unless include_old_versions is true.",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -803,4 +804,87 @@ func TestRealXolu_AssignOrder(t *testing.T) {
 	}
 	_, err = svc.AssignOrder(ctx, AssignInput{OrderID: order.ID, ResponsibleType: "crew", ResponsibleID: ID(crew)})
 	wantRule(t, err, "final_state")
+}
+
+// Verifies RegisterMovement against a real xolu: atomic Commit for entry,
+// transfer, exit, adjust, idempotent replay, request_id reuse rejection,
+// and insufficient stock rejection.
+func TestRealXolu_RegisterMovement(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
+	unit := mk("unit", map[string]any{"name": "Unidad " + tag, "symbol": "u"})
+	w1 := mk(warehouseEntity, map[string]any{"name": "Almacen A " + tag, "enabled": true})
+	w2 := mk(warehouseEntity, map[string]any{"name": "Almacen B " + tag, "enabled": true})
+	cons := mk(consumableEntity, map[string]any{
+		"name": "Insumo " + tag, "unit_id": intOf(unit), "stock_min": 2.0, "enabled": true,
+		"stock_by_warehouse": map[string]any{},
+	})
+
+	// Entry 10.50 into w1 (with explicit request_id for idempotency test).
+	reqID := fmt.Sprintf("%016x%016x", time.Now().UnixNano(), 1)
+	e1, err := svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementEntry, ConsumableID: ID(cons), UserID: "1", TargetWarehouseID: ID(w1),
+		Quantity: f64(10.5), Reason: "Compra inicial", RequestID: reqID,
+	})
+	if err != nil || e1.StockBefore != 0 || e1.StockAfter != 10.5 {
+		t.Fatalf("entry: %+v err=%v", e1, err)
+	}
+	// Replay same request_id -> idempotent.
+	e1Replay, err := svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementEntry, ConsumableID: ID(cons), UserID: "1", TargetWarehouseID: ID(w1),
+		Quantity: f64(10.5), Reason: "Compra inicial", RequestID: reqID,
+	})
+	if err != nil || !e1Replay.AlreadyProcessed {
+		t.Fatalf("replay: %+v err=%v", e1Replay, err)
+	}
+	// Same request_id with different quantity -> request_reused.
+	_, err = svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementEntry, ConsumableID: ID(cons), UserID: "1", TargetWarehouseID: ID(w1),
+		Quantity: f64(99), Reason: "Compra inicial", RequestID: reqID,
+	})
+	wantRule(t, err, "request_reused")
+
+	// Transfer 4.25 from w1 to w2.
+	tr, err := svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementTransfer, ConsumableID: ID(cons), UserID: "1", OriginWarehouseID: ID(w1), TargetWarehouseID: ID(w2),
+		Quantity: f64(4.25), Reason: "Transferencia",
+	})
+	if err != nil || tr.StockAfter != 6.25 || tr.TargetStockAfter == nil || *tr.TargetStockAfter != 4.25 {
+		t.Fatalf("transfer: %+v err=%v", tr, err)
+	}
+	// Exit 2.00 from w2.
+	ex, err := svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementExit, ConsumableID: ID(cons), UserID: "1", OriginWarehouseID: ID(w2),
+		Quantity: f64(2), Reason: "Consumo",
+	})
+	if err != nil || ex.StockAfter != 2.25 {
+		t.Fatalf("exit: %+v err=%v", ex, err)
+	}
+	// Insufficient stock on w2.
+	_, err = svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementExit, ConsumableID: ID(cons), UserID: "1", OriginWarehouseID: ID(w2),
+		Quantity: f64(5), Reason: "Exceso",
+	})
+	wantRule(t, err, "insufficient_stock")
+	// Adjust w1 to 0.
+	adj, err := svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementAdjust, ConsumableID: ID(cons), UserID: "1", TargetWarehouseID: ID(w1),
+		Quantity: f64(0), Reason: "Ajuste inventario",
+	})
+	if err != nil || adj.StockBefore != 6.25 || adj.StockAfter != 0 {
+		t.Fatalf("adjust: %+v err=%v", adj, err)
+	}
 }
