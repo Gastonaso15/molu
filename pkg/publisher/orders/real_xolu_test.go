@@ -971,3 +971,50 @@ func TestRealXolu_MobileWarehouseLifecycle(t *testing.T) {
 		t.Fatalf("ReturnLeftovers: %+v err=%v", ret, err)
 	}
 }
+
+// Verifies CreateCrew/UpdateCrew and CreateOutsourced/UpdateOutsourced against
+// a real xolu.
+func TestRealXolu_PeopleWrite(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
+	u1 := mk(usersEntity, map[string]any{"name": "U1 " + tag, "active": true})
+	u2 := mk(usersEntity, map[string]any{"name": "U2 " + tag, "active": true})
+	u3 := mk(usersEntity, map[string]any{"name": "U3 " + tag, "active": true})
+
+	crew, err := svc.CreateCrew(ctx, CreateCrewInput{
+		Name: "Cuadrilla CRUD " + tag, Description: "Inicial", ResponsibleUserID: ID(u3), MemberUserIDs: []ID{ID(u1), ID(u2)},
+	})
+	if err != nil || len(crew.Members) != 3 || crew.Responsible.Name != "U3 "+tag {
+		t.Fatalf("CreateCrew: %+v err=%v", crew, err)
+	}
+	desc := "Actualizada"
+	crewUpd, err := svc.UpdateCrew(ctx, UpdateCrewInput{CrewID: ID(crew.ID), Description: &desc})
+	if err != nil || crewUpd.Description != desc {
+		t.Fatalf("UpdateCrew: %+v err=%v", crewUpd, err)
+	}
+
+	out, err := svc.CreateOutsourced(ctx, CreateOutsourcedInput{
+		Name: "Proveedor CRUD " + tag, ResponsibleUserID: ID(u1), SignatureClarification: "Rep",
+	})
+	if err != nil || out.Responsible == nil || out.Responsible.UserID != u1 {
+		t.Fatalf("CreateOutsourced: %+v err=%v", out, err)
+	}
+	emptyID := ID("")
+	outUpd, err := svc.UpdateOutsourced(ctx, UpdateOutsourcedInput{OutsourcedID: ID(out.ID), ResponsibleUserID: &emptyID})
+	if err != nil || outUpd.Responsible != nil {
+		t.Fatalf("UpdateOutsourced: %+v err=%v", outUpd, err)
+	}
+}

@@ -168,6 +168,37 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			"Read one crew, with the names of its responsible user and members (a user that cannot be read has no name).",
 			"/api/v1/orders/crews/get",
 			getSchema("crew_id", "Id of the crew (see ListCrews).")),
+		mk("CreateCrew",
+			"Create an internal crew with a name, responsible_user_id and at least two distinct active member_user_ids. "+
+				"If responsible_user_id is not listed in member_user_ids it is added automatically.",
+			"/api/v1/orders/crews/create",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name":                map[string]any{"type": "string", "minLength": 1},
+					"description":         map[string]any{"type": "string"},
+					"responsible_user_id": idSchema("Active user id responsible for the crew."),
+					"member_user_ids":     map[string]any{"type": "array", "minItems": 2, "items": idSchema("Active member user id.")},
+				},
+				"required":             []string{"name", "responsible_user_id", "member_user_ids"},
+				"additionalProperties": false,
+			}),
+		mk("UpdateCrew",
+			"Update an existing crew (partial update guarded by _version). Only provided fields change; member_user_ids must have at least two distinct active users when sent, "+
+				"and the responsible user is automatically ensured to be a member.",
+			"/api/v1/orders/crews/update",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"crew_id":             idSchema("Id of the crew to update."),
+					"name":                map[string]any{"type": "string", "minLength": 1},
+					"description":         map[string]any{"type": "string"},
+					"responsible_user_id": idSchema("New responsible active user id."),
+					"member_user_ids":     map[string]any{"type": "array", "minItems": 2, "items": idSchema("Active member user id.")},
+				},
+				"required":             []string{"crew_id"},
+				"additionalProperties": false,
+			}),
 		mk("ListOutsourced",
 			"List the third-party providers (outsourced contractors) sorted by name. Each has a description, a representative account (responsible user id), "+
 				"the signatory's clarification and whether a signature is stored (the image is not returned). Filters: name (contains), responsible_user_id. "+
@@ -181,6 +212,38 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			"Read one third-party provider, with the name of its representative account.",
 			"/api/v1/orders/outsourced/get",
 			getSchema("outsourced_id", "Id of the provider (see ListOutsourced).")),
+		mk("CreateOutsourced",
+			"Create a third-party provider (outsourced contractor) with a name, optional description, optional representative account (active responsible_user_id), "+
+				"and optional signature / signature_clarification (the signature image is stored but not returned in responses).",
+			"/api/v1/orders/outsourced/create",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name":                    map[string]any{"type": "string", "minLength": 1},
+					"description":             map[string]any{"type": "string"},
+					"responsible_user_id":     idSchema("Optional active user id representing the provider."),
+					"signature":               map[string]any{"type": "string"},
+					"signature_clarification": map[string]any{"type": "string"},
+				},
+				"required":             []string{"name"},
+				"additionalProperties": false,
+			}),
+		mk("UpdateOutsourced",
+			"Update an existing third-party provider (partial update guarded by _version). Pass responsible_user_id=\"\" (or \"0\") to unlink the representative account.",
+			"/api/v1/orders/outsourced/update",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"outsourced_id":           idSchema("Id of the outsourced provider to update."),
+					"name":                    map[string]any{"type": "string", "minLength": 1},
+					"description":             map[string]any{"type": "string"},
+					"responsible_user_id":     idSchema("Active user id, or empty/0 to unlink."),
+					"signature":               map[string]any{"type": "string"},
+					"signature_clarification": map[string]any{"type": "string"},
+				},
+				"required":             []string{"outsourced_id"},
+				"additionalProperties": false,
+			}),
 		mk("ListWarehouses",
 			"List the warehouses sorted by name: location (lat,lng), enabled, responsible user id, and mobile=true for the temporary warehouse an order opens for its supplies (work_order_id says which order). "+
 				"Filters: name (contains), enabled, mobile (omit it to get both kinds). Use GetWarehouse to see what one holds.",

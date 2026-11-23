@@ -36,8 +36,8 @@ func TestOrderRegistrar_RegistersFourNamespacedTools(t *testing.T) {
 	}
 
 	tools := reg.List(PublisherID)
-	if len(tools) != 20 {
-		t.Fatalf("registered %d tools, want 20: %+v", len(tools), tools)
+	if len(tools) != 24 {
+		t.Fatalf("registered %d tools, want 24: %+v", len(tools), tools)
 	}
 	byName := map[string]hub.ToolRegistration{}
 	for _, tl := range tools {
@@ -51,6 +51,10 @@ func TestOrderRegistrar_RegistersFourNamespacedTools(t *testing.T) {
 		"work_orders.RegisterMovement": "http://publisher:8092/api/v1/orders/movements/register",
 		"work_orders.ConsumeFromOrder": "http://publisher:8092/api/v1/orders/consume",
 		"work_orders.ReturnLeftovers":  "http://publisher:8092/api/v1/orders/return-leftovers",
+		"work_orders.CreateCrew":       "http://publisher:8092/api/v1/orders/crews/create",
+		"work_orders.UpdateCrew":       "http://publisher:8092/api/v1/orders/crews/update",
+		"work_orders.CreateOutsourced": "http://publisher:8092/api/v1/orders/outsourced/create",
+		"work_orders.UpdateOutsourced": "http://publisher:8092/api/v1/orders/outsourced/update",
 		"work_orders.ListTemplates":    "http://publisher:8092/api/v1/orders/templates",
 	}
 	for name, endpoint := range want {
@@ -79,8 +83,8 @@ func TestOrderRegistrar_RegisterIsIdempotent(t *testing.T) {
 			t.Fatalf("Register #%d: %v", i, err)
 		}
 	}
-	if n := len(reg.List(PublisherID)); n != 20 {
-		t.Fatalf("%d tools after re-register, want 20", n)
+	if n := len(reg.List(PublisherID)); n != 24 {
+		t.Fatalf("%d tools after re-register, want 24", n)
 	}
 }
 

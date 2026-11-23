@@ -48,6 +48,20 @@ func (s *Server) Handler() http.Handler {
 		}
 		return c.GetCrew(r.Context(), in)
 	})))
+	mux.Handle("/api/v1/orders/crews/create", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in CreateCrewInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.CreateCrew(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/crews/update", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in UpdateCrewInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.UpdateCrew(r.Context(), in)
+	})))
 	mux.Handle("/api/v1/orders/outsourced/list", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
 		var in ListOutsourcedInput
 		if !dec(&in) {
@@ -61,6 +75,20 @@ func (s *Server) Handler() http.Handler {
 			return nil, errHandled
 		}
 		return c.GetOutsourced(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/outsourced/create", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in CreateOutsourcedInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.CreateOutsourced(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/outsourced/update", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in UpdateOutsourcedInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.UpdateOutsourced(r.Context(), in)
 	})))
 	mux.Handle("/api/v1/orders/warehouses/list", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
 		var in ListWarehousesInput

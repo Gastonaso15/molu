@@ -42,7 +42,8 @@ Una tarea por vez, con TDD (`go test -v -race ./...`). Al terminar cada una: mar
   - **Pendiente de confirmar con WO**: si el cierre de una orden debe exigir almacén móvil vacío o deshabilitarlo automáticamente (por ahora `ReturnLeftovers` permite devolver sobrantes antes o después de cerrar).
 
 ## Fase 4 — Escritura de configuración
-- [ ] **T13. `CreateCrew/UpdateCrew`, `CreateOutsourced/UpdateOutsourced`.**
+- [x] **T13. `CreateCrew/UpdateCrew`, `CreateOutsourced/UpdateOutsourced`.** RF-1, RF-3, RF-6, RF-7, RF-8.
+  - **Hecho (23-nov-2026)**: `pkg/publisher/orders/people_write.go`; rutas `/api/v1/orders/crews/{create,update}` y `/api/v1/orders/outsourced/{create,update}`; 24 funciones registradas en el Hub (`work_orders.CreateCrew`, `UpdateCrew`, `CreateOutsourced`, `UpdateOutsourced`). Replica las reglas de la UI de referencia: `CreateCrew`/`UpdateCrew` exigen nombre, `responsible_user_id` activo y al menos 2 miembros distintos activos (duplicados colapsados; si el responsable no está en `members` se agrega automáticamente); `CreateOutsourced`/`UpdateOutsourced` exigen nombre, aceptan cuenta representante opcional (`responsible_user_id`, desvinculable con `""`/`"0"` en actualización) y almacenan `signature` sin exponerla (`has_signature`). Las actualizaciones son parciales con control optimista `_version` (`stale_state` ante 409) y rechazan peticiones sin campos modificables. Pruebas: `people_write_test.go` (unitarias y HTTP), `registrar_test.go`, `cmd/publisher-orders/main_test.go` y `TestRealXolu_PeopleWrite` (opt-in en `real_xolu_test.go`).
 - [ ] **T14. `CreateWarehouse/UpdateWarehouse`, `CreateConsumable/UpdateConsumable`.**
 - [ ] **T15. `CreateTemplate` y `PublishTemplateVersion`** (validación de estructura; `latest`/`version`).
 
