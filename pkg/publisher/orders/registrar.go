@@ -49,7 +49,7 @@ func NewRegistrar(hubURL, publisherURL string, b Backoff) *Registrar {
 	}
 }
 
-// Tools returns the Hub registrations for the four work-order functions.
+// Tools returns the Hub registrations for all work-order domain functions.
 func (r *Registrar) Tools() []hub.ToolRegistration {
 	auth := map[string]any{"mode": "bearer", "header": "Authorization", "token_ref": TokenRef}
 	mk := func(fn, desc, route string, schema map[string]any) hub.ToolRegistration {
@@ -569,23 +569,114 @@ func getSchema(field, desc string) map[string]any {
 }
 
 func templateWriteSchema(withPrevious bool) map[string]any {
+	fieldTypes := []any{"text", "number", "boolean", "date", "asset", "gps"}
 	props := map[string]any{
-		"name":                      map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
-		"description":               map[string]any{"type": "string"},
-		"color":                     map[string]any{"type": "string"},
-		"icon":                      map[string]any{"type": "string"},
-		"asset_type_id":             idSchema("Optional asset type id required for selected assets."),
-		"min_assets":                map[string]any{"type": "integer", "minimum": 0},
-		"max_assets":                map[string]any{"type": "integer", "minimum": 0},
-		"workflow_states":           map[string]any{"type": "array", "minItems": 2, "items": map[string]any{"type": "string", "minLength": 1}},
-		"header_items":              map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
-		"blocks":                    map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+		"name":          map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
+		"description":   map[string]any{"type": "string"},
+		"color":         map[string]any{"type": "string"},
+		"icon":          map[string]any{"type": "string"},
+		"asset_type_id": idSchema("Optional asset type id required for selected assets."),
+		"min_assets":    map[string]any{"type": "integer", "minimum": 0},
+		"max_assets":    map[string]any{"type": "integer", "minimum": 0},
+		"workflow_states": map[string]any{
+			"type":        "array",
+			"minItems":    2,
+			"items":       map[string]any{"type": "string", "minLength": 1},
+			"description": "Ordered list of at least two distinct workflow state names.",
+		},
+		"header_items": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"tag":           map[string]any{"type": "string", "minLength": 1},
+					"type":          map[string]any{"type": "string", "enum": fieldTypes},
+					"filled_at":     map[string]any{"type": "string", "enum": []any{phaseCreating, phaseExecuting}},
+					"required":      map[string]any{"type": "boolean"},
+					"default_value": map[string]any{"type": "string"},
+				},
+				"required":             []string{"tag", "type", "filled_at"},
+				"additionalProperties": false,
+			},
+		},
+		"blocks": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name":             map[string]any{"type": "string", "minLength": 1},
+					"responsible_type": map[string]any{"type": "string", "enum": []any{"user", "crew", "third_party"}},
+					"predecessor":      map[string]any{"type": "string", "description": "Optional name of the block that must finish first."},
+					"lines": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"name": map[string]any{"type": "string", "minLength": 1},
+								"type": map[string]any{"type": "string", "enum": fieldTypes},
+							},
+							"required":             []string{"name", "type"},
+							"additionalProperties": false,
+						},
+					},
+				},
+				"required":             []string{"name", "responsible_type"},
+				"additionalProperties": false,
+			},
+		},
 		"consumables_enabled":       map[string]any{"type": "boolean"},
 		"extra_consumables_allowed": map[string]any{"type": "boolean"},
-		"consumables":               map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
-		"actions":                   map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
-		"rules":                     map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
-		"numbering":                 map[string]any{"type": "object"},
+		"consumables": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"consumable_id": idSchema("Consumable id."),
+					"quantity":      map[string]any{"type": "number", "exclusiveMinimum": 0},
+				},
+				"required":             []string{"consumable_id", "quantity"},
+				"additionalProperties": false,
+			},
+		},
+		"actions": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"action_id":       idSchema("Action id (entity wo_actions)."),
+					"trigger_point":   map[string]any{"type": "string", "minLength": 1},
+					"block_reference": map[string]any{"type": "string"},
+					"mapping_values": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"parameter":    map[string]any{"type": "string", "minLength": 1},
+								"source":       map[string]any{"type": "string", "enum": []any{"context", "fixed"}},
+								"context_path": map[string]any{"type": "string"},
+								"fixed_value":  map[string]any{},
+								"transform":    map[string]any{"type": "string"},
+							},
+							"required":             []string{"parameter", "source"},
+							"additionalProperties": false,
+						},
+					},
+				},
+				"required":             []string{"action_id", "trigger_point"},
+				"additionalProperties": false,
+			},
+		},
+		"rules": map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+		"numbering": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"prefix":          map[string]any{"type": "string"},
+				"suffix":          map[string]any{"type": "string"},
+				"sequence_length": map[string]any{"type": "integer", "minimum": 0},
+				"reset_policy":    map[string]any{"type": "string", "enum": []any{"", "never", "yearly", "monthly", "daily"}},
+			},
+			"additionalProperties": false,
+		},
 	}
 	req := []string{"name", "workflow_states"}
 	if withPrevious {
