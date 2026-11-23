@@ -137,8 +137,20 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				},
 				"additionalProperties": false,
 			}),
+		mk("GetTemplate",
+			"Read one work order template in full (read-only): workflow states, header items (filled at creation or at execution), blocks with their lines and predecessors, "+
+				"default consumables (with names) and whether extra ones are allowed, actions with their parameter mappings (with names), rules, numbering, "+
+				"and whether CreateOrder can use it (supported). Action and rule configuration is stored by the work order module but not executed yet.",
+			"/api/v1/orders/template",
+			map[string]any{
+				"type":                 "object",
+				"properties":           map[string]any{"template_id": idSchema("Id of the template (see ListTemplates).")},
+				"required":             []string{"template_id"},
+				"additionalProperties": false,
+			}),
 		mk("ListTemplates",
-			"List work order templates (read-only): workflow states, header items to answer, asset limits, and whether CreateOrder can use them (supported). Only the latest version of each template unless include_old_versions is true.",
+			"List work order templates (read-only): workflow states, header items to answer, blocks, default consumables, actions and rules, asset limits, and whether CreateOrder can use them (supported). "+
+				"Names of consumables and actions are not resolved here; use GetTemplate for one template with names. Only the latest version of each template unless include_old_versions is true.",
 			"/api/v1/orders/templates",
 			map[string]any{
 				"type": "object",

@@ -257,3 +257,50 @@ func TestRealXolu_ListOrders(t *testing.T) {
 	}
 	t.Logf("backlog=%+v", backlog.Orders[0])
 }
+
+// Reads the demo templates of the work order seed (seeds/workorders/seed-wo-templates.py
+// in the work_orders branch): blocks, consumables, actions and rules must come through.
+func TestRealXolu_GetTemplate(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	svc := NewService(NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0))
+	listed, err := svc.ListTemplates(ctx, ListTemplatesInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inspection, maintenance string
+	for _, tp := range listed.Templates {
+		switch tp.Name {
+		case "Demo WO - Inspeccion y mediciones":
+			inspection = tp.ID
+		case "Demo WO - Mantenimiento preventivo":
+			maintenance = tp.ID
+		}
+	}
+	if inspection == "" || maintenance == "" {
+		t.Skip("work order seed templates not loaded (run seed-wo-templates.py)")
+	}
+
+	m, err := svc.GetTemplate(ctx, GetTemplateInput{TemplateID: ID(maintenance)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Blocks) != 2 || m.Blocks[1].Predecessor != "Preparacion" || len(m.Consumables) != 2 ||
+		m.Consumables[0].Name != "Filtro de prueba WO" || m.Consumables[1].Quantity != 0.5 || !m.ConsumablesEnabled || len(m.Rules) == 0 {
+		t.Fatalf("maintenance = %+v", m)
+	}
+	i, err := svc.GetTemplate(ctx, GetTemplateInput{TemplateID: ID(inspection)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(i.Actions) != 2 || i.Actions[0].Name == "" || len(i.Actions[0].MappingValues) == 0 {
+		t.Fatalf("inspection actions = %+v", i.Actions)
+	}
+	t.Logf("inspection action 0: %+v", i.Actions[0])
+	if _, err := svc.GetTemplate(ctx, GetTemplateInput{TemplateID: "99999"}); err == nil {
+		t.Fatal("want NotFoundError")
+	}
+}

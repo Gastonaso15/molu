@@ -36,8 +36,8 @@ func TestOrderRegistrar_RegistersFourNamespacedTools(t *testing.T) {
 	}
 
 	tools := reg.List(PublisherID)
-	if len(tools) != 5 {
-		t.Fatalf("registered %d tools, want 5: %+v", len(tools), tools)
+	if len(tools) != 6 {
+		t.Fatalf("registered %d tools, want 6: %+v", len(tools), tools)
 	}
 	byName := map[string]hub.ToolRegistration{}
 	for _, tl := range tools {
@@ -75,7 +75,7 @@ func TestOrderRegistrar_RegisterIsIdempotent(t *testing.T) {
 			t.Fatalf("Register #%d: %v", i, err)
 		}
 	}
-	if n := len(reg.List(PublisherID)); n != 5 {
+	if n := len(reg.List(PublisherID)); n != 6 {
 		t.Fatalf("%d tools after re-register, want 4", n)
 	}
 }

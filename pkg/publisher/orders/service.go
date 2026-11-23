@@ -219,6 +219,10 @@ func templateFromRow(row map[string]any) Template {
 	}
 	t.MinAssets = int(intOf(row["min_assets"]))
 	t.MaxAssets = int(intOf(row["max_assets"]))
+	if err := fillTemplateDetail(&t, row); err != nil {
+		t.Supported, t.Reason = false, "the template is malformed: "+err.Error()
+		return t
+	}
 	if parsed, err := parseTemplateDoc(id, row); err == nil {
 		for _, st := range parsed.States {
 			if st != "" {

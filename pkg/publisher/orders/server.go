@@ -33,6 +33,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/orders/get", s.guard(http.HandlerFunc(s.get)))
 	mux.Handle("/api/v1/orders/advance", s.guard(http.HandlerFunc(s.advance)))
 	mux.Handle("/api/v1/orders/list", s.guard(http.HandlerFunc(s.list)))
+	mux.Handle("/api/v1/orders/template", s.guard(http.HandlerFunc(s.template)))
 	mux.Handle("/api/v1/orders/templates", s.guard(http.HandlerFunc(s.templates)))
 	return withRequestID(mux)
 }
@@ -91,6 +92,15 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := s.svc.ListOrders(r.Context(), in)
 	respond(w, list, err)
+}
+
+func (s *Server) template(w http.ResponseWriter, r *http.Request) {
+	var in GetTemplateInput
+	if !decode(w, r, &in) {
+		return
+	}
+	tpl, err := s.svc.GetTemplate(r.Context(), in)
+	respond(w, tpl, err)
 }
 
 func (s *Server) templates(w http.ResponseWriter, r *http.Request) {

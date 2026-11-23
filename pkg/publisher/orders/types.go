@@ -152,10 +152,85 @@ type Template struct {
 	MaxAssets      int                  `json:"max_assets,omitempty"`
 	WorkflowStates []string             `json:"workflow_states"`
 	HeaderItems    []TemplateHeaderItem `json:"header_items"`
+
+	// Blocks are the template's units of work, run in the order their
+	// predecessors allow; each has its own lines (fields) to fill in.
+	Blocks []TemplateBlock `json:"blocks,omitempty"`
+	// ConsumablesEnabled says orders from this template get a mobile
+	// warehouse; Consumables are the supplies it brings by default, and
+	// ExtraConsumablesAllowed lets the person add any other consumable.
+	ConsumablesEnabled      bool                 `json:"consumables_enabled,omitempty"`
+	ExtraConsumablesAllowed bool                 `json:"extra_consumables_allowed,omitempty"`
+	Consumables             []TemplateConsumable `json:"consumables,omitempty"`
+	// Actions and Rules are configuration: the work order module stores them
+	// but does not run them yet.
+	Actions   []TemplateAction `json:"actions,omitempty"`
+	Rules     []map[string]any `json:"rules,omitempty"`
+	Numbering *Numbering       `json:"numbering,omitempty"`
+
 	// Supported is false for templates this publisher cannot open or advance
 	// yet (blocks, mobile warehouse); Reason says why.
 	Supported bool   `json:"supported"`
 	Reason    string `json:"reason,omitempty"`
+}
+
+// TemplateBlock is one block of a template. Predecessor is the name of the
+// block that must finish first ("" for none).
+type TemplateBlock struct {
+	Name            string              `json:"name"`
+	ResponsibleType string              `json:"responsible_type,omitempty"`
+	Predecessor     string              `json:"predecessor,omitempty"`
+	Lines           []TemplateBlockLine `json:"lines"`
+}
+
+// TemplateBlockLine is a field of a block, filled in when the order runs.
+type TemplateBlockLine struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// TemplateConsumable is a supply an order brings by default. Name is filled
+// by GetTemplate only.
+type TemplateConsumable struct {
+	ConsumableID string  `json:"consumable_id"`
+	Name         string  `json:"name,omitempty"`
+	Quantity     float64 `json:"quantity"`
+}
+
+// TemplateAction links a catalog action to a point of the order. TriggerPoint
+// says when (for example before_work_order or after_block) and MappingValues
+// where each parameter of the action takes its value from. Name is filled by
+// GetTemplate only.
+type TemplateAction struct {
+	ActionID       string          `json:"action_id"`
+	Name           string          `json:"name,omitempty"`
+	TriggerPoint   string          `json:"trigger_point,omitempty"`
+	BlockReference string          `json:"block_reference,omitempty"`
+	MappingValues  []ActionMapping `json:"mapping_values,omitempty"`
+}
+
+// ActionMapping fills one action parameter: Source is "context" (read
+// ContextPath, such as header:tag or block:name:line:line, optionally changed
+// by Transform) or "fixed" (FixedValue).
+type ActionMapping struct {
+	Parameter   string `json:"parameter"`
+	Source      string `json:"source"`
+	ContextPath string `json:"context_path,omitempty"`
+	FixedValue  any    `json:"fixed_value,omitempty"`
+	Transform   string `json:"transform,omitempty"`
+}
+
+// Numbering is how orders from the template are numbered.
+type Numbering struct {
+	Prefix         string `json:"prefix,omitempty"`
+	Suffix         string `json:"suffix,omitempty"`
+	SequenceLength int    `json:"sequence_length,omitempty"`
+	ResetPolicy    string `json:"reset_policy,omitempty"`
+}
+
+// GetTemplateInput is the payload of work_orders.GetTemplate.
+type GetTemplateInput struct {
+	TemplateID ID `json:"template_id"`
 }
 
 // TemplateList is the result of work_orders.ListTemplates.
@@ -233,9 +308,19 @@ func (e *XoluError) Error() string {
 }
 
 // NotFoundError means the order (machine or entity) does not exist.
-type NotFoundError struct{ ID string }
+type NotFoundError struct {
+	ID string
+	// Kind names what was not found; empty means "work order".
+	Kind string
+}
 
-func (e *NotFoundError) Error() string { return fmt.Sprintf("work order %q not found", e.ID) }
+func (e *NotFoundError) Error() string {
+	kind := e.Kind
+	if kind == "" {
+		kind = "work order"
+	}
+	return fmt.Sprintf("%s %q not found", kind, e.ID)
+}
 
 // TransitionError is an FSM rejection. Message carries xolu's own text
 // untouched; the guard diagnostic lives in Details["detail"].
