@@ -104,10 +104,8 @@ func commitRejected(status int) bool {
 	return false
 }
 
-// createOrderWithBlocks stores a template order together with its blocks the
-// way Seam does: one machine per block (pending), then a single Commit that
-// saves the order (under an id chosen here, because the blocks point at it)
-// and one work_order_blocks record per block, all or nothing.
+// createOrderWithBlocksAndWarehouse stores a template order together with its
+// optional block records and optional mobile warehouse in one atomic Commit.
 //
 // Machines are separate API calls, so a failure before the commit deletes the
 // ones already made. A commit xolu rejects deletes them too. A commit whose
@@ -115,27 +113,43 @@ func commitRejected(status int) bool {
 // back with a token unique to this attempt: if it is there the creation
 // succeeded; if not, the machines are kept (the commit may still land) and the
 // error says which order may exist.
-func (s *Service) createOrderWithBlocks(ctx context.Context, tpl workOrderTemplate, doc map[string]any) (string, error) {
-	preds, err := blockPredecessors(tpl.Blocks)
-	if err != nil {
-		return "", &ValidationError{Fields: []string{"template_id"}, Reason: "invalid block dependencies in the template: " + err.Error()}
+func (s *Service) createOrderWithBlocksAndWarehouse(ctx context.Context, tpl workOrderTemplate, doc map[string]any, createdByUserID int64) (string, error) {
+	hasBlocks := len(tpl.Blocks) > 0
+	hasWarehouse := tpl.UsesConsumables
+
+	var preds []int
+	if hasBlocks {
+		var err error
+		preds, err = blockPredecessors(tpl.Blocks)
+		if err != nil {
+			return "", &ValidationError{Fields: []string{"template_id"}, Reason: "invalid block dependencies in the template: " + err.Error()}
+		}
 	}
-	if len(tpl.Blocks) > maxCommitAppends {
+	appendCount := len(tpl.Blocks)
+	if hasWarehouse {
+		appendCount++
+	}
+	if appendCount > maxCommitAppends {
 		return "", &ValidationError{Fields: []string{"template_id"},
-			Reason: fmt.Sprintf("the template has %d blocks but one commit holds at most %d records", len(tpl.Blocks), maxCommitAppends)}
+			Reason: fmt.Sprintf("the template needs %d commit records (blocks + mobile warehouse) but one commit holds at most %d records", appendCount, maxCommitAppends)}
 	}
-	defID, err := s.blockDefinitionID(ctx)
-	if err != nil {
-		return "", classify(err, "")
+
+	var defID string
+	if hasBlocks {
+		var err error
+		defID, err = s.blockDefinitionID(ctx)
+		if err != nil {
+			return "", classify(err, "")
+		}
 	}
-	orderID, token, err := s.newOrderIdentity(ctx)
+	orderID, token, err := s.newOrderIdentity(ctx, hasWarehouse)
 	if err != nil {
 		return "", err
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	var machineIDs []string
-	appends := make([]CommitAppend, 0, len(tpl.Blocks))
+	appends := make([]CommitAppend, 0, appendCount)
 	for i, b := range tpl.Blocks {
 		ref := fmt.Sprintf("work_order:%d:block:%d", orderID, i)
 		m, err := s.sub.CreateMachineWithRef(ctx, defID, ref)
@@ -165,13 +179,36 @@ func (s *Service) createOrderWithBlocks(ctx context.Context, tpl workOrderTempla
 		}})
 	}
 
-	data := make(map[string]any, len(doc)+3)
+	data := make(map[string]any, len(doc)+4)
 	for k, v := range doc {
 		data[k] = v
 	}
 	data["creation_token"] = token
 	data["block_execution_version"] = 1
 	data["block_count"] = len(tpl.Blocks)
+
+	if hasWarehouse {
+		// IDs are scoped by entity, so the mobile warehouse shares the order ID.
+		data["mobile_warehouse_id"] = orderID
+		doc["mobile_warehouse_id"] = orderID
+		title, _ := doc["title"].(string)
+		warehouseData := map[string]any{
+			"name":          title + " - warehouse",
+			"type":          "mobile",
+			"work_order_id": orderID,
+			"enabled":       true,
+			"consumables":   []any{},
+		}
+		if createdByUserID > 0 {
+			warehouseData["responsible_user_id"] = createdByUserID
+		}
+		whID := orderID
+		appends = append(appends, CommitAppend{
+			Entity: warehouseEntity,
+			ID:     &whID,
+			Data:   warehouseData,
+		})
+	}
 
 	commitErr := s.sub.Commit(ctx, CommitRequest{
 		Update: CommitUpdate{Entity: EntityType, ID: orderID, Data: data},
@@ -184,7 +221,7 @@ func (s *Service) createOrderWithBlocks(ctx context.Context, tpl workOrderTempla
 	var xe *XoluError
 	if errors.As(commitErr, &xe) && commitRejected(xe.Status) {
 		s.discardMachines(ctx, machineIDs)
-		return "", fmt.Errorf("commit work order and blocks: %w", commitErr)
+		return "", fmt.Errorf("commit work order and related records: %w", commitErr)
 	}
 	// Unknown outcome: look for this attempt's order with a context that
 	// survives the caller's cancellation.
@@ -196,10 +233,11 @@ func (s *Service) createOrderWithBlocks(ctx context.Context, tpl workOrderTempla
 	return "", &UnavailableError{Cause: fmt.Errorf("could not confirm the creation of work order %s (it may have been created: check it with GetOrder before retrying): %w", id, commitErr)}
 }
 
-// newOrderIdentity picks an order id that does not exist yet and a token that
+// newOrderIdentity picks an order id that does not exist yet (and is also free
+// in the warehouse entity when opening a mobile warehouse) and a token that
 // identifies this creation attempt. Ids stay within JavaScript's exact integer
-// range, as Seam's do.
-func (s *Service) newOrderIdentity(ctx context.Context) (int64, string, error) {
+// range.
+func (s *Service) newOrderIdentity(ctx context.Context, checkWarehouse bool) (int64, string, error) {
 	for attempt := 0; attempt < 5; attempt++ {
 		var raw [16]byte
 		if _, err := rand.Read(raw[:]); err != nil {
@@ -207,16 +245,25 @@ func (s *Service) newOrderIdentity(ctx context.Context) (int64, string, error) {
 		}
 		id := int64(binary.BigEndian.Uint64(raw[:8])&((1<<52)-1)) + 1
 		token := hex.EncodeToString(raw[8:])
+		idStr := strconv.FormatInt(id, 10)
 		// A Commit's primary write is an upsert: refuse an id that is taken.
-		_, err := s.sub.GetEntity(ctx, EntityType, strconv.FormatInt(id, 10))
+		_, err := s.sub.GetEntity(ctx, EntityType, idStr)
 		switch {
 		case err == nil:
 			continue
-		case isMissing(err):
-			return id, token, nil
-		default:
+		case !isMissing(err):
 			return 0, "", classify(err, "")
 		}
+		if checkWarehouse {
+			_, werr := s.sub.GetEntity(ctx, warehouseEntity, idStr)
+			switch {
+			case werr == nil:
+				continue
+			case !isMissing(werr):
+				return 0, "", classify(werr, "")
+			}
+		}
+		return id, token, nil
 	}
 	return 0, "", errors.New("could not find a free work order id")
 }

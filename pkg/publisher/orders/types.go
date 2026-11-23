@@ -72,12 +72,13 @@ type WorkOrder struct {
 
 	// Set for orders that follow a template workflow (no xolu FSM): the
 	// position in the template's list of states, and the header answers.
-	TemplateID      string         `json:"template_id,omitempty"`
-	TemplateVersion int            `json:"template_version,omitempty"`
-	WorkflowIndex   *int           `json:"workflow_index,omitempty"`
-	HeaderValues    map[string]any `json:"header_values,omitempty"`
-	AssetIDs        []string       `json:"asset_ids,omitempty"`
-	CompletedAt     string         `json:"completed_at,omitempty"`
+	TemplateID        string         `json:"template_id,omitempty"`
+	TemplateVersion   int            `json:"template_version,omitempty"`
+	WorkflowIndex     *int           `json:"workflow_index,omitempty"`
+	HeaderValues      map[string]any `json:"header_values,omitempty"`
+	AssetIDs          []string       `json:"asset_ids,omitempty"`
+	MobileWarehouseID string         `json:"mobile_warehouse_id,omitempty"`
+	CompletedAt       string         `json:"completed_at,omitempty"`
 }
 
 // CreateInput is the payload of work_orders.CreateOrder. Without TemplateID it
@@ -96,6 +97,7 @@ type CreateInput struct {
 	ResponsibleID   ID             `json:"responsible_id,omitempty"`
 	HeaderValues    map[string]any `json:"header_values,omitempty"` // answers by header tag (upon_creating items)
 	AssetIDs        []ID           `json:"asset_ids,omitempty"`
+	CreatedByUserID ID             `json:"created_by_user_id,omitempty"` // optional: sets responsible_user_id on a mobile warehouse
 }
 
 // AdvanceInput is the payload of work_orders.AdvanceOrder.

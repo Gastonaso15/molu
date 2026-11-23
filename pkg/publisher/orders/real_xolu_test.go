@@ -888,3 +888,86 @@ func TestRealXolu_RegisterMovement(t *testing.T) {
 		t.Fatalf("adjust: %+v err=%v", adj, err)
 	}
 }
+
+// Verifies the full mobile warehouse lifecycle against a real xolu: opening an
+// order from a template with blocks + consumables, transferring stock into its
+// mobile warehouse, consuming, advancing to completion, and returning leftovers.
+func TestRealXolu_MobileWarehouseLifecycle(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
+	unit := mk("unit", map[string]any{"name": "Unidad " + tag, "symbol": "u"})
+	central := mk(warehouseEntity, map[string]any{"name": "Central " + tag, "enabled": true})
+	cons := mk(consumableEntity, map[string]any{
+		"name": "Filtro " + tag, "consumable_unit": intOf(unit), "stock_min": 1.0, "enabled": true,
+		"stock_by_warehouse": map[string]any{},
+	})
+	if _, err := svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementEntry, ConsumableID: ID(cons), UserID: "1", TargetWarehouseID: ID(central),
+		Quantity: f64(10), Reason: "Ingreso inicial",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	crew := mk("crews", map[string]any{"name": "Cuadrilla movil " + tag})
+	assetType := int64(82)
+	asset := mk("assets", map[string]any{"name": "Equipo movil " + tag, "type_id": assetType})
+	tpl := mk(TemplateEntityType, map[string]any{
+		"name": "Plantilla movil " + tag, "version": 1, "latest": true, "asset_type_id": assetType, "min_assets": 1, "max_assets": 1,
+		"workflow_states":             []map[string]any{{"name": "Pendiente"}, {"name": "Finalizada"}},
+		"header_items":                []map[string]any{},
+		"blocks":                      []map[string]any{{"name": "Revision", "predecessor": "", "responsible_type": "crew", "lines": []map[string]any{{"name": "ok", "type": "boolean"}}}},
+		"consumables_allowed":         true,
+		"add_any_consumables_allowed": false,
+		"consumables":                 []map[string]any{{"consumable_id": intOf(cons), "quantity": 2}},
+	})
+
+	o, err := svc.CreateOrder(ctx, CreateInput{
+		TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew),
+		AssetIDs: []ID{ID(asset)}, CreatedByUserID: "1",
+	})
+	if err != nil || o.MobileWarehouseID != o.ID {
+		t.Fatalf("CreateOrder: %+v err=%v", o, err)
+	}
+	// Load 5 into mobile warehouse.
+	if _, err := svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementTransfer, ConsumableID: ID(cons), UserID: "1",
+		OriginWarehouseID: ID(central), TargetWarehouseID: ID(o.MobileWarehouseID),
+		Quantity: f64(5), Reason: "Carga orden",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Consume 2 from order.
+	consumed, err := svc.ConsumeFromOrder(ctx, ConsumeFromOrderInput{
+		OrderID: o.ID, ConsumableID: ID(cons), UserID: "1", Quantity: f64(2),
+	})
+	if err != nil || consumed.Movement.StockAfter != 3 {
+		t.Fatalf("ConsumeFromOrder: %+v err=%v", consumed, err)
+	}
+	// Complete order with block answer + signature.
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{
+		OrderID: o.ID, Input: InputComplete,
+		BlockValues: map[string]any{"Revision": map[string]any{"ok": true}},
+		Payload:     map[string]any{"technician_signature": "firma"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Return all remaining leftovers (3) back to central.
+	ret, err := svc.ReturnLeftovers(ctx, ReturnLeftoversInput{
+		OrderID: o.ID, ConsumableID: ID(cons), TargetWarehouseID: ID(central), UserID: "1",
+	})
+	if err != nil || ret.Movement.Quantity != 3 || ret.Movement.StockAfter != 0 || *ret.Movement.TargetStockAfter != 8 {
+		t.Fatalf("ReturnLeftovers: %+v err=%v", ret, err)
+	}
+}

@@ -154,11 +154,13 @@ func TestAdvanceOrder_BlockValuesOnATemplateWithoutBlocks(t *testing.T) {
 	wantInvalidPrefix(t, err, "block_values")
 }
 
-func TestAdvanceOrder_StillRefusesOrdersWithAMobileWarehouse(t *testing.T) {
+func TestAdvanceOrder_AllowsOrdersWithAMobileWarehouse(t *testing.T) {
 	fs, svc, id := newBlockOrder(t)
 	fs.entities[EntityType][id]["mobile_warehouse_id"] = int64(5)
-	_, err := advance(svc, id, nil)
-	wantInvalid(t, err, "order_id")
+	res, err := advance(svc, id, nil)
+	if err != nil || res.Current != "En curso" {
+		t.Fatalf("advance = %+v err=%v", res, err)
+	}
 }
 
 func TestGetOrder_DecodesBlockAnswersByName(t *testing.T) {

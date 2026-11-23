@@ -55,12 +55,13 @@ type workOrderTemplate struct {
 	Headers     []headerItem
 	States      []string
 
-	// Blocks become one record and one machine each when an order is opened.
-	// The mobile warehouse (consumables) is not supported yet: a template that
-	// uses it cannot be opened here, or Seam would show an incomplete order.
-	Blocks          []TemplateBlock
-	HasBlocks       bool
-	UsesConsumables bool
+	// Blocks become one record and one machine each when an order is opened;
+	// UsesConsumables opens a mobile warehouse in the same atomic Commit.
+	Blocks                  []TemplateBlock
+	HasBlocks               bool
+	UsesConsumables         bool
+	ExtraConsumablesAllowed bool
+	Consumables             []TemplateConsumable
 }
 
 func parseTemplateDoc(id string, doc map[string]any) (workOrderTemplate, error) {
@@ -72,6 +73,7 @@ func parseTemplateDoc(id string, doc map[string]any) (workOrderTemplate, error) 
 	t.MinAssets = int(intOf(doc["min_assets"]))
 	t.MaxAssets = int(intOf(doc["max_assets"]))
 	t.UsesConsumables, _ = doc["consumables_allowed"].(bool)
+	t.ExtraConsumablesAllowed, _ = doc["add_any_consumables_allowed"].(bool)
 
 	var states []struct {
 		Name string `json:"name"`
@@ -89,6 +91,19 @@ func parseTemplateDoc(id string, doc map[string]any) (workOrderTemplate, error) 
 		return t, fmt.Errorf("decode blocks: %w", err)
 	}
 	t.HasBlocks = len(t.Blocks) > 0
+	var cons []map[string]any
+	if err := roundTrip(doc["consumables"], &cons); err != nil {
+		return t, fmt.Errorf("decode consumables: %w", err)
+	}
+	for _, c := range cons {
+		q, _ := strconv.ParseFloat(idString(c["quantity"]), 64)
+		if f, ok := c["quantity"].(float64); ok {
+			q = f
+		}
+		if cid := idString(c["consumable_id"]); cid != "" && cid != "0" {
+			t.Consumables = append(t.Consumables, TemplateConsumable{ConsumableID: cid, Quantity: q})
+		}
+	}
 	return t, nil
 }
 

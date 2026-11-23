@@ -334,13 +334,15 @@ func TestCreateOrder_WithBlocks_UncertainCommitNotSavedKeepsMachinesAndSaysWhich
 	}
 }
 
-func TestCreateOrder_ConsumablesTemplateIsStillRejected(t *testing.T) {
+func TestCreateOrder_ConsumablesTemplateOpensMobileWarehouse(t *testing.T) {
 	fs, svc := newBlockWorld(t, threeBlocks())
 	fs.entities[TemplateEntityType]["10"]["consumables_allowed"] = true
-	_, err := svc.CreateOrder(context.Background(), blockInput())
-	ve := wantInvalid(t, err, "template_id")
-	if !strings.Contains(ve.Reason, "consumables") || fs.machineCalls != 0 {
-		t.Fatalf("reason=%q machines=%d", ve.Reason, fs.machineCalls)
+	o, err := svc.CreateOrder(context.Background(), blockInput())
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+	if o.MobileWarehouseID != o.ID || fs.entities[warehouseEntity][o.ID] == nil || fs.machineCalls != 3 {
+		t.Fatalf("order=%+v wh=%v machines=%d", o, fs.entities[warehouseEntity][o.ID], fs.machineCalls)
 	}
 }
 

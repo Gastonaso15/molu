@@ -8,14 +8,11 @@ import (
 	"time"
 )
 
-const unsupportedTemplateReason = "this template uses consumables (a mobile warehouse), which this publisher does not support yet"
-
-const mobileWarehouseNotAdvanceableReason = "orders with a mobile warehouse cannot be advanced from here yet"
-
 // createTemplateOrder opens an order that follows a template's workflow. It
-// writes the same work_orders document seam-CURE writes for such an order:
-// no xolu FSM (machine_id 0), the workflow position in workflow_index, and the
-// answers of the upon_creating header items in header_values.
+// writes the work_orders document without a xolu FSM (machine_id 0), with the
+// workflow position in workflow_index and the upon_creating header answers in
+// header_values. When the template has blocks or enables consumables, all
+// records (order, blocks, mobile warehouse) are saved in one atomic Commit.
 func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (WorkOrder, error) {
 	tpl, err := s.loadTemplate(ctx, string(in.TemplateID))
 	if err != nil {
@@ -26,11 +23,13 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 		return WorkOrder{}, &ValidationError{Fields: []string{"template_version"},
 			Reason: fmt.Sprintf("template %s is at version %d, not %d", tpl.ID, tpl.Version, in.TemplateVersion)}
 	}
-	if tpl.UsesConsumables {
-		return WorkOrder{}, &ValidationError{Fields: []string{"template_id"}, Reason: unsupportedTemplateReason}
-	}
 	if err := tpl.validateWorkflow(); err != nil {
 		return WorkOrder{}, &ValidationError{Fields: []string{"template_id"}, Reason: "template workflow is invalid: " + err.Error()}
+	}
+	problems = append(problems, optionalIDProblem("created_by_user_id", in.CreatedByUserID)...)
+	var createdByUserID int64
+	if n, ok := parsePositiveID(in.CreatedByUserID); ok {
+		createdByUserID = n
 	}
 
 	// Like the form, the title and description start as the template's own.
@@ -89,8 +88,8 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 		"asset_ids":        assets,
 	}
 	var id string
-	if len(tpl.Blocks) > 0 {
-		id, err = s.createOrderWithBlocks(ctx, tpl, doc)
+	if len(tpl.Blocks) > 0 || tpl.UsesConsumables {
+		id, err = s.createOrderWithBlocksAndWarehouse(ctx, tpl, doc, createdByUserID)
 	} else {
 		id, err = s.sub.CreateEntity(ctx, EntityType, doc)
 		if err != nil {
@@ -104,16 +103,13 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 }
 
 // advanceTemplateOrder moves a template order to the next state of its
-// workflow, the way seam-CURE's detail page does: one entity update that
-// stores the answers and the new state together, guarded by the entity's
-// _version so a concurrent change is rejected instead of overwritten.
+// workflow: one entity update that stores the answers and the new state
+// together, guarded by the entity's _version so a concurrent change is
+// rejected instead of overwritten.
 func (s *Service) advanceTemplateOrder(ctx context.Context, in AdvanceInput, doc map[string]any) (AdvanceResult, error) {
 	state, _ := doc["state"].(string)
 	if doc["assignment_type"] == AssignmentBoard && intOf(doc["responsible_id"]) == 0 {
 		return AdvanceResult{}, rejection("awaiting_claim", "the order is on the board and nobody has claimed it yet", state)
-	}
-	if intOf(doc["mobile_warehouse_id"]) > 0 {
-		return AdvanceResult{}, &ValidationError{Fields: []string{"order_id"}, Reason: mobileWarehouseNotAdvanceableReason}
 	}
 
 	tpl, err := s.loadTemplate(ctx, idString(doc["template_id"]))

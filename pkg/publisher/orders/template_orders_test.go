@@ -267,25 +267,16 @@ func TestTemplateOrder_Create_HeaderTypes(t *testing.T) {
 	}
 }
 
-func TestTemplateOrder_Create_UnsupportedTemplates(t *testing.T) {
-	for name, patch := range map[string]map[string]any{
-		"consumables": {"consumables_allowed": true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			fs := newFake()
-			seedWorld(fs)
-			for k, v := range patch {
-				fs.entities[TemplateEntityType]["1"][k] = v
-			}
-			_, err := NewService(fs).CreateOrder(context.Background(), tplInput())
-			ve := wantInvalid(t, err, "template_id")
-			if !strings.Contains(ve.Reason, "does not support yet") {
-				t.Fatalf("reason = %q", ve.Reason)
-			}
-			if len(fs.entities[EntityType]) != 0 {
-				t.Fatal("must not store an order")
-			}
-		})
+func TestTemplateOrder_Create_ConsumablesTemplateOpensMobileWarehouse(t *testing.T) {
+	fs := newFake()
+	seedWorld(fs)
+	fs.entities[TemplateEntityType]["1"]["consumables_allowed"] = true
+	o, err := NewService(fs).CreateOrder(context.Background(), tplInput())
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+	if o.MobileWarehouseID != o.ID || fs.entities[warehouseEntity][o.ID] == nil {
+		t.Fatalf("order=%+v wh=%v", o, fs.entities[warehouseEntity][o.ID])
 	}
 }
 
@@ -476,12 +467,6 @@ func TestTemplateOrder_Advance_Rejections(t *testing.T) {
 		_, err := advance(svc, o.ID, nil)
 		wantRule(t, err, "awaiting_claim")
 	})
-	t.Run("order with a mobile warehouse", func(t *testing.T) {
-		fs, svc, o := newTemplateOrder(t)
-		fs.entities[EntityType][o.ID]["mobile_warehouse_id"] = int64(5)
-		_, err := advance(svc, o.ID, nil)
-		wantInvalid(t, err, "order_id")
-	})
 	t.Run("template version changed", func(t *testing.T) {
 		fs, svc, o := newTemplateOrder(t)
 		fs.entities[TemplateEntityType]["1"]["version"] = 4
@@ -555,15 +540,17 @@ func TestListTemplates_SaysWhatCanBeUsed(t *testing.T) {
 	fs.put(TemplateEntityType, "2", map[string]any{"name": "With consumables", "version": 1, "latest": true,
 		"workflow_states":     []any{map[string]any{"name": "A"}, map[string]any{"name": "B"}},
 		"consumables_allowed": true})
+	fs.put(TemplateEntityType, "3", map[string]any{"name": "Bad workflow", "version": 1, "latest": true,
+		"workflow_states": []any{map[string]any{"name": "Only"}}})
 	got, err := NewService(fs).ListTemplates(context.Background(), ListTemplatesInput{})
-	if err != nil || len(got.Templates) != 2 {
+	if err != nil || len(got.Templates) != 3 {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	byID := map[string]Template{}
 	for _, tpl := range got.Templates {
 		byID[tpl.ID] = tpl
 	}
-	ok, blocked := byID["1"], byID["2"]
+	ok, withCons, blocked := byID["1"], byID["2"], byID["3"]
 	if !ok.Supported || ok.Reason != "" || ok.MinAssets != 1 || ok.MaxAssets != 2 || ok.AssetTypeID != "5" || len(ok.HeaderItems) != 3 {
 		t.Fatalf("usable template = %+v", ok)
 	}
@@ -571,7 +558,10 @@ func TestListTemplates_SaysWhatCanBeUsed(t *testing.T) {
 	if h.Tag != "prioridad" || h.Type != "number" || h.FilledAt != "upon_creating" || !h.Required || h.DefaultValue != "1" {
 		t.Fatalf("header item = %+v", h)
 	}
-	if blocked.Supported || !strings.Contains(blocked.Reason, "consumables") {
-		t.Fatalf("template with consumables = %+v", blocked)
+	if !withCons.Supported || withCons.Reason != "" {
+		t.Fatalf("template with consumables should be supported = %+v", withCons)
+	}
+	if blocked.Supported || !strings.Contains(blocked.Reason, "workflow") {
+		t.Fatalf("template with invalid workflow = %+v", blocked)
 	}
 }

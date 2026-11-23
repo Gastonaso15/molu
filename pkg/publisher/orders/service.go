@@ -183,6 +183,9 @@ func orderFromDoc(id string, doc map[string]any) WorkOrder {
 	if rid := idString(doc["responsible_id"]); rid != "" && rid != "0" {
 		o.ResponsibleID = rid
 	}
+	if wid := idString(doc["mobile_warehouse_id"]); wid != "" && wid != "0" {
+		o.MobileWarehouseID = wid
+	}
 	o.CompletedAt, _ = doc["completed_at"].(string)
 	if templateOrder(doc) {
 		o.TemplateID = idString(doc["template_id"])
@@ -227,11 +230,13 @@ func templateFromRow(row map[string]any) Template {
 		for _, h := range parsed.Headers {
 			t.HeaderItems = append(t.HeaderItems, TemplateHeaderItem{Tag: h.Tag, Type: h.Type, FilledAt: h.ToFillOut, Required: h.Required, DefaultValue: h.DefaultValue})
 		}
+		appendCount := len(parsed.Blocks)
+		if parsed.UsesConsumables {
+			appendCount++
+		}
 		switch {
-		case parsed.UsesConsumables:
-			t.Supported, t.Reason = false, unsupportedTemplateReason
-		case len(parsed.Blocks) > maxCommitAppends:
-			t.Supported, t.Reason = false, fmt.Sprintf("the template has %d blocks but one commit holds at most %d records", len(parsed.Blocks), maxCommitAppends)
+		case appendCount > maxCommitAppends:
+			t.Supported, t.Reason = false, fmt.Sprintf("the template needs %d commit records (blocks + mobile warehouse) but one commit holds at most %d records", appendCount, maxCommitAppends)
 		case blocksInvalid(parsed.Blocks) != nil:
 			t.Supported, t.Reason = false, "the template blocks are invalid: "+blocksInvalid(parsed.Blocks).Error()
 		case parsed.validateWorkflow() != nil:

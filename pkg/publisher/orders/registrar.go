@@ -67,23 +67,24 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			"Open a new work order. Without template_id it is a simple order (draft, then in_progress, then completed). "+
 				"With template_id (see ListTemplates) it follows that template's workflow: assignment_type and responsible_type are required, "+
 				"header_values answers the template's header items filled at creation, and asset_ids picks its assets. "+
-				"If the template has blocks, each one gets its own record and lifecycle (pending) in one atomic write; ids of such orders are large numbers, treat them as opaque strings. "+
-				"Templates marked supported=false (consumables / mobile warehouse yet unsupported, or invalid blocks) are rejected. A direct assignment needs a crew or third_party "+
-				"responsible_id; a user cannot be assigned directly from here, use board_posting instead.",
+				"If the template has blocks or enables consumables, each block gets its own record/lifecycle (pending) and consumables open an empty mobile warehouse "+
+				"(mobile_warehouse_id == order id) in one atomic Commit (at most 25 appended records). Ids of such orders are large numbers, treat them as opaque strings. "+
+				"A direct assignment needs a crew or third_party responsible_id; use board_posting or AssignOrder for a user.",
 			"/api/v1/orders/create",
 			map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"title":            map[string]any{"type": "string", "description": "Short title of the work to do. Required, except with a template (defaults to the template's name)."},
-					"description":      map[string]any{"type": "string", "description": "Optional details (defaults to the template's description)."},
-					"assigned_to":      map[string]any{"type": "string", "description": "Simple orders only: technician name or email. Ignored when an assignment resolves the responsible."},
-					"template_id":      idSchema("Id of the template the order follows."),
-					"template_version": map[string]any{"type": "integer", "description": "Optional: fail if the template is not at this version."},
-					"assignment_type":  map[string]any{"type": "string", "enum": []any{AssignmentDirect, AssignmentBoard}, "description": "direct_assignment: assign now. board_posting: publish for someone to claim."},
-					"responsible_type": map[string]any{"type": "string", "enum": []any{"user", "crew", "third_party"}, "description": "Who is responsible, or who may claim it."},
-					"responsible_id":   idSchema("Direct assignment: id of the crew or outsourced party. Omit for a board posting."),
-					"header_values":    map[string]any{"type": "object", "description": "Answers by header tag, for the header items filled at creation (see ListTemplates header_items)."},
-					"asset_ids":        map[string]any{"type": "array", "items": idSchema("Asset id."), "description": "Assets the order is about, within the template's min/max and asset type."},
+					"title":              map[string]any{"type": "string", "description": "Short title of the work to do. Required, except with a template (defaults to the template's name)."},
+					"description":        map[string]any{"type": "string", "description": "Optional details (defaults to the template's description)."},
+					"assigned_to":        map[string]any{"type": "string", "description": "Simple orders only: technician name or email. Ignored when an assignment resolves the responsible."},
+					"template_id":        idSchema("Id of the template the order follows."),
+					"template_version":   map[string]any{"type": "integer", "description": "Optional: fail if the template is not at this version."},
+					"assignment_type":    map[string]any{"type": "string", "enum": []any{AssignmentDirect, AssignmentBoard}, "description": "direct_assignment: assign now. board_posting: publish for someone to claim."},
+					"responsible_type":   map[string]any{"type": "string", "enum": []any{"user", "crew", "third_party"}, "description": "Who is responsible, or who may claim it."},
+					"responsible_id":     idSchema("Direct assignment: id of the crew or outsourced party. Omit for a board posting."),
+					"header_values":      map[string]any{"type": "object", "description": "Answers by header tag, for the header items filled at creation (see ListTemplates header_items)."},
+					"asset_ids":          map[string]any{"type": "array", "items": idSchema("Asset id."), "description": "Assets the order is about, within the template's min/max and asset type."},
+					"created_by_user_id": idSchema("Optional user id recorded as responsible_user_id on a newly opened mobile warehouse."),
 				},
 				"additionalProperties": false,
 			}),
@@ -270,6 +271,46 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 					"request_id":          map[string]any{"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Optional 32 lowercase hex idempotency key; generated if omitted."},
 				},
 				"required":             []string{"type", "consumable_id", "user_id", "quantity", "reason"},
+				"additionalProperties": false,
+			}),
+		mk("ConsumeFromOrder",
+			"Consume stock of a consumable from an open work order's mobile warehouse (atomic exit movement via RegisterMovement). "+
+				"Load stock into the mobile warehouse first with RegisterMovement (transfer). Rejects completed orders (final_state), orders without a mobile warehouse "+
+				"(no_mobile_warehouse), consumables excluded by the template when extra consumables are disabled (consumable_not_allowed), and insufficient stock (insufficient_stock). "+
+				"Supports idempotent retries via request_id.",
+			"/api/v1/orders/consume",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"order_id":      map[string]any{"type": "string", "minLength": 1},
+					"consumable_id": idSchema("Id of the consumable being consumed."),
+					"user_id":       idSchema("Id of the user recording the consumption."),
+					"quantity":      map[string]any{"type": "number", "exclusiveMinimum": 0, "description": "Positive quantity with at most 2 decimals."},
+					"reason":        map[string]any{"type": "string", "description": "Optional reason (defaults to order consumption note)."},
+					"reference":     map[string]any{"type": "string", "description": "Optional reference (defaults to WO-<order_id>)."},
+					"request_id":    map[string]any{"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Optional 32 lowercase hex idempotency key."},
+				},
+				"required":             []string{"order_id", "consumable_id", "user_id", "quantity"},
+				"additionalProperties": false,
+			}),
+		mk("ReturnLeftovers",
+			"Return leftover stock of a consumable from a work order's mobile warehouse back to a target warehouse (atomic transfer via RegisterMovement). "+
+				"Works on both open and completed orders. Omit quantity to return all remaining stock of that consumable in the mobile warehouse (fails with no_leftovers if empty). "+
+				"Supports idempotent retries via request_id.",
+			"/api/v1/orders/return-leftovers",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"order_id":            map[string]any{"type": "string", "minLength": 1},
+					"consumable_id":       idSchema("Id of the consumable being returned."),
+					"target_warehouse_id": idSchema("Destination warehouse id receiving the leftovers."),
+					"user_id":             idSchema("Id of the user recording the return."),
+					"quantity":            map[string]any{"type": "number", "exclusiveMinimum": 0, "description": "Optional positive quantity (max 2 decimals). Omit to return all remaining stock."},
+					"reason":              map[string]any{"type": "string", "description": "Optional reason (defaults to order leftover return note)."},
+					"reference":           map[string]any{"type": "string", "description": "Optional reference (defaults to WO-<order_id>)."},
+					"request_id":          map[string]any{"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Optional 32 lowercase hex idempotency key."},
+				},
+				"required":             []string{"order_id", "consumable_id", "target_warehouse_id", "user_id"},
 				"additionalProperties": false,
 			}),
 		mk("ListTemplates",

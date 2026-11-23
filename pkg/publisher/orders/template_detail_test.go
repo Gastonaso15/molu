@@ -58,8 +58,8 @@ func findTemplate(t *testing.T, l TemplateList, id string) Template {
 
 func checkRichTemplate(t *testing.T, tp Template) {
 	t.Helper()
-	if tp.Supported || tp.Reason == "" {
-		t.Errorf("blocks + consumables are not openable yet: %+v", tp)
+	if !tp.Supported || tp.Reason != "" {
+		t.Errorf("blocks + consumables should now be openable: %+v", tp)
 	}
 	if len(tp.Blocks) != 2 || tp.Blocks[1].Name != "Mantenimiento" || tp.Blocks[1].Predecessor != "Preparacion" ||
 		tp.Blocks[1].ResponsibleType != "crew" || len(tp.Blocks[1].Lines) != 2 || tp.Blocks[1].Lines[1].Type != "number" {

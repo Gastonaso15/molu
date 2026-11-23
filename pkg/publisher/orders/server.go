@@ -118,6 +118,20 @@ func (s *Server) Handler() http.Handler {
 		}
 		return c.RegisterMovement(r.Context(), in)
 	})))
+	mux.Handle("/api/v1/orders/consume", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in ConsumeFromOrderInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.ConsumeFromOrder(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/return-leftovers", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in ReturnLeftoversInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.ReturnLeftovers(r.Context(), in)
+	})))
 	mux.Handle("/api/v1/orders/templates", s.guard(http.HandlerFunc(s.templates)))
 	return withRequestID(mux)
 }
