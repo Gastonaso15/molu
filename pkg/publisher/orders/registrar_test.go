@@ -36,8 +36,8 @@ func TestOrderRegistrar_RegistersFourNamespacedTools(t *testing.T) {
 	}
 
 	tools := reg.List(PublisherID)
-	if len(tools) != 16 {
-		t.Fatalf("registered %d tools, want 16: %+v", len(tools), tools)
+	if len(tools) != 17 {
+		t.Fatalf("registered %d tools, want 17: %+v", len(tools), tools)
 	}
 	byName := map[string]hub.ToolRegistration{}
 	for _, tl := range tools {
@@ -47,6 +47,7 @@ func TestOrderRegistrar_RegistersFourNamespacedTools(t *testing.T) {
 		"work_orders.CreateOrder":   "http://publisher:8092/api/v1/orders/create",
 		"work_orders.GetOrder":      "http://publisher:8092/api/v1/orders/get",
 		"work_orders.AdvanceOrder":  "http://publisher:8092/api/v1/orders/advance",
+		"work_orders.AssignOrder":   "http://publisher:8092/api/v1/orders/assign",
 		"work_orders.ListTemplates": "http://publisher:8092/api/v1/orders/templates",
 	}
 	for name, endpoint := range want {
@@ -75,8 +76,8 @@ func TestOrderRegistrar_RegisterIsIdempotent(t *testing.T) {
 			t.Fatalf("Register #%d: %v", i, err)
 		}
 	}
-	if n := len(reg.List(PublisherID)); n != 16 {
-		t.Fatalf("%d tools after re-register, want 4", n)
+	if n := len(reg.List(PublisherID)); n != 17 {
+		t.Fatalf("%d tools after re-register, want 17", n)
 	}
 }
 

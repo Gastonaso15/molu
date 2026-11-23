@@ -232,6 +232,23 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"required":             []string{"order_id", "user_id"},
 				"additionalProperties": false,
 			}),
+		mk("AssignOrder",
+			"Assign or reassign an open (non-completed) work order to a user, crew or third_party (direct_assignment, the default), or place it on the job board (board_posting) "+
+				"so an eligible responsible can claim it. Direct assignment checks that the target record exists (and is active for users) and sets assigned_to from its name; "+
+				"any prior claim is cleared. Repeating the exact same assignment changes nothing (already_assigned=true). Guarded by optimistic locking (_version): "+
+				"completed orders return INVALID_TRANSITION with details.rule=final_state and concurrent modifications return details.rule=stale_state.",
+			"/api/v1/orders/assign",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"order_id":         map[string]any{"type": "string", "minLength": 1},
+					"assignment_type":  map[string]any{"type": "string", "enum": []any{AssignmentDirect, AssignmentBoard}, "description": "direct_assignment (default): assign now. board_posting: place on the job board."},
+					"responsible_type": map[string]any{"type": "string", "enum": []any{"user", "crew", "third_party"}, "description": "Kind of responsible, or who may claim a board posting."},
+					"responsible_id":   idSchema("Direct assignment: id of the user, crew or third party. Omit for a board posting."),
+				},
+				"required":             []string{"order_id", "responsible_type"},
+				"additionalProperties": false,
+			}),
 		mk("ListTemplates",
 			"List work order templates (read-only): workflow states, header items to answer, blocks, default consumables, actions and rules, asset limits, and whether CreateOrder can use them (supported). "+
 				"Names of consumables and actions are not resolved here; use GetTemplate for one template with names. Only the latest version of each template unless include_old_versions is true.",

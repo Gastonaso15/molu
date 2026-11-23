@@ -740,3 +740,67 @@ func TestRealXolu_AdvanceOrderWithBlockAnswers(t *testing.T) {
 		t.Fatalf("answers = %v signed=%v err=%v", d.BlockAnswers, d.Signed, err)
 	}
 }
+
+// Verifies AssignOrder against a real xolu: direct assignment to user,
+// reassignment to crew and third_party, returning to the board, idempotency,
+// and rejection once completed.
+func TestRealXolu_AssignOrder(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
+	user := mk("users", map[string]any{"name": "Operario " + tag, "email": "op-" + tag + "@example.com", "active": true})
+	crew := mk("crews", map[string]any{"name": "Cuadrilla " + tag, "responsible_user_id": intOf(user)})
+	out := mk("outsourced", map[string]any{"name": "Proveedor " + tag, "responsible_user_id": intOf(user)})
+
+	order, err := svc.CreateOrder(ctx, CreateInput{Title: "Orden asignable " + tag})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Direct assign to user.
+	r1, err := svc.AssignOrder(ctx, AssignInput{OrderID: order.ID, ResponsibleType: "user", ResponsibleID: ID(user)})
+	if err != nil || r1.Reassigned || r1.AlreadyAssigned || r1.Order.AssignedTo != "Operario "+tag {
+		t.Fatalf("assign user: %+v err=%v", r1, err)
+	}
+	// Idempotent repeat.
+	r1Again, err := svc.AssignOrder(ctx, AssignInput{OrderID: order.ID, ResponsibleType: "user", ResponsibleID: ID(user)})
+	if err != nil || !r1Again.AlreadyAssigned {
+		t.Fatalf("idempotent assign: %+v err=%v", r1Again, err)
+	}
+	// Reassign to crew.
+	r2, err := svc.AssignOrder(ctx, AssignInput{OrderID: order.ID, ResponsibleType: "crew", ResponsibleID: ID(crew)})
+	if err != nil || !r2.Reassigned || r2.Order.ResponsibleID != crew || r2.Order.AssignedTo != "Cuadrilla "+tag {
+		t.Fatalf("reassign crew: %+v err=%v", r2, err)
+	}
+	// Post back to job board.
+	r3, err := svc.AssignOrder(ctx, AssignInput{OrderID: order.ID, AssignmentType: AssignmentBoard, ResponsibleType: "third_party"})
+	if err != nil || !r3.Reassigned || r3.Order.AssignmentType != AssignmentBoard || r3.Order.ResponsibleID != "" {
+		t.Fatalf("board posting: %+v err=%v", r3, err)
+	}
+	// Reassign to third_party directly.
+	r4, err := svc.AssignOrder(ctx, AssignInput{OrderID: order.ID, ResponsibleType: "third_party", ResponsibleID: ID(out)})
+	if err != nil || r4.Reassigned || r4.Order.AssignedTo != "Proveedor "+tag {
+		t.Fatalf("assign third_party: %+v err=%v", r4, err)
+	}
+	// Complete legacy order, then assignment must be rejected as final_state.
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: order.ID, Input: InputStart}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: order.ID, Input: InputComplete, Payload: map[string]any{"technician_signature": "firma"}}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.AssignOrder(ctx, AssignInput{OrderID: order.ID, ResponsibleType: "crew", ResponsibleID: ID(crew)})
+	wantRule(t, err, "final_state")
+}

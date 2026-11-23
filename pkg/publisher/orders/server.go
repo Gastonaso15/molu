@@ -104,6 +104,13 @@ func (s *Server) Handler() http.Handler {
 		}
 		return c.ClaimOrder(r.Context(), in)
 	})))
+	mux.Handle("/api/v1/orders/assign", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in AssignInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.AssignOrder(r.Context(), in)
+	})))
 	mux.Handle("/api/v1/orders/templates", s.guard(http.HandlerFunc(s.templates)))
 	return withRequestID(mux)
 }
