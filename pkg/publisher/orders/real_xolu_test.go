@@ -1018,3 +1018,64 @@ func TestRealXolu_PeopleWrite(t *testing.T) {
 		t.Fatalf("UpdateOutsourced: %+v err=%v", outUpd, err)
 	}
 }
+
+// Verifies CreateWarehouse/UpdateWarehouse and CreateConsumable/UpdateConsumable
+// against a real xolu, including the warehouse_has_stock guard on disable.
+func TestRealXolu_InventoryWrite(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
+	user := mk(usersEntity, map[string]any{"name": "Encargado " + tag, "active": true})
+	unit := mk(unitEntity, map[string]any{"name": "Unidad " + tag, "symbol": "u"})
+	ctype := mk(consumableTypesEntity, map[string]any{"name": "Tipo " + tag})
+
+	wh, err := svc.CreateWarehouse(ctx, CreateWarehouseInput{
+		Name: "Deposito CRUD " + tag, Location: "-34.9,-56.1", ResponsibleUserID: ID(user),
+	})
+	if err != nil || !wh.Enabled {
+		t.Fatalf("CreateWarehouse: %+v err=%v", wh, err)
+	}
+	cons, err := svc.CreateConsumable(ctx, CreateConsumableInput{
+		Name: "Insumo CRUD " + tag, ConsumableTypeID: ID(ctype), UnitID: ID(unit), StockMin: f64(2),
+	})
+	if err != nil || !cons.Enabled {
+		t.Fatalf("CreateConsumable: %+v err=%v", cons, err)
+	}
+	if _, err := svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementEntry, ConsumableID: ID(cons.ID), UserID: ID(user), TargetWarehouseID: ID(wh.ID),
+		Quantity: f64(3), Reason: "Alta stock",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Cannot disable warehouse while it holds stock.
+	_, err = svc.UpdateWarehouse(ctx, UpdateWarehouseInput{WarehouseID: ID(wh.ID), Enabled: boolPtr(false)})
+	wantRule(t, err, "warehouse_has_stock")
+
+	// Empty stock, then disable succeeds.
+	if _, err := svc.RegisterMovement(ctx, MovementInput{
+		Type: MovementExit, ConsumableID: ID(cons.ID), UserID: ID(user), OriginWarehouseID: ID(wh.ID),
+		Quantity: f64(3), Reason: "Vaciar",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	whDis, err := svc.UpdateWarehouse(ctx, UpdateWarehouseInput{WarehouseID: ID(wh.ID), Enabled: boolPtr(false)})
+	if err != nil || whDis.Enabled {
+		t.Fatalf("disable warehouse: %+v err=%v", whDis, err)
+	}
+	consUpd, err := svc.UpdateConsumable(ctx, UpdateConsumableInput{ConsumableID: ID(cons.ID), StockMin: f64(5)})
+	if err != nil || consUpd.StockMin != 5 {
+		t.Fatalf("UpdateConsumable: %+v err=%v", consUpd, err)
+	}
+}

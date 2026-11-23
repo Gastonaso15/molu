@@ -104,6 +104,20 @@ func (s *Server) Handler() http.Handler {
 		}
 		return c.GetWarehouse(r.Context(), in)
 	})))
+	mux.Handle("/api/v1/orders/warehouses/create", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in CreateWarehouseInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.CreateWarehouse(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/warehouses/update", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in UpdateWarehouseInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.UpdateWarehouse(r.Context(), in)
+	})))
 	mux.Handle("/api/v1/orders/consumables/list", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
 		var in ListConsumablesInput
 		if !dec(&in) {
@@ -117,6 +131,20 @@ func (s *Server) Handler() http.Handler {
 			return nil, errHandled
 		}
 		return c.GetConsumable(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/consumables/create", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in CreateConsumableInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.CreateConsumable(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/consumables/update", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in UpdateConsumableInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.UpdateConsumable(r.Context(), in)
 	})))
 	mux.Handle("/api/v1/orders/stock/low", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
 		var in ListLowStockInput
