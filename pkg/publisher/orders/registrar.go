@@ -212,6 +212,23 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"warehouse_id":  idSchema("Only alerts of this warehouse."),
 				"consumable_id": idSchema("Only alerts of this consumable."),
 			})),
+		mk("ClaimOrder",
+			"Claim a job-board order (board_posting, nobody has claimed it; see ListOrders backlog=true). user_id is the person claiming. "+
+				"The claim is on behalf of the order's responsible type: a user order can only be claimed by that user; a crew or third_party order by a user who is "+
+				"that crew's or third party's responsible user (see ListCrews / ListOutsourced). Give responsible_id to choose among several; it can be left out when only one is eligible. "+
+				"Of two simultaneous claims only one wins. Claiming again with the same user and responsible changes nothing (already_claimed=true). "+
+				"Rejections come back as INVALID_TRANSITION with details.rule: not_claimable (assigned directly), already_claimed, ineligible.",
+			"/api/v1/orders/claim",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"order_id":       map[string]any{"type": "string", "minLength": 1},
+					"user_id":        idSchema("Id of the user who claims."),
+					"responsible_id": idSchema("Crew or third party to claim for; for a user order, the user."),
+				},
+				"required":             []string{"order_id", "user_id"},
+				"additionalProperties": false,
+			}),
 		mk("ListTemplates",
 			"List work order templates (read-only): workflow states, header items to answer, blocks, default consumables, actions and rules, asset limits, and whether CreateOrder can use them (supported). "+
 				"Names of consumables and actions are not resolved here; use GetTemplate for one template with names. Only the latest version of each template unless include_old_versions is true.",

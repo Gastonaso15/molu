@@ -20,7 +20,9 @@ Una tarea por vez, con TDD (`go test -v -race ./...`). Al terminar cada una: mar
   - **Pendiente de confirmar con WO**: si las alertas deben excluir almacenes móviles y consumibles deshabilitados (Seam no los excluye).
 
 ## Fase 2 — Ciclo de vida y asignación
-- [ ] **T7. `ClaimOrder`** (backlog → reclamada, `_version`, elegibilidad por `responsible_user_id`). RF-3.
+- [x] **T7. `ClaimOrder`** (backlog → reclamada, `_version`, elegibilidad por `responsible_user_id`). RF-1, RF-3, RF-8.
+  - **Hecho (23-nov-2026)**: `pkg/publisher/orders/claim.go`; ruta `/api/v1/orders/claim`; 16 funciones registradas. Replica el reclamo de Seam: solo una orden `board_posting` sin responsable; elegible es el propio usuario (orden de tipo `user`) o quien figura como `responsible_user_id` de una cuadrilla/tercerizado (`crews`/`outsourced`); un único PATCH con `_version` fija `assigned_to`, `claimed_by_user_id`, `responsible_id`, `updated_at`. **El publicador no tiene sesión de usuario**, así que el reclamante viaja en `user_id` (Seam lo toma de la sesión); `responsible_id` es opcional si solo hay un elegible y error de contrato si hay varios. Rechazos como `INVALID_TRANSITION` con `details.rule`: `not_claimable`, `already_claimed` (incluye la carrera perdida, 409 de xolu) e `ineligible`. Reclamar de nuevo con el mismo usuario y responsable no escribe (`already_claimed: true`). Pruebas: `claim_test.go` y `TestRealXolu_ClaimOrder`, que incluye una carrera real de dos usuarios por la misma orden (siempre gana exactamente uno; repetida 5 veces).
+  - **Pendiente de confirmar con WO / Horacio**: que `user_id` lo informe el cliente MCP no es una identidad verificada; cuando exista autenticación de usuario en el Hub debería salir de ella.
 - [ ] **T8. `CreateOrder` con bloques.** FSM por bloque, `work_order_blocks`, predecesores sin ciclos, `Commit` único con tope de 25. RF-2.
 - [ ] **T9. Avance de bloques en `AdvanceOrder`** (respeta predecesores; bloque `pending → in_progress → completed`).
 - [ ] **T10. `AssignOrder`** (usuario/cuadrilla/tercerizado; regla de reasignación según respuesta de WO).

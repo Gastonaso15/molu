@@ -87,7 +87,8 @@ Leyenda de "Primitivos hoy": ✅ resuelto con `list/get/find/create/update` sin 
 6. **Usuarios**: cómo resolver un usuario por id/email desde fuera de la UI (viven en cuentas de Seam, no en xolu).
 7. **Código de tercerizado y disponibilidad de cuadrillas** (filas 10 y 11): el módulo no tiene campo de código para `outsourced` ni noción de disponibilidad de `crews`; confirmar si se difieren.
 8. **Alertas de stock mínimo** (fila 16): Seam marca el consumible si cualquier almacén (también los móviles de órdenes y aunque el consumible esté deshabilitado) está en `stock_min` o menos. Confirmar si es lo deseado o si deben excluirse.
-9. Notas por función (como pide Horacio) cuando suban la versión estable.
+9. **Identidad del usuario que actúa**: el reclamo (y las futuras asignaciones/movimientos) necesitan saber quién actúa. Hoy viaja como `user_id` en la llamada, sin verificar. Definir con Horacio si el Hub propagará la identidad del usuario autenticado.
+10. Notas por función (como pide Horacio) cuando suban la versión estable.
 
 ## 6. Fuera de alcance
 

@@ -494,3 +494,94 @@ func TestRealXolu_Inventory(t *testing.T) {
 		t.Fatalf("alerts = %+v err=%v", a, err)
 	}
 }
+
+// Claims a job-board order against the real xolu: eligibility, the _version
+// guard (two users race for the same order and exactly one wins), idempotence
+// and the order moving again afterwards.
+func TestRealXolu_ClaimOrder(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
+	userA := mk("users", map[string]any{"name": "Reclamante A " + tag})
+	userB := mk("users", map[string]any{"name": "Reclamante B " + tag})
+	outsider := mk("users", map[string]any{"name": "Sin cuadrilla " + tag})
+	crewA := mk("crews", map[string]any{"name": "Cuadrilla A " + tag, "responsible_user_id": json.Number(userA)})
+	_ = mk("crews", map[string]any{"name": "Cuadrilla B " + tag, "responsible_user_id": json.Number(userB)})
+	assetType := int64(79)
+	asset := mk("assets", map[string]any{"name": "Equipo claim", "type_id": assetType})
+	tpl := mk(TemplateEntityType, map[string]any{
+		"name": "Plantilla claim " + tag, "version": 1, "latest": true, "asset_type_id": assetType, "min_assets": 1, "max_assets": 1,
+		"workflow_states": []map[string]any{{"name": "Pendiente"}, {"name": "Cerrada"}},
+		"header_items":    []map[string]any{}, "blocks": []any{}, "consumables_allowed": false,
+	})
+	open := func() string {
+		o, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentBoard, ResponsibleType: "crew", AssetIDs: []ID{ID(asset)}})
+		if err != nil {
+			t.Fatalf("board order: %v", err)
+		}
+		return o.ID
+	}
+
+	order := open()
+	if _, err := svc.ClaimOrder(ctx, ClaimInput{OrderID: order, UserID: ID(outsider)}); err == nil {
+		t.Fatal("a user without a crew must not claim")
+	} else if te, ok := err.(*TransitionError); !ok || te.Details["rule"] != "ineligible" {
+		t.Fatalf("err = %T %v", err, err)
+	}
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: order, Input: InputComplete}); err == nil {
+		t.Fatal("an unclaimed board order must not advance")
+	}
+
+	res, err := svc.ClaimOrder(ctx, ClaimInput{OrderID: order, UserID: ID(userA)})
+	if err != nil || res.Responsible.ID != crewA || res.Responsible.Name != "Cuadrilla A "+tag || res.AlreadyClaimed {
+		t.Fatalf("claim = %+v err=%v", res, err)
+	}
+	d, err := svc.GetOrder(ctx, order)
+	if err != nil || d.ClaimedByUserID != userA || d.ResponsibleID != crewA || d.AssignedTo != "Cuadrilla A "+tag {
+		t.Fatalf("detail = %+v err=%v", d, err)
+	}
+	if again, err := svc.ClaimOrder(ctx, ClaimInput{OrderID: order, UserID: ID(userA)}); err != nil || !again.AlreadyClaimed {
+		t.Fatalf("again = %+v err=%v", again, err)
+	}
+	if _, err := svc.ClaimOrder(ctx, ClaimInput{OrderID: order, UserID: ID(userB)}); err == nil {
+		t.Fatal("a second user must not take a claimed order")
+	}
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: order, Input: InputComplete, Payload: map[string]any{"technician_signature": "firma"}}); err != nil {
+		t.Fatalf("a claimed order must advance: %v", err)
+	}
+
+	// Two users race for one order: xolu's _version lets exactly one win.
+	race := open()
+	results := make(chan error, 2)
+	for _, u := range []string{userA, userB} {
+		go func(u string) {
+			_, err := svc.ClaimOrder(ctx, ClaimInput{OrderID: race, UserID: ID(u)})
+			results <- err
+		}(u)
+	}
+	var wins, losses int
+	for i := 0; i < 2; i++ {
+		if err := <-results; err == nil {
+			wins++
+		} else if te, ok := err.(*TransitionError); ok && te.Details["rule"] == "already_claimed" {
+			losses++
+		} else {
+			t.Fatalf("unexpected race error: %T %v", err, err)
+		}
+	}
+	if wins != 1 || losses != 1 {
+		t.Fatalf("race: %d wins, %d losses", wins, losses)
+	}
+}
