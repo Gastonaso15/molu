@@ -198,6 +198,23 @@ type Substrate interface {
 	// ListEntities returns every document of the entity type (newest first),
 	// each with its "id".
 	ListEntities(ctx context.Context, entityType string) ([]map[string]any, error)
+	// FindEntities returns the documents matching every condition, newest
+	// first, at most q.Limit of them (each with its "id").
+	FindEntities(ctx context.Context, entityType string, q EntityQuery) ([]map[string]any, error)
+}
+
+// Condition is one comparison of a document field. Op is "=", ">=" or "<=".
+// Integer values (int, int64) are compared as numbers; strings as text.
+type Condition struct {
+	Field string
+	Op    string
+	Value any
+}
+
+// EntityQuery selects documents of one entity type: all conditions must hold.
+type EntityQuery struct {
+	Where []Condition
+	Limit int
 }
 
 // XoluError is a non-success answer from xolu, kept raw so the service can

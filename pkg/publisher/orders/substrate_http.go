@@ -107,6 +107,71 @@ func (h *HTTPSubstrate) ListEntities(ctx context.Context, entityType string) ([]
 	return out.Data, nil
 }
 
+// FindEntities builds an OQL SELECT with the conditions in q. Field names and
+// operators are checked before anything is sent, and string values are quoted
+// with doubled single quotes, so a value can never alter the query.
+func (h *HTTPSubstrate) FindEntities(ctx context.Context, entityType string, q EntityQuery) ([]map[string]any, error) {
+	if !safeIdent(entityType) {
+		return nil, fmt.Errorf("invalid entity name %q", entityType)
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "SELECT TOP %d * FROM %s", limit, entityType)
+	for i, c := range q.Where {
+		if !safeIdent(c.Field) {
+			return nil, fmt.Errorf("invalid field name %q", c.Field)
+		}
+		if c.Op != "=" && c.Op != ">=" && c.Op != "<=" {
+			return nil, fmt.Errorf("unsupported operator %q", c.Op)
+		}
+		lit, err := oqlLiteral(c.Value)
+		if err != nil {
+			return nil, fmt.Errorf("field %s: %w", c.Field, err)
+		}
+		if i == 0 {
+			sb.WriteString(" WHERE ")
+		} else {
+			sb.WriteString(" AND ")
+		}
+		fmt.Fprintf(&sb, "%s %s %s", c.Field, c.Op, lit)
+	}
+	sb.WriteString(" ORDER BY created_at DESC, id DESC")
+	var out struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := h.do(ctx, http.MethodPost, "/api/v1/oql/query", map[string]any{"query": sb.String()}, &out); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
+func safeIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !(r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return false
+		}
+	}
+	return true
+}
+
+func oqlLiteral(v any) (string, error) {
+	switch t := v.(type) {
+	case int:
+		return strconv.Itoa(t), nil
+	case int64:
+		return strconv.FormatInt(t, 10), nil
+	case string:
+		return "'" + strings.ReplaceAll(t, "'", "''") + "'", nil
+	}
+	return "", fmt.Errorf("unsupported value type %T", v)
+}
+
 func (h *HTTPSubstrate) Walk(ctx context.Context, machineID, input string, payload map[string]any) (WalkResult, error) {
 	body := map[string]any{"input": input}
 	if payload != nil {

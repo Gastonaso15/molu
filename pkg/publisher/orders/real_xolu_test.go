@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 )
 
 // Runs only when MOLU_REAL_XOLU_URL is set; exercises the service against a live xolu.
@@ -192,4 +193,67 @@ func TestRealXolu_TemplateOrder(t *testing.T) {
 		t.Fatalf("stale version: want a 409 from xolu, got %v", err)
 	}
 	t.Logf("stale version: %v", err)
+}
+
+// Exercises ListOrders filters through the real OQL engine: string and numeric
+// comparisons, the backlog condition and the created_at range.
+func TestRealXolu_ListOrders(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	crew := mk("crews", map[string]any{"name": "Cuadrilla list"})
+	assetType := int64(78)
+	asset := mk("assets", map[string]any{"name": "Equipo list", "type_id": assetType})
+	tpl := mk(TemplateEntityType, map[string]any{
+		"name": "Plantilla list", "version": 1, "latest": true, "asset_type_id": assetType, "min_assets": 1, "max_assets": 1,
+		"workflow_states": []map[string]any{{"name": "Pendiente"}, {"name": "Cerrada"}},
+		"header_items":    []map[string]any{}, "blocks": []any{}, "consumables_allowed": false,
+	})
+	board, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentBoard, ResponsibleType: "crew", AssetIDs: []ID{ID(asset)}})
+	if err != nil {
+		t.Fatalf("board order: %v", err)
+	}
+	direct, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)}})
+	if err != nil {
+		t.Fatalf("direct order: %v", err)
+	}
+
+	yes := true
+	backlog, err := svc.ListOrders(ctx, ListOrdersInput{Backlog: &yes, TemplateID: ID(tpl)})
+	if err != nil || backlog.Total != 1 || backlog.Orders[0].ID != board.ID || !backlog.Orders[0].AwaitingClaim {
+		t.Fatalf("backlog = %+v err=%v", backlog, err)
+	}
+	byCrew, err := svc.ListOrders(ctx, ListOrdersInput{ResponsibleType: "crew", ResponsibleID: ID(crew)})
+	if err != nil || byCrew.Total != 1 || byCrew.Orders[0].ID != direct.ID {
+		t.Fatalf("by crew = %+v err=%v", byCrew, err)
+	}
+	byAsset, err := svc.ListOrders(ctx, ListOrdersInput{AssetID: ID(asset), State: "Pendiente"})
+	if err != nil || byAsset.Total != 2 {
+		t.Fatalf("by asset = %+v err=%v", byAsset, err)
+	}
+	today := time.Now().UTC().Format("2006-01-02")
+	ranged, err := svc.ListOrders(ctx, ListOrdersInput{TemplateID: ID(tpl), CreatedFrom: today, CreatedTo: today})
+	if err != nil || ranged.Total != 2 {
+		t.Fatalf("today = %+v err=%v", ranged, err)
+	}
+	none, err := svc.ListOrders(ctx, ListOrdersInput{TemplateID: ID(tpl), CreatedTo: "2000-01-01"})
+	if err != nil || none.Total != 0 || none.Orders == nil {
+		t.Fatalf("none = %+v err=%v", none, err)
+	}
+	cut, err := svc.ListOrders(ctx, ListOrdersInput{Limit: 1})
+	if err != nil || cut.Total != 1 || !cut.Truncated {
+		t.Fatalf("limit = %+v err=%v", cut, err)
+	}
+	t.Logf("backlog=%+v", backlog.Orders[0])
 }

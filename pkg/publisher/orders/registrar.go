@@ -114,6 +114,29 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"required":             []any{"order_id", "input"},
 				"additionalProperties": false,
 			}),
+		mk("ListOrders",
+			"List work orders, newest first, with optional filters (all combined with AND): state, template_id, assignment_type, "+
+				"responsible_type plus responsible_id (a crew, a third_party or a user), asset_id, created_from/created_to, or backlog=true "+
+				"for the job board (board_posting orders nobody has claimed yet; awaiting_claim marks them). Returns a summary of each order; "+
+				"use GetOrder for one order in full. total is the number of orders returned and truncated says more matched than limit. "+
+				"Priority and location are not order fields in the work order module, so they cannot be filtered.",
+			"/api/v1/orders/list",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"state":            map[string]any{"type": "string", "description": "Current state name, e.g. draft, in_progress, completed, or a template's state."},
+					"template_id":      idSchema("Only orders opened from this template."),
+					"assignment_type":  map[string]any{"type": "string", "enum": []string{AssignmentDirect, AssignmentBoard}},
+					"responsible_type": map[string]any{"type": "string", "enum": []string{"user", "crew", "third_party"}, "description": "Kind of responsible. Needed when responsible_id is given."},
+					"responsible_id":   idSchema("Id of the responsible user, crew or third party."),
+					"backlog":          map[string]any{"type": "boolean", "description": "true: only unclaimed job-board orders."},
+					"asset_id":         idSchema("Only orders that include this asset (template orders)."),
+					"created_from":     map[string]any{"type": "string", "description": "RFC 3339 timestamp or YYYY-MM-DD (start of that day, UTC)."},
+					"created_to":       map[string]any{"type": "string", "description": "RFC 3339 timestamp or YYYY-MM-DD (end of that day, UTC)."},
+					"limit":            map[string]any{"type": "integer", "minimum": 1, "maximum": maxListLimit, "description": "Default 50."},
+				},
+				"additionalProperties": false,
+			}),
 		mk("ListTemplates",
 			"List work order templates (read-only): workflow states, header items to answer, asset limits, and whether CreateOrder can use them (supported). Only the latest version of each template unless include_old_versions is true.",
 			"/api/v1/orders/templates",

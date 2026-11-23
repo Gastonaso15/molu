@@ -32,6 +32,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/orders/create", s.guard(http.HandlerFunc(s.create)))
 	mux.Handle("/api/v1/orders/get", s.guard(http.HandlerFunc(s.get)))
 	mux.Handle("/api/v1/orders/advance", s.guard(http.HandlerFunc(s.advance)))
+	mux.Handle("/api/v1/orders/list", s.guard(http.HandlerFunc(s.list)))
 	mux.Handle("/api/v1/orders/templates", s.guard(http.HandlerFunc(s.templates)))
 	return withRequestID(mux)
 }
@@ -81,6 +82,15 @@ func (s *Server) advance(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := s.svc.AdvanceOrder(r.Context(), in)
 	respond(w, res, err)
+}
+
+func (s *Server) list(w http.ResponseWriter, r *http.Request) {
+	var in ListOrdersInput
+	if !decode(w, r, &in) {
+		return
+	}
+	list, err := s.svc.ListOrders(r.Context(), in)
+	respond(w, list, err)
 }
 
 func (s *Server) templates(w http.ResponseWriter, r *http.Request) {

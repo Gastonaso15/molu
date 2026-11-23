@@ -7,7 +7,8 @@ Una tarea por vez, con TDD (`go test -v -race ./...`). Al terminar cada una: mar
   - **Resultado (23-nov-2026)**: ver §7 de `spec.md`.
 
 ## Fase 1 — Lectura (bajo riesgo)
-- [ ] **T2. `ListOrders`.** Filtros: `state`, `assignment_type`, `responsible_type`, `responsible_id`, `template_id`, `asset_id`, `backlog`, `created_from/to`. `EMPTY` si no hay resultados. RF-4.
+- [x] **T2. `ListOrders`.** Filtros: `state`, `assignment_type`, `responsible_type`, `responsible_id`, `template_id`, `asset_id`, `backlog`, `created_from/to`, `limit`. `EMPTY` si no hay resultados. RF-4, RF-6, RF-8.
+  - **Hecho (23-nov-2026)**: `pkg/publisher/orders/list_orders.go` (+ `FindEntities` en `Substrate`/`HTTPSubstrate`, ruta `/api/v1/orders/list`, registro en el Hub). Pruebas: `list_orders_test.go` (unitarias, servidor, OQL) y `TestRealXolu_ListOrders` contra xolu real. Decisiones: filtros por OQL salvo `asset_id` (filtrado en memoria sobre las 500 últimas, `truncated` avisa); límite 50 por defecto y 200 máximo; `total` cuenta lo devuelto y `truncated` indica que hubo más; sin coincidencias responde `total: 0`, que el bridge convierte en `EMPTY`; prioridad y ubicación no existen en `work_orders` (pedido a WO).
 - [ ] **T3. `ListTemplates` ampliada y `GetTemplate`.** Bloques, consumibles, acciones, `latest`. RF-6.
 - [ ] **T4. `GetOrder` ampliado.** Bloques con estado, `block_values`, firma, almacén móvil con existencias, historial de FSM.
 - [ ] **T5. `ListCrews/GetCrew`, `ListOutsourced/GetOutsourced`.**
