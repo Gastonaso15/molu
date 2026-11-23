@@ -62,6 +62,41 @@ func (s *Server) Handler() http.Handler {
 		}
 		return c.GetOutsourced(r.Context(), in)
 	})))
+	mux.Handle("/api/v1/orders/warehouses/list", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in ListWarehousesInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.ListWarehouses(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/warehouses/get", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in GetWarehouseInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.GetWarehouse(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/consumables/list", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in ListConsumablesInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.ListConsumables(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/consumables/get", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in GetConsumableInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.GetConsumable(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/stock/low", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in ListLowStockInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.ListLowStock(r.Context(), in)
+	})))
 	mux.Handle("/api/v1/orders/templates", s.guard(http.HandlerFunc(s.templates)))
 	return withRequestID(mux)
 }

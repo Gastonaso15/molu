@@ -45,7 +45,7 @@ func TestRun_RegistersServesAndUnregistersOnShutdown(t *testing.T) {
 
 	addr := <-addrCh
 	deadline := time.Now().Add(3 * time.Second)
-	for len(reg.List("work-orders-publisher")) != 10 {
+	for len(reg.List("work-orders-publisher")) != 15 {
 		if time.Now().After(deadline) {
 			t.Fatal("tools were not registered in the hub")
 		}

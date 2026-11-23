@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -398,18 +399,19 @@ func TestRealXolu_People(t *testing.T) {
 		}
 		return id
 	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
 	ana := mk("users", map[string]any{"name": "Ana personas", "password_hash": "no-debe-salir"})
 	beto := mk("users", map[string]any{"name": "Beto personas"})
 	crew := mk("crews", map[string]any{
-		"name": "Zeta personas", "description": "d", "responsible_user_id": json.Number(ana),
+		"name": "Zeta personas " + tag, "description": "d", "responsible_user_id": json.Number(ana),
 		"members": []json.Number{json.Number(ana), json.Number(beto), json.Number("99999")},
 	})
 	third := mk("outsourced", map[string]any{
-		"name": "Zeta tercero", "description": "d", "responsible_user_id": json.Number(beto),
+		"name": "Zeta tercero " + tag, "description": "d", "responsible_user_id": json.Number(beto),
 		"signature": "data:image/png;base64,AAAA", "signature_clarification": "Firmante",
 	})
 
-	l, err := svc.ListCrews(ctx, ListCrewsInput{Name: "zeta personas", MemberUserID: ID(ana)})
+	l, err := svc.ListCrews(ctx, ListCrewsInput{Name: "zeta personas " + tag, MemberUserID: ID(ana)})
 	if err != nil || l.Total != 1 || l.Crews[0].ID != crew || len(l.Crews[0].Members) != 3 {
 		t.Fatalf("list crews = %+v err=%v", l, err)
 	}
@@ -420,7 +422,7 @@ func TestRealXolu_People(t *testing.T) {
 	if raw, _ := json.Marshal(c); strings.Contains(string(raw), "no-debe-salir") {
 		t.Fatalf("user data leaked: %s", raw)
 	}
-	o, err := svc.ListOutsourced(ctx, ListOutsourcedInput{Name: "zeta tercero", ResponsibleUserID: ID(beto)})
+	o, err := svc.ListOutsourced(ctx, ListOutsourcedInput{Name: "zeta tercero " + tag, ResponsibleUserID: ID(beto)})
 	if err != nil || o.Total != 1 || o.Outsourced[0].ID != third || !o.Outsourced[0].HasSignature {
 		t.Fatalf("list outsourced = %+v err=%v", o, err)
 	}
@@ -430,5 +432,65 @@ func TestRealXolu_People(t *testing.T) {
 	}
 	if _, err := svc.GetCrew(ctx, GetCrewInput{CrewID: "99999"}); err == nil {
 		t.Fatal("want NotFoundError")
+	}
+}
+
+// Warehouses, consumables and minimum-stock alerts against the real OQL
+// engine, with the stock stored the way Seam's movements store it.
+func TestRealXolu_Inventory(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36) // every run uses its own names
+	owner := mk("users", map[string]any{"name": "Responsable inventario"})
+	unit := mk("unit", map[string]any{"symbol": "uI", "name": "unidad inventario"})
+	ctype := mk("consumable_types", map[string]any{"name": "Tipo inventario"})
+	central := mk("warehouse", map[string]any{"name": "Central inventario " + tag, "enabled": true, "location": "-34.9,-56.1", "responsible_user_id": json.Number(owner), "consumables": []any{}})
+	movil := mk("warehouse", map[string]any{"name": "Movil inventario " + tag, "type": "mobile", "enabled": true, "consumables": []any{}})
+	cons := mk("consumable", map[string]any{
+		"name": "Consumible inventario " + tag, "consumable_type_id": json.Number(ctype), "consumable_unit": json.Number(unit),
+		"stock_min": 5, "enabled": true,
+		"stock_by_warehouse": map[string]any{central: 300, movil: 700},
+	})
+
+	ws, err := svc.ListWarehouses(ctx, ListWarehousesInput{Name: "inventario " + tag})
+	if err != nil || ws.Total != 2 || ws.Warehouses[0].Name != "Central inventario "+tag || ws.Warehouses[0].Responsible == nil {
+		t.Fatalf("warehouses = %+v err=%v", ws, err)
+	}
+	mobile := true
+	if m, _ := svc.ListWarehouses(ctx, ListWarehousesInput{Name: "inventario " + tag, Mobile: &mobile}); m.Total != 1 || !m.Warehouses[0].Mobile {
+		t.Fatalf("mobile = %+v", m)
+	}
+	w, err := svc.GetWarehouse(ctx, GetWarehouseInput{WarehouseID: ID(central)})
+	if err != nil || w.Responsible.Name != "Responsable inventario" || len(w.Stock) != 1 || w.Stock[0].Quantity != 3 || w.Stock[0].Unit != "uI" {
+		t.Fatalf("warehouse = %+v err=%v", w, err)
+	}
+	cl, err := svc.ListConsumables(ctx, ListConsumablesInput{Name: "consumible inventario " + tag})
+	if err != nil || cl.Total != 1 {
+		t.Fatalf("consumables = %+v err=%v", cl, err)
+	}
+	c := cl.Consumables[0]
+	if c.Type == nil || c.Type.Name != "Tipo inventario" || c.Unit == nil || c.Unit.Name != "uI" || c.TotalStock != 10 || !c.LowStock || c.StockMin != 5 {
+		t.Fatalf("consumable = %+v", c)
+	}
+	d, err := svc.GetConsumable(ctx, GetConsumableInput{ConsumableID: ID(cons)})
+	if err != nil || len(d.Stock) != 2 || d.Stock[0].WarehouseName != "Central inventario "+tag || d.Stock[1].Mobile != true {
+		t.Fatalf("detail = %+v err=%v", d, err)
+	}
+	// Only the central warehouse (3 <= 5) is an alert; the mobile one holds 7.
+	a, err := svc.ListLowStock(ctx, ListLowStockInput{ConsumableID: ID(cons)})
+	if err != nil || a.Total != 1 || a.Alerts[0].WarehouseID != central || a.Alerts[0].Shortfall != 2 {
+		t.Fatalf("alerts = %+v err=%v", a, err)
 	}
 }

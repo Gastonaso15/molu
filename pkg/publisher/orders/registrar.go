@@ -177,6 +177,41 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			"Read one third-party provider, with the name of its representative account.",
 			"/api/v1/orders/outsourced/get",
 			getSchema("outsourced_id", "Id of the provider (see ListOutsourced).")),
+		mk("ListWarehouses",
+			"List the warehouses sorted by name: location (lat,lng), enabled, responsible user id, and mobile=true for the temporary warehouse an order opens for its supplies (work_order_id says which order). "+
+				"Filters: name (contains), enabled, mobile (omit it to get both kinds). Use GetWarehouse to see what one holds.",
+			"/api/v1/orders/warehouses/list",
+			listSchema(map[string]any{
+				"name":    map[string]any{"type": "string", "description": "Part of the warehouse name, ignoring case."},
+				"enabled": map[string]any{"type": "boolean"},
+				"mobile":  map[string]any{"type": "boolean", "description": "true: only order warehouses; false: only the fixed ones."},
+			})),
+		mk("GetWarehouse",
+			"Read one warehouse with the name of its responsible user and the consumables it holds (name, unit, quantity).",
+			"/api/v1/orders/warehouses/get",
+			getSchema("warehouse_id", "Id of the warehouse (see ListWarehouses).")),
+		mk("ListConsumables",
+			"List the consumables (supplies) sorted by name, with type, unit, stock_min (alert threshold), total_stock across all warehouses and low_stock (some warehouse holds stock_min or less). "+
+				"Filters: name (contains), enabled, consumable_type_id, low_stock. Use GetConsumable to see where one is stored.",
+			"/api/v1/orders/consumables/list",
+			listSchema(map[string]any{
+				"name":               map[string]any{"type": "string", "description": "Part of the consumable name, ignoring case."},
+				"enabled":            map[string]any{"type": "boolean"},
+				"consumable_type_id": idSchema("Only consumables of this type."),
+				"low_stock":          map[string]any{"type": "boolean", "description": "true: only those at or below their minimum in some warehouse."},
+			})),
+		mk("GetConsumable",
+			"Read one consumable with the quantity held in each warehouse (mobile order warehouses included and marked).",
+			"/api/v1/orders/consumables/get",
+			getSchema("consumable_id", "Id of the consumable (see ListConsumables).")),
+		mk("ListLowStock",
+			"Minimum-stock alerts: every consumable/warehouse pair whose quantity is at or below the consumable's stock_min (the rule the work order module uses to flag a consumable), "+
+				"largest shortfall first. Mobile order warehouses are included and marked warehouse_mobile. Filters: warehouse_id, consumable_id.",
+			"/api/v1/orders/stock/low",
+			listSchema(map[string]any{
+				"warehouse_id":  idSchema("Only alerts of this warehouse."),
+				"consumable_id": idSchema("Only alerts of this consumable."),
+			})),
 		mk("ListTemplates",
 			"List work order templates (read-only): workflow states, header items to answer, blocks, default consumables, actions and rules, asset limits, and whether CreateOrder can use them (supported). "+
 				"Names of consumables and actions are not resolved here; use GetTemplate for one template with names. Only the latest version of each template unless include_old_versions is true.",
