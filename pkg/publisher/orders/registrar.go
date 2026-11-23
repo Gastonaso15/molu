@@ -150,6 +150,33 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"required":             []string{"template_id"},
 				"additionalProperties": false,
 			}),
+		mk("ListCrews",
+			"List the crews (internal teams, e.g. electricians or plumbers) sorted by name, each with its responsible user id and member user ids. "+
+				"Filters: name (contains), responsible_user_id, member_user_id. User names are not resolved here; use GetCrew for that. "+
+				"A crew's responsible user is the one who may claim job-board orders for it. Availability of crews is not tracked by the work order module.",
+			"/api/v1/orders/crews/list",
+			listSchema(map[string]any{
+				"name":                map[string]any{"type": "string", "description": "Part of the crew name, ignoring case."},
+				"responsible_user_id": idSchema("Crews whose responsible user is this user."),
+				"member_user_id":      idSchema("Crews this user belongs to."),
+			})),
+		mk("GetCrew",
+			"Read one crew, with the names of its responsible user and members (a user that cannot be read has no name).",
+			"/api/v1/orders/crews/get",
+			getSchema("crew_id", "Id of the crew (see ListCrews).")),
+		mk("ListOutsourced",
+			"List the third-party providers (outsourced contractors) sorted by name. Each has a description, a representative account (responsible user id), "+
+				"the signatory's clarification and whether a signature is stored (the image is not returned). Filters: name (contains), responsible_user_id. "+
+				"The module has no provider code field.",
+			"/api/v1/orders/outsourced/list",
+			listSchema(map[string]any{
+				"name":                map[string]any{"type": "string", "description": "Part of the provider name, ignoring case."},
+				"responsible_user_id": idSchema("Providers whose representative account is this user."),
+			})),
+		mk("GetOutsourced",
+			"Read one third-party provider, with the name of its representative account.",
+			"/api/v1/orders/outsourced/get",
+			getSchema("outsourced_id", "Id of the provider (see ListOutsourced).")),
 		mk("ListTemplates",
 			"List work order templates (read-only): workflow states, header items to answer, blocks, default consumables, actions and rules, asset limits, and whether CreateOrder can use them (supported). "+
 				"Names of consumables and actions are not resolved here; use GetTemplate for one template with names. Only the latest version of each template unless include_old_versions is true.",
@@ -246,4 +273,23 @@ func (r *Registrar) post(ctx context.Context, path string, body any) error {
 // idSchema describes an entity id: a string, or a number, of digits.
 func idSchema(desc string) map[string]any {
 	return map[string]any{"type": []any{"string", "integer"}, "description": desc}
+}
+
+// listSchema is the input schema of a list function: its filters plus limit.
+func listSchema(filters map[string]any) map[string]any {
+	props := map[string]any{"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": maxListLimit, "description": "Default 50."}}
+	for k, v := range filters {
+		props[k] = v
+	}
+	return map[string]any{"type": "object", "properties": props, "additionalProperties": false}
+}
+
+// getSchema is the input schema of a function that reads one record by id.
+func getSchema(field, desc string) map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{field: idSchema(desc)},
+		"required":             []string{field},
+		"additionalProperties": false,
+	}
 }

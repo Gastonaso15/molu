@@ -34,6 +34,34 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/orders/advance", s.guard(http.HandlerFunc(s.advance)))
 	mux.Handle("/api/v1/orders/list", s.guard(http.HandlerFunc(s.list)))
 	mux.Handle("/api/v1/orders/template", s.guard(http.HandlerFunc(s.template)))
+	mux.Handle("/api/v1/orders/crews/list", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in ListCrewsInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.ListCrews(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/crews/get", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in GetCrewInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.GetCrew(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/outsourced/list", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in ListOutsourcedInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.ListOutsourced(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/outsourced/get", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in GetOutsourcedInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.GetOutsourced(r.Context(), in)
+	})))
 	mux.Handle("/api/v1/orders/templates", s.guard(http.HandlerFunc(s.templates)))
 	return withRequestID(mux)
 }
@@ -110,6 +138,21 @@ func (s *Server) templates(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := s.svc.ListTemplates(r.Context(), in)
 	respond(w, list, err)
+}
+
+// errHandled tells handle that the request was already answered (bad JSON).
+var errHandled = errors.New("request already answered")
+
+// handle adapts a service call to an http.Handler: it decodes the JSON body
+// into the call's input, runs it and answers through respond.
+func (s *Server) handle(call func(c *Service, r *http.Request, dec func(any) bool) (any, error)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		out, err := call(s.svc, r, func(dst any) bool { return decode(w, r, dst) })
+		if errors.Is(err, errHandled) {
+			return
+		}
+		respond(w, out, err)
+	})
 }
 
 // respond maps service outcomes to the statuses the bridge understands:

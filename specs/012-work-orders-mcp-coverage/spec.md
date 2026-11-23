@@ -85,7 +85,8 @@ Leyenda de "Primitivos hoy": ✅ resuelto con `list/get/find/create/update` sin 
 4. **Reasignar** (fila 9): hoy solo se asigna al crear o al reclamar. Confirmar la regla.
 5. **Consumo efectivo y devolución de sobrantes en la WO** (fila 15): el almacén móvil se crea vacío; no vimos en el módulo el flujo de consumo ni de cierre. Pedir las reglas.
 6. **Usuarios**: cómo resolver un usuario por id/email desde fuera de la UI (viven en cuentas de Seam, no en xolu).
-7. Notas por función (como pide Horacio) cuando suban la versión estable.
+7. **Código de tercerizado y disponibilidad de cuadrillas** (filas 10 y 11): el módulo no tiene campo de código para `outsourced` ni noción de disponibilidad de `crews`; confirmar si se difieren.
+8. Notas por función (como pide Horacio) cuando suban la versión estable.
 
 ## 6. Fuera de alcance
 

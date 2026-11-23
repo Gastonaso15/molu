@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -378,4 +379,56 @@ func TestRealXolu_GetOrderDetail(t *testing.T) {
 		t.Fatalf("stock = %+v", w.Stock)
 	}
 	t.Logf("detail ok: %d blocks, stock %+v", len(d.Blocks), w.Stock)
+}
+
+// Reads crews and third parties the way Seam stores them: numeric user ids in
+// responsible_user_id and members, names from the users entity.
+func TestRealXolu_People(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	ana := mk("users", map[string]any{"name": "Ana personas", "password_hash": "no-debe-salir"})
+	beto := mk("users", map[string]any{"name": "Beto personas"})
+	crew := mk("crews", map[string]any{
+		"name": "Zeta personas", "description": "d", "responsible_user_id": json.Number(ana),
+		"members": []json.Number{json.Number(ana), json.Number(beto), json.Number("99999")},
+	})
+	third := mk("outsourced", map[string]any{
+		"name": "Zeta tercero", "description": "d", "responsible_user_id": json.Number(beto),
+		"signature": "data:image/png;base64,AAAA", "signature_clarification": "Firmante",
+	})
+
+	l, err := svc.ListCrews(ctx, ListCrewsInput{Name: "zeta personas", MemberUserID: ID(ana)})
+	if err != nil || l.Total != 1 || l.Crews[0].ID != crew || len(l.Crews[0].Members) != 3 {
+		t.Fatalf("list crews = %+v err=%v", l, err)
+	}
+	c, err := svc.GetCrew(ctx, GetCrewInput{CrewID: ID(crew)})
+	if err != nil || c.Responsible.Name != "Ana personas" || c.Members[1].Name != "Beto personas" || c.Members[2].Name != "" {
+		t.Fatalf("crew = %+v err=%v", c, err)
+	}
+	if raw, _ := json.Marshal(c); strings.Contains(string(raw), "no-debe-salir") {
+		t.Fatalf("user data leaked: %s", raw)
+	}
+	o, err := svc.ListOutsourced(ctx, ListOutsourcedInput{Name: "zeta tercero", ResponsibleUserID: ID(beto)})
+	if err != nil || o.Total != 1 || o.Outsourced[0].ID != third || !o.Outsourced[0].HasSignature {
+		t.Fatalf("list outsourced = %+v err=%v", o, err)
+	}
+	g, err := svc.GetOutsourced(ctx, GetOutsourcedInput{OutsourcedID: ID(third)})
+	if err != nil || g.Responsible.Name != "Beto personas" || g.SignatureClarification != "Firmante" {
+		t.Fatalf("outsourced = %+v err=%v", g, err)
+	}
+	if _, err := svc.GetCrew(ctx, GetCrewInput{CrewID: "99999"}); err == nil {
+		t.Fatal("want NotFoundError")
+	}
 }
