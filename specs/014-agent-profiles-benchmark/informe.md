@@ -1,4 +1,4 @@
-# Informe — Benchmark de perfiles de agente (spec 013)
+# Informe — Benchmark de perfiles de agente (spec 014)
 
 Fecha: 25-nov-2026. 36 corridas (3 perfiles × 6 prompts × 2 repeticiones). Mismo modelo (el del CLI local), agente de cero en carpeta vacía, sin herramientas de archivos, sin acceso al código de Seam. Estado de xolu reiniciado antes de cada corrida que muta. Calidad calculada sobre el estado final de xolu (rúbrica en `spec.md`). Datos crudos: `results/main.jsonl` y `results/raw/`.
 
@@ -53,5 +53,5 @@ Fecha: 25-nov-2026. 36 corridas (3 perfiles × 6 prompts × 2 repeticiones). Mis
 
 ```
 ./.dev-xolu/demo-reset.sh   # estado limpio de la demo (borra el xolu local 9595)
-BENCH_WORK=<carpeta> python3 specs/013-agent-profiles-benchmark/run.py --reps 2 --tag main
+BENCH_WORK=<carpeta> python3 specs/014-agent-profiles-benchmark/run.py --reps 2 --tag main
 ```

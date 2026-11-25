@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark runner for spec 013: same prompts, three agent profiles, timings + state verification.
+"""Benchmark runner for spec 014: same prompts, three agent profiles, timings + state verification.
 
 usage: run.py [--reps N] [--profiles 1,2,3] [--prompts L1,L2,G1,G2,V1,V2] [--tag NAME]
 Each run is a fresh headless `claude -p` in an empty directory outside the repo with no built-in tools.
