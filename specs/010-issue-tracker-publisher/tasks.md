@@ -57,7 +57,7 @@ Cliente MCP (stdio) → `molu` → Hub → `publisher-issues` → xolu 0.31.0 re
 
 Las filas ❌ confirman, contra Seam real, las diferencias que esta lista ya describía; la última no estaba y es peor que lo descrito en T7.
 
-- [ ] **T14. Una definición de FSM por incidencia (corrige un fallo, hallado el 26-nov-2026).**
+- [x] **T14. Una definición de FSM por incidencia (corrige un fallo, hallado el 26-nov-2026).**
   - **Archivos**: `pkg/publisher/issues/substrate_http.go` (`extractItems`), `substrate_http_test.go`, `service_test.go`
   - **Problema**: el publicador busca su definición en la respuesta de `GET /api/v2/fsm/def` con `extractItems`, que solo lee la clave `items`. xolu 0.31.0 responde `{"definitions": [...]}`, así que nunca la encuentra y **crea una definición `issue_lifecycle` nueva en cada `CreateIssue`** (6 iguales tras 6 incidencias). Los tests con xolu simulado responden `items` y no lo detectan. `pkg/publisher/orders` no tiene el problema: su `definitionItems` acepta `items`, `data`, `definitions`, `defs` y `results` (0 duplicados tras muchas órdenes).
   - **Hecho cuando**: `extractItems` (o su sustituto) reconoce `definitions`; el simulador de pruebas responde con esa forma; una prueba crea dos incidencias seguidas y comprueba que xolu tiene **una** definición con ese nombre; una prueba contra xolu real (`MOLU_REAL_XOLU_URL`) hace lo mismo. Conviene resolverla junto con T7, que cambia el nombre de la definición. Las definiciones duplicadas que ya existan en un xolu de desarrollo no se borran solas.

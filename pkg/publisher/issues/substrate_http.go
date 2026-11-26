@@ -236,25 +236,23 @@ func (h *HTTPSubstrate) do(ctx context.Context, tenant, method, path string, in,
 }
 
 func extractItems(v any) []map[string]any {
+	var arr []any
 	switch val := v.(type) {
 	case []any:
-		var res []map[string]any
-		for _, it := range val {
-			if m, ok := it.(map[string]any); ok {
-				res = append(res, m)
-			}
-		}
-		return res
+		arr = val
 	case map[string]any:
-		if items, ok := val["items"].([]any); ok {
-			var res []map[string]any
-			for _, it := range items {
-				if m, ok := it.(map[string]any); ok {
-					res = append(res, m)
-				}
+		for _, k := range []string{"items", "data", "definitions", "defs", "results"} {
+			if items, ok := val[k].([]any); ok {
+				arr = items
+				break
 			}
-			return res
 		}
 	}
-	return nil
+	var res []map[string]any
+	for _, it := range arr {
+		if m, ok := it.(map[string]any); ok {
+			res = append(res, m)
+		}
+	}
+	return res
 }

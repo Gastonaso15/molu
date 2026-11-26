@@ -58,7 +58,7 @@ func (x *fakeXoluIssues) handler() http.Handler {
 			if x.def != nil {
 				items = append(items, map[string]any{"id": int64(42), "name": x.def["name"]})
 			}
-			xoluJSON(w, 200, map[string]any{"items": items})
+			xoluJSON(w, 200, map[string]any{"definitions": items})
 			return
 		}
 		var def map[string]any
