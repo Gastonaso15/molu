@@ -2,6 +2,7 @@ package issues
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -83,21 +84,39 @@ type XoluClient interface {
 	WalkMachine(ctx context.Context, tenant string, machineID int64, input string, payload map[string]any) (nextState string, err error)
 }
 
+const (
+	// AssetCategoryCritico marks issues linked to high-criticality assets.
+	AssetCategoryCritico = "critico"
+	// AssetCategoryNormal marks issues linked to medium/low or absent assets.
+	AssetCategoryNormal = "normal"
+)
+
+// AssetCategoryFromCriticality maps an asset criticality token ("Alta"/"High" -> "critico",
+// "Media"/"Baja"/"Medium"/"Low" or unknown/empty -> "normal") matching Seam rules.
+func AssetCategoryFromCriticality(criticality string) string {
+	switch strings.ToLower(strings.TrimSpace(criticality)) {
+	case "alta", "high":
+		return AssetCategoryCritico
+	default:
+		return AssetCategoryNormal
+	}
+}
+
 // Default SLA calculation helpers based on priority and asset criticality.
 func DefaultSLAFirstResponseMinutes(priority, assetCategory string) int64 {
 	switch priority {
 	case "critical":
-		if assetCategory == "critical" {
+		if assetCategory == AssetCategoryCritico {
 			return 15
 		}
 		return 30
 	case "high":
-		if assetCategory == "critical" {
+		if assetCategory == AssetCategoryCritico {
 			return 60
 		}
 		return 120
 	case "medium":
-		if assetCategory == "critical" {
+		if assetCategory == AssetCategoryCritico {
 			return 240
 		}
 		return 480
@@ -111,17 +130,17 @@ func DefaultSLAFirstResponseMinutes(priority, assetCategory string) int64 {
 func DefaultSLAResolutionMinutes(priority, assetCategory string) int64 {
 	switch priority {
 	case "critical":
-		if assetCategory == "critical" {
+		if assetCategory == AssetCategoryCritico {
 			return 120
 		}
 		return 240
 	case "high":
-		if assetCategory == "critical" {
+		if assetCategory == AssetCategoryCritico {
 			return 480
 		}
 		return 960
 	case "medium":
-		if assetCategory == "critical" {
+		if assetCategory == AssetCategoryCritico {
 			return 1440
 		}
 		return 2880

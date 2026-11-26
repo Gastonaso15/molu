@@ -39,7 +39,7 @@ func newFakeXoluIssues() *fakeXoluIssues {
 		machines: map[int64]*fakeMachineIssues{},
 		entities: map[string]map[int64]map[string]any{
 			"assets": {
-				200: {"id": int64(200), "name": "Main Compressor", "criticality": "critical"},
+				200: {"id": int64(200), "name": "Main Compressor", "criticality": "Alta"},
 			},
 			"issues": {},
 		},
@@ -297,7 +297,7 @@ func TestIssues_E2E(t *testing.T) {
 	if created["title"] != "Turbine high vibration" || created["state"] != "reported" {
 		t.Fatalf("unexpected created issue: %v", created)
 	}
-	if created["asset_category"] != "critical" {
+	if created["asset_category"] != "critico" {
 		t.Errorf("expected asset_category critical, got %v", created["asset_category"])
 	}
 	if created["sla_first_response_deadline"] == nil || created["sla_resolution_deadline"] == nil {

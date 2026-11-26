@@ -63,8 +63,8 @@ func (s *IssueService) CreateIssue(ctx context.Context, req CreateIssueRequest) 
 		if err != nil {
 			return Issue{}, s.mapSubstrateError(req.Tenant, "assets", fmt.Sprintf("%d", req.AssetID), err)
 		}
-		if crit, ok := assetEntity["criticality"].(string); ok && crit == "critical" {
-			assetCategory = "critical"
+		if crit, ok := assetEntity["criticality"].(string); ok {
+			assetCategory = AssetCategoryFromCriticality(crit)
 		}
 	}
 

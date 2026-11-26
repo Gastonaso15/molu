@@ -220,7 +220,7 @@ func TestCreateIssue_Success(t *testing.T) {
 func TestCreateIssue_WithCriticalAsset(t *testing.T) {
 	mockX := newMockXolu()
 	mockX.entities["assets"] = map[int64]map[string]any{
-		200: {"id": int64(200), "name": "Main Turbine", "criticality": "critical"},
+		200: {"id": int64(200), "name": "Main Turbine", "criticality": "Alta"},
 	}
 
 	svc := issues.NewIssueService(mockX)
@@ -237,7 +237,7 @@ func TestCreateIssue_WithCriticalAsset(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if issue.AssetCategory != "critical" {
+	if issue.AssetCategory != "critico" {
 		t.Errorf("expected critical asset category, got %q", issue.AssetCategory)
 	}
 
@@ -457,5 +457,101 @@ func TestIssueService_Concurrency(t *testing.T) {
 
 	for err := range errCh {
 		t.Errorf("concurrent error: %v", err)
+	}
+}
+
+
+func TestCreateIssue_AssetCriticalityMapping(t *testing.T) {
+	cases := []struct {
+		name         string
+		assetID      int64
+		asset        map[string]any
+		wantCategory string
+	}{
+		{
+			name:         "Alta_maps_to_critico",
+			assetID:      1,
+			asset:        map[string]any{"id": int64(1), "criticality": "Alta"},
+			wantCategory: "critico",
+		},
+		{
+			name:         "High_maps_to_critico",
+			assetID:      2,
+			asset:        map[string]any{"id": int64(2), "criticality": "High"},
+			wantCategory: "critico",
+		},
+		{
+			name:         "Media_maps_to_normal",
+			assetID:      3,
+			asset:        map[string]any{"id": int64(3), "criticality": "Media"},
+			wantCategory: "normal",
+		},
+		{
+			name:         "Baja_maps_to_normal",
+			assetID:      4,
+			asset:        map[string]any{"id": int64(4), "criticality": "Baja"},
+			wantCategory: "normal",
+		},
+		{
+			name:         "Medium_maps_to_normal",
+			assetID:      5,
+			asset:        map[string]any{"id": int64(5), "criticality": "Medium"},
+			wantCategory: "normal",
+		},
+		{
+			name:         "Low_maps_to_normal",
+			assetID:      6,
+			asset:        map[string]any{"id": int64(6), "criticality": "Low"},
+			wantCategory: "normal",
+		},
+		{
+			name:         "empty_criticality_maps_to_normal",
+			assetID:      7,
+			asset:        map[string]any{"id": int64(7), "criticality": ""},
+			wantCategory: "normal",
+		},
+		{
+			name:         "unreadable_criticality_maps_to_normal",
+			assetID:      8,
+			asset:        map[string]any{"id": int64(8), "criticality": 123},
+			wantCategory: "normal",
+		},
+		{
+			name:         "old_token_critical_is_normal",
+			assetID:      9,
+			asset:        map[string]any{"id": int64(9), "criticality": "critical"},
+			wantCategory: "normal",
+		},
+		{
+			name:         "absent_asset_maps_to_normal",
+			assetID:      0,
+			wantCategory: "normal",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockX := newMockXolu()
+			if tc.asset != nil {
+				mockX.entities["assets"] = map[int64]map[string]any{tc.assetID: tc.asset}
+			}
+			svc := issues.NewIssueService(mockX)
+			iss, err := svc.CreateIssue(context.Background(), issues.CreateIssueRequest{
+				Tenant:   "dev",
+				Title:    "Criticality check",
+				Priority: "high",
+				AssetID:  tc.assetID,
+			})
+			if err != nil {
+				t.Fatalf("CreateIssue failed: %v", err)
+			}
+			if iss.AssetCategory != tc.wantCategory {
+				t.Fatalf("AssetCategory = %q, want %q", iss.AssetCategory, tc.wantCategory)
+			}
+			stored, _ := mockX.GetEntity(context.Background(), "dev", "issues", iss.ID)
+			if got, _ := stored["asset_category"].(string); got != tc.wantCategory {
+				t.Fatalf("stored asset_category = %q, want %q", got, tc.wantCategory)
+			}
+		})
 	}
 }

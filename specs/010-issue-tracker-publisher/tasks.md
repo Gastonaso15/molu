@@ -73,7 +73,7 @@ Las filas ❌ confirman, contra Seam real, las diferencias que esta lista ya des
   - **Problema**: el publicador crea `issue_lifecycle`; Seam usa `seam_issue_lifecycle`. Conviven dos definiciones en xolu y la nuestra no tiene la transición `merge → duplicate` (sí tiene las otras 7). Además, `issue_lifecycle` se duplica en cada incidencia (T14): resolver ambas juntas.
   - **Hecho cuando**: `DefinitionName` es `seam_issue_lifecycle`; si ya existe en xolu se reutiliza, y si no se crea idéntica a la de Seam (8 estados, `firstmatch`, las 8 transiciones, incluida `merge` desde `reported`/`triaged`/`in_progress` hacia `duplicate`); el enum de `transition` en el esquema de `issues.AdvanceIssue` incluye `merge`; no queda ninguna definición `issue_lifecycle` nueva.
 
-- [ ] **T8. Lectura de la criticidad del activo y categoría `critico`/`normal`.**
+- [x] **T8. Lectura de la criticidad del activo y categoría `critico`/`normal`.**
   - **Archivos**: `pkg/publisher/issues/service.go`, `types.go`, tests
   - **Problema**: se compara `criticality == "critical"`, pero Seam guarda `Alta`/`Media`/`Baja` (o `High`/`Medium`/`Low`). Un activo crítico queda como `normal` en molu y como `critico` en Seam.
   - **Hecho cuando**: criticidad `Alta`/`High` produce `asset_category = "critico"`; `Media`/`Baja`/`Medium`/`Low`, vacío, activo ausente o ilegible producen `"normal"`; los valores guardados son `critico`/`normal` (no `critical`). Si el activo no existe, `NOT_FOUND` como hoy.
