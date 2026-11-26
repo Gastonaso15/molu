@@ -50,6 +50,15 @@ El presente documento depende de las definiciones de variables en las specs **00
 
 ---
 
+## Variables de Ayuda para Agentes (Spec 016)
+
+| Variable | Tipo | Default | Valores válidos | Justificación operativa |
+|----------|------|---------|-----------------|------------------------|
+| `MOLU_FRONT_HELP_ENABLED` | bool | `true` | `true`, `false` | Activa la herramienta `molu_help`, que explica a un agente cómo usar molu y el sistema detrás. `false` la quita de `tools/list`. |
+| `MOLU_FRONT_HELP_DIR` | lista de rutas | `""` | Carpetas existentes separadas por `:` | Carpetas con textos `<tema>.md` de dominio, apiladas sobre los textos genéricos incluidos (las posteriores ganan). Permite reemplazar o añadir temas sin recompilar. Una ruta inválida se registra y se sirven solo los textos incluidos. |
+
+---
+
 ## Variables de Schema (Spec 003)
 
 Estas variables controlan la carga y refresh de los esquemas de xolu, utilizados por el **Schema Loader** (Spec 003) para poblar el catálogo de primitivos genéricos. Están directamente relacionadas con los RF-1 a RF-4 de la Spec 003 y dependen de la disponibilidad del sustrato xolu (Spec 006) para el endpoint `GET /schemas`.

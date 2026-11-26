@@ -63,6 +63,10 @@ type Config struct {
 	CallTimeout       time.Duration // MOLU_FRONT_CALL_TIMEOUT
 	DomainCallTimeout time.Duration // MOLU_FRONT_DOMAIN_CALL_TIMEOUT
 	DefaultTenant     string        // MOLU_FRONT_DEFAULT_TENANT
+
+	// Ayuda para agentes (herramienta molu_help)
+	HelpEnabled bool   // MOLU_FRONT_HELP_ENABLED (por defecto true)
+	HelpDir     string // MOLU_FRONT_HELP_DIR: carpetas (separadas por ":") con textos <tema>.md de dominio; reemplazan o añaden temas a los incluidos
 }
 
 // LoadFromEnv lee la configuración de las variables de entorno y la valida.
@@ -112,6 +116,9 @@ func LoadFromEnv() (*Config, error) {
 		CallTimeout:       r.duration("MOLU_FRONT_CALL_TIMEOUT", 30*time.Second),
 		DomainCallTimeout: r.duration("MOLU_FRONT_DOMAIN_CALL_TIMEOUT", 30*time.Second),
 		DefaultTenant:     r.str("MOLU_FRONT_DEFAULT_TENANT", ""),
+
+		HelpEnabled: r.boolean("MOLU_FRONT_HELP_ENABLED", true),
+		HelpDir:     r.str("MOLU_FRONT_HELP_DIR", ""),
 	}
 
 	r.errs = append(r.errs, cfg.validate()...)

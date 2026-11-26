@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/Gastonaso15/molu/pkg/bridge"
 	"github.com/Gastonaso15/molu/pkg/config"
 	"github.com/Gastonaso15/molu/pkg/exec"
+	"github.com/Gastonaso15/molu/pkg/help"
 	"github.com/Gastonaso15/molu/pkg/hub"
 	"github.com/Gastonaso15/molu/pkg/mcp"
 	"github.com/Gastonaso15/molu/pkg/obs"
@@ -158,6 +160,21 @@ func main() {
 	execBridge.SetMetrics(metrics)
 	domainExecutor = execBridge
 
+	// Ayuda para agentes: textos incluidos en el binario, o los de una carpeta
+	// que reemplazan o añaden temas sin recompilar.
+	var helpSource help.Source
+	if cfg.HelpEnabled {
+		helpSource = help.Embedded()
+		if cfg.HelpDir != "" {
+			src, err := help.Dirs(filepath.SplitList(cfg.HelpDir), helpSource)
+			if err != nil {
+				logger.System().Error().Err(err).Str("dir", cfg.HelpDir).Msg("MOLU_FRONT_HELP_DIR is not usable; serving the built-in help texts")
+			} else {
+				helpSource = src
+			}
+		}
+	}
+
 	// Inicializar Servidor MCP (Spec 006, Spec 008)
 	mcpServer := mcp.NewServer(mcp.ServerConfig{
 		Provider:       &loaderProvider{loader: schemaLoader},
@@ -169,6 +186,7 @@ func main() {
 		CallTimeout:    cfg.CallTimeout,
 		Metrics:        metrics,
 		DefaultTenant:  cfg.DefaultTenant,
+		Help:           helpSource,
 	})
 
 	// xolu no publica primitivos: los 13 genéricos son de molu (loaderProvider).

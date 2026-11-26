@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Gastonaso15/molu/pkg/help"
 	"github.com/Gastonaso15/molu/pkg/hub"
 	"github.com/Gastonaso15/molu/pkg/rpi"
 	"github.com/Gastonaso15/molu/pkg/schema"
@@ -63,6 +64,9 @@ type ServerConfig struct {
 	CallTimeout    time.Duration
 	Metrics        telemetry.Metrics
 	DefaultTenant  string
+	// Help, when set, adds the molu_help tool, which explains molu and the
+	// operations of the system behind it from these texts. Nil leaves the tool out.
+	Help help.Source
 }
 
 // Server is the MCP server over stdio or any io.ReadWriter.
@@ -76,6 +80,7 @@ type Server struct {
 	callTimeout    time.Duration
 	metrics        telemetry.Metrics
 	defaultTenant  string
+	help           help.Source
 
 	mu         sync.RWMutex
 	primitives []schema.PrimitiveSchema
@@ -112,6 +117,7 @@ func NewServer(cfg ServerConfig) *Server {
 		metrics:        cfg.Metrics,
 		primitives:     initialPrims,
 		defaultTenant:  cfg.DefaultTenant,
+		help:           cfg.Help,
 	}
 }
 
@@ -207,6 +213,9 @@ func (s *Server) HandleListTools(ctx context.Context) []ToolDescriptor {
 			InputSchema: schemaMap,
 		})
 	}
+	if s.help != nil {
+		tools = append(tools, helpToolDescriptor())
+	}
 	return tools
 }
 
@@ -278,6 +287,9 @@ type callToolParams struct {
 }
 
 func (s *Server) isToolOffered(name string) bool {
+	if name == HelpToolName {
+		return s.help != nil
+	}
 	if strings.Contains(name, ".") {
 		if s.catalogLookup != nil {
 			_, ok := s.catalogLookup.Lookup(name)
@@ -321,6 +333,12 @@ func (s *Server) handleCallTool(ctx context.Context, params json.RawMessage) (in
 // contract validation and execution. Failures come back as JSON-RPC errors and
 // handleCallTool turns them into isError results.
 func (s *Server) executeTool(ctx context.Context, p callToolParams) (interface{}, *jsonRPCError) {
+	// molu_help answers from local texts: it needs neither xolu nor the Hub,
+	// so it works (and explains) even when they are down.
+	if p.Name == HelpToolName && s.help != nil {
+		return s.handleHelp(p.Arguments)
+	}
+
 	// 1. Health check gating (RF-4)
 	if s.health != nil {
 		if err := s.health.Check(); err != nil {
