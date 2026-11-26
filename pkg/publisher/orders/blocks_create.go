@@ -412,3 +412,40 @@ func (s *Service) createOrderPlain(ctx context.Context, doc map[string]any, toke
 	}
 	return "", &UnavailableError{Cause: fmt.Errorf("could not confirm the creation of the work order (it may have been created: look for creation_token %s with ListOrders before retrying): %w", token, err)}
 }
+
+// extraConsumables validates the consumables an order plans besides its
+// template's. They are only allowed when the template enables consumables and
+// allows extras; each must exist and none may repeat.
+func (s *Service) extraConsumables(ctx context.Context, tpl workOrderTemplate, given []ID) ([]int64, []fieldProblem, error) {
+	out := []int64{}
+	if len(given) == 0 {
+		return out, nil, nil
+	}
+	if !tpl.UsesConsumables || !tpl.ExtraConsumablesAllowed {
+		return nil, []fieldProblem{{"extra_consumable_ids", "this template does not allow extra consumables"}}, nil
+	}
+	var problems []fieldProblem
+	seen := map[int64]bool{}
+	for i, raw := range given {
+		field := fmt.Sprintf("extra_consumable_ids[%d]", i)
+		id, ok := parsePositiveID(raw)
+		if !ok {
+			problems = append(problems, fieldProblem{field, "must be a positive id"})
+			continue
+		}
+		if seen[id] {
+			problems = append(problems, fieldProblem{field, "repeated"})
+			continue
+		}
+		seen[id] = true
+		if _, err := s.sub.GetEntity(ctx, consumableEntity, strconv.FormatInt(id, 10)); err != nil {
+			if isMissing(err) {
+				problems = append(problems, fieldProblem{field, fmt.Sprintf("consumable %d does not exist", id)})
+				continue
+			}
+			return nil, nil, classify(err, "")
+		}
+		out = append(out, id)
+	}
+	return out, problems, nil
+}

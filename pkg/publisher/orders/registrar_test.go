@@ -55,8 +55,8 @@ func TestOrderRegistrar_RegistersFourNamespacedTools(t *testing.T) {
 		"work_orders.AdvanceOrder":           "http://publisher:8092/api/v1/orders/advance",
 		"work_orders.AssignOrder":            "http://publisher:8092/api/v1/orders/assign",
 		"work_orders.RegisterMovement":       "http://publisher:8092/api/v1/orders/movements/register",
-		"work_orders.ConsumeFromOrder":       "http://publisher:8092/api/v1/orders/consume",
-		"work_orders.ReturnLeftovers":        "http://publisher:8092/api/v1/orders/return-leftovers",
+		"work_orders.RecordOrderConsumable":  "http://publisher:8092/api/v1/orders/consumables/record",
+		"work_orders.SettleOrderConsumable":  "http://publisher:8092/api/v1/orders/consumables/settle",
 		"work_orders.CreateCrew":             "http://publisher:8092/api/v1/orders/crews/create",
 		"work_orders.UpdateCrew":             "http://publisher:8092/api/v1/orders/crews/update",
 		"work_orders.CreateOutsourced":       "http://publisher:8092/api/v1/orders/outsourced/create",
@@ -239,8 +239,8 @@ func TestOrderRegistrar_AllThirtyThreeToolsContractAudit(t *testing.T) {
 		"work_orders.UpdateConsumable":       {"consumable_id": 1, "name": "K2"},
 		"work_orders.ListLowStock":           {},
 		"work_orders.RegisterMovement":       {"type": "entry", "consumable_id": 1, "user_id": 1, "target_warehouse_id": 1, "quantity": 2.5, "reason": "Alta"},
-		"work_orders.ConsumeFromOrder":       {"order_id": "1", "consumable_id": 1, "user_id": 1, "quantity": 1.5},
-		"work_orders.ReturnLeftovers":        {"order_id": "1", "consumable_id": 1, "target_warehouse_id": 1, "user_id": 1, "quantity": 1.0},
+		"work_orders.RecordOrderConsumable":  {"order_id": "1", "consumable_id": 1, "user_id": 1, "intent": "confirm", "quantity": 1.5, "origin_warehouse_id": 2},
+		"work_orders.SettleOrderConsumable":  {"order_id": "1", "consumable_id": 1, "user_id": 1, "used": 1, "return_warehouse_id": 2},
 	}
 
 	tools := reg.List(PublisherID)
@@ -331,23 +331,24 @@ func TestOrderRegistrar_AllThirtyThreeToolsContractAudit(t *testing.T) {
 		}
 	}
 
-	// Verify exclusiveMinimum: 0 actually rejects zero quantity under the bridge validator.
-	for _, toolName := range []string{"work_orders.ConsumeFromOrder", "work_orders.ReturnLeftovers"} {
-		tl, ok := reg.Lookup(toolName)
-		if !ok {
-			t.Fatalf("%s not in registry", toolName)
-		}
-		raw, _ := json.Marshal(tl.InputSchema)
-		var schema map[string]any
-		_ = json.Unmarshal(raw, &schema)
-		zeroSample := map[string]any{"order_id": "1", "consumable_id": 1, "user_id": 1, "quantity": 0}
-		if toolName == "work_orders.ReturnLeftovers" {
-			zeroSample["target_warehouse_id"] = 1
-		}
-		err := bridge.ValidateDomainInput(schema, zeroSample)
+	// Verify exclusiveMinimum: 0 actually rejects a zero quantity, and a
+	// missing intent, under the bridge validator.
+	tl, ok := reg.Lookup("work_orders.RecordOrderConsumable")
+	if !ok {
+		t.Fatal("work_orders.RecordOrderConsumable not in registry")
+	}
+	raw, _ := json.Marshal(tl.InputSchema)
+	var schema map[string]any
+	_ = json.Unmarshal(raw, &schema)
+	for name, sample := range map[string]map[string]any{
+		"zero quantity": {"order_id": "1", "consumable_id": 1, "user_id": 1, "intent": "confirm", "quantity": 0},
+		"bad intent":    {"order_id": "1", "consumable_id": 1, "user_id": 1, "intent": "take", "quantity": 1},
+		"no intent":     {"order_id": "1", "consumable_id": 1, "user_id": 1, "quantity": 1},
+	} {
+		err := bridge.ValidateDomainInput(schema, sample)
 		var te *taxonomy.TypedError
 		if !errors.As(err, &te) || taxonomy.StripPrefix(te.Code) != taxonomy.CodeContractViolation {
-			t.Errorf("%s: quantity=0 should trigger CONTRACT_VIOLATION, got %T %v", toolName, err, err)
+			t.Errorf("%s should trigger CONTRACT_VIOLATION, got %T %v", name, err, err)
 		}
 	}
 }

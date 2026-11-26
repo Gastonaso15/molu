@@ -72,6 +72,12 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 	}
 	problems = append(problems, p...)
 
+	extras, p, err := s.extraConsumables(ctx, tpl, in.ExtraConsumableIDs)
+	if err != nil {
+		return WorkOrder{}, err
+	}
+	problems = append(problems, p...)
+
 	if err := validationFrom(problems); err != nil {
 		return WorkOrder{}, err
 	}
@@ -95,6 +101,9 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 		"template_version": tpl.Version,
 		"header_values":    headers,
 		"asset_ids":        assets,
+	}
+	if tpl.UsesConsumables && tpl.ExtraConsumablesAllowed {
+		doc["extra_consumable_ids"] = extras
 	}
 	id, err := s.createOrderWithBlocksAndWarehouse(ctx, tpl, doc, createdByUserID, blockResp)
 	if err != nil {

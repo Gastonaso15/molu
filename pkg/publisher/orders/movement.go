@@ -86,6 +86,13 @@ type movementFingerprintPayload struct {
 // without writing again; reusing a request_id with different content is
 // rejected as XOLU-INVALID_TRANSITION (details.rule="request_reused").
 func (s *Service) RegisterMovement(ctx context.Context, in MovementInput) (MovementResult, error) {
+	return s.registerMovement(ctx, in)
+}
+
+// registerMovement is RegisterMovement with extra records saved by the same
+// Commit (the consumption record of a work order). The related records are
+// written after the movement and its receipt, all or nothing.
+func (s *Service) registerMovement(ctx context.Context, in MovementInput, related ...CommitAppend) (MovementResult, error) {
 	req, err := parseMovementInput(in)
 	if err != nil {
 		return MovementResult{}, err
@@ -184,29 +191,11 @@ func (s *Service) RegisterMovement(ctx context.Context, in MovementInput) (Movem
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	movementData := map[string]any{
-		"request_id":    req.RequestID,
-		"consumable_id": req.ConsumableID,
-		"type":          string(req.Type),
-		"quantity":      float64(req.Quantity) / 100,
-		"delta":         float64(after[0]-before[0]) / 100,
-		"stock_before":  float64(before[0]) / 100,
-		"stock_after":   float64(after[0]) / 100,
-		"user_id":       req.ResponsibleUserID,
-		"reason":        req.Reason,
-		"reference":     req.Reference,
-		"created_at":    now,
-	}
-	if req.OriginWarehouseID > 0 {
-		movementData["origin_warehouse_id"] = req.OriginWarehouseID
-	}
-	if req.TargetWarehouseID > 0 {
-		movementData["target_warehouse_id"] = req.TargetWarehouseID
-	}
+	var targetBefore, targetAfter int64
 	if len(warehouseIDs) == 2 {
-		movementData["target_stock_before"] = float64(before[1]) / 100
-		movementData["target_stock_after"] = float64(after[1]) / 100
+		targetBefore, targetAfter = before[1], after[1]
 	}
+	movementData := movementLedgerData(req, before[0], after[0], targetBefore, targetAfter, now)
 
 	for i, wid := range warehouseIDs {
 		stock[wid] = after[i]
@@ -231,7 +220,7 @@ func (s *Service) RegisterMovement(ctx context.Context, in MovementInput) (Movem
 			Version: &version,
 			Data:    updatedConsumable,
 		},
-		Append: []CommitAppend{
+		Append: append([]CommitAppend{
 			{Entity: movementEntity, Data: movementData},
 			{
 				Entity: movementRequestEntity,
@@ -243,7 +232,7 @@ func (s *Service) RegisterMovement(ctx context.Context, in MovementInput) (Movem
 					"created_at":  now,
 				},
 			},
-		},
+		}, related...),
 	})
 	if saveErr == nil {
 		return buildMovementResult(req, before, after, false), nil
@@ -560,4 +549,34 @@ func buildMovementResult(req movementFingerprintPayload, before, after []int64, 
 		res.TargetStockAfter = &ta
 	}
 	return res
+}
+
+// movementLedgerData is the movement record (the audit entry) of one stock
+// change: the primary warehouse's balance before and after and, for a
+// transfer, the target's.
+func movementLedgerData(req movementFingerprintPayload, before, after, targetBefore, targetAfter int64, now string) map[string]any {
+	data := map[string]any{
+		"request_id":    req.RequestID,
+		"consumable_id": req.ConsumableID,
+		"type":          string(req.Type),
+		"quantity":      float64(req.Quantity) / 100,
+		"delta":         float64(after-before) / 100,
+		"stock_before":  float64(before) / 100,
+		"stock_after":   float64(after) / 100,
+		"user_id":       req.ResponsibleUserID,
+		"reason":        req.Reason,
+		"reference":     req.Reference,
+		"created_at":    now,
+	}
+	if req.OriginWarehouseID > 0 {
+		data["origin_warehouse_id"] = req.OriginWarehouseID
+	}
+	if req.TargetWarehouseID > 0 {
+		data["target_warehouse_id"] = req.TargetWarehouseID
+	}
+	if req.Type == MovementTransfer {
+		data["target_stock_before"] = float64(targetBefore) / 100
+		data["target_stock_after"] = float64(targetAfter) / 100
+	}
+	return data
 }

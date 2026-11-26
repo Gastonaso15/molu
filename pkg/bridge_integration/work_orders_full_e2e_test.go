@@ -366,13 +366,12 @@ func toInt64Any(v any) int64 {
 //  5. Open a work order on the job board (blocks + mobile warehouse in one Commit).
 //  6. Verify backlog listing and awaiting_claim rejection before claim.
 //  7. Claim the order and confirm backlog is now EMPTY.
-//  8. Transfer stock from central warehouse into the order's mobile warehouse.
-//  9. Confirm the execution header, run block 1 and advance step 1.
+//  8. Confirm the execution header, record the consumable load (central -> mobile warehouse),
+//     run block 1 and advance step 1.
+//  9. Run block 2 and close the order (refused while a block is pending); verify post-close record rejected.
 //
-// 10. Consume stock from the order's mobile warehouse.
-// 11. Run block 2 and close the order (refused while a block is pending); verify post-close consume rejected.
-// 12. Return all remaining leftovers from mobile warehouse back to central warehouse.
-// 13. Inspect final order, warehouse and consumable balances.
+// 10. Settle the consumable: used leaves the mobile warehouse, the surplus goes back to central.
+// 11. Inspect final order, warehouse and consumable balances.
 func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 	const token = "orders-e2e-full-secret"
 
@@ -563,21 +562,6 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 		t.Fatalf("backlog after claim should be EMPTY, got %v", emptyBacklog)
 	}
 
-	// 8. Load 6.0 units into the order's mobile warehouse (central 10 -> 4, mobile 0 -> 6).
-	transfer := e2eSuccess(t, h.call(t, "work_orders.RegisterMovement", map[string]any{
-		"type":                "transfer",
-		"consumable_id":       consID,
-		"user_id":             1,
-		"origin_warehouse_id": centralWHID,
-		"target_warehouse_id": mobileWHID,
-		"quantity":            6,
-		"reason":              "Provision para orden",
-		"reference":           "WO-" + orderID,
-	}))
-	if transfer["stock_after"] != 4.0 || transfer["target_stock_after"] != 6.0 {
-		t.Fatalf("transfer to mobile warehouse = %v", transfer)
-	}
-
 	// 9. Execution: a block cannot start before the header is confirmed; then
 	//    confirm the header, run block 1 and advance (Pendiente -> En curso).
 	early := e2eFailure(t, h.call(t, "work_orders.ExecuteBlock", map[string]any{
@@ -591,6 +575,13 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 	}))
 	if hdr["confirmed_at"] == "" || hdr["order"].(map[string]any)["header_values"].(map[string]any)["observacion"] != "Equipo aislado" {
 		t.Fatalf("confirm header = %v", hdr)
+	}
+	// Record the load: 6.0 units go from central (10 -> 4) into the mobile warehouse (0 -> 6).
+	load := e2eSuccess(t, h.call(t, "work_orders.RecordOrderConsumable", map[string]any{
+		"order_id": orderID, "consumable_id": consID, "user_id": 1, "intent": "confirm", "quantity": 6, "origin_warehouse_id": centralWHID,
+	}))
+	if mv := load["movement"].(map[string]any); mv["stock_after"] != 4.0 || mv["target_stock_after"] != 6.0 || load["consumable"].(map[string]any)["loaded"] != 6.0 {
+		t.Fatalf("record consumable = %v", load)
 	}
 	waits := e2eFailure(t, h.call(t, "work_orders.ExecuteBlock", map[string]any{
 		"order_id": orderID, "block": "Mantenimiento", "intent": "start", "user_id": 1,
@@ -610,17 +601,6 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 	}))
 	if step1["current"] != "En curso" {
 		t.Fatalf("step 1 = %v", step1)
-	}
-
-	// 10. Consume 2.5 units from the mobile warehouse (mobile 6 -> 3.5).
-	consumed := e2eSuccess(t, h.call(t, "work_orders.ConsumeFromOrder", map[string]any{
-		"order_id":      orderID,
-		"consumable_id": consID,
-		"user_id":       1,
-		"quantity":      2.5,
-	}))
-	if consumed["movement"].(map[string]any)["stock_after"] != 3.5 {
-		t.Fatalf("consume = %v", consumed)
 	}
 
 	// 11. Closing needs every block completed: refused with block 2 pending,
@@ -648,24 +628,27 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 		t.Fatalf("step 2 = %v", step2)
 	}
 
-	// Consuming after closure is rejected as final_state.
-	postCloseConsume := e2eFailure(t, h.call(t, "work_orders.ConsumeFromOrder", map[string]any{
-		"order_id": orderID, "consumable_id": consID, "user_id": 1, "quantity": 1,
+	// Recording after closure is rejected as final_state.
+	postClose := e2eFailure(t, h.call(t, "work_orders.RecordOrderConsumable", map[string]any{
+		"order_id": orderID, "consumable_id": consID, "user_id": 1, "intent": "more", "quantity": 1, "origin_warehouse_id": centralWHID,
 	}))
-	if postCloseConsume["code"] != "XOLU-INVALID_TRANSITION" || postCloseConsume["details"].(map[string]any)["rule"] != "final_state" {
-		t.Fatalf("post-close consume = %v", postCloseConsume)
+	if postClose["code"] != "XOLU-INVALID_TRANSITION" || postClose["details"].(map[string]any)["rule"] != "final_state" {
+		t.Fatalf("post-close record = %v", postClose)
 	}
 
-	// 12. Return ALL remaining leftovers (quantity omitted -> 3.5 back to central: mobile 0, central 7.5).
-	returned := e2eSuccess(t, h.call(t, "work_orders.ReturnLeftovers", map[string]any{
-		"order_id":            orderID,
-		"consumable_id":       consID,
-		"target_warehouse_id": centralWHID,
-		"user_id":             1,
+	// 12. Settle once finished: 2.5 used leave the mobile warehouse, the 3.5
+	//     surplus goes back to central (mobile 0, central 4 + 3.5 = 7.5).
+	settled := e2eSuccess(t, h.call(t, "work_orders.SettleOrderConsumable", map[string]any{
+		"order_id": orderID, "consumable_id": consID, "user_id": 1, "used": 2.5, "return_warehouse_id": centralWHID,
 	}))
-	retMv := returned["movement"].(map[string]any)
-	if retMv["quantity"] != 3.5 || retMv["stock_after"] != 0.0 || retMv["target_stock_after"] != 7.5 {
-		t.Fatalf("return leftovers = %v", returned)
+	sc := settled["consumable"].(map[string]any)
+	if sc["settled"] != true || sc["used"] != 2.5 || sc["returned"] != 3.5 || sc["loaded"] != 6.0 {
+		t.Fatalf("settle = %v", settled)
+	}
+	if again := e2eSuccess(t, h.call(t, "work_orders.SettleOrderConsumable", map[string]any{
+		"order_id": orderID, "consumable_id": consID, "user_id": 1, "used": 2.5, "return_warehouse_id": centralWHID,
+	})); again["already_settled"] != true {
+		t.Fatalf("settle again = %v", again)
 	}
 
 	// 13. Final inspection through GetOrder, GetWarehouse and GetConsumable.

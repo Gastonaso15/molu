@@ -174,19 +174,19 @@ func (s *Server) Handler() http.Handler {
 		}
 		return c.RegisterMovement(r.Context(), in)
 	})))
-	mux.Handle("/api/v1/orders/consume", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
-		var in ConsumeFromOrderInput
+	mux.Handle("/api/v1/orders/consumables/record", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in RecordConsumableInput
 		if !dec(&in) {
 			return nil, errHandled
 		}
-		return c.ConsumeFromOrder(r.Context(), in)
+		return c.RecordOrderConsumable(r.Context(), in)
 	})))
-	mux.Handle("/api/v1/orders/return-leftovers", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
-		var in ReturnLeftoversInput
+	mux.Handle("/api/v1/orders/consumables/settle", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in SettleConsumableInput
 		if !dec(&in) {
 			return nil, errHandled
 		}
-		return c.ReturnLeftovers(r.Context(), in)
+		return c.SettleOrderConsumable(r.Context(), in)
 	})))
 	mux.Handle("/api/v1/orders/templates", s.guard(http.HandlerFunc(s.templates)))
 	mux.Handle("/api/v1/orders/templates/create", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {

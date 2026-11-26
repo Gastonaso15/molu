@@ -75,18 +75,19 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"title":              map[string]any{"type": "string", "description": "Short title of the work to do. Required, except with a template (defaults to the template's name)."},
-					"description":        map[string]any{"type": "string", "description": "Optional details (defaults to the template's description)."},
-					"assigned_to":        map[string]any{"type": "string", "description": "Simple orders only: technician name or email. Ignored when an assignment resolves the responsible."},
-					"template_id":        idSchema("Id of the template the order follows."),
-					"template_version":   map[string]any{"type": "integer", "description": "Optional: fail if the template is not at this version."},
-					"assignment_type":    map[string]any{"type": "string", "enum": []any{AssignmentDirect, AssignmentBoard}, "description": "direct_assignment: assign now. board_posting: publish for someone to claim."},
-					"responsible_type":   map[string]any{"type": "string", "enum": []any{"user", "crew", "third_party"}, "description": "Who is responsible, or who may claim it."},
-					"responsible_id":     idSchema("Direct assignment: id of the crew or outsourced party. Omit for a board posting."),
-					"header_values":      map[string]any{"type": "object", "description": "Answers by header tag, for the header items filled at creation (see ListTemplates header_items)."},
-					"asset_ids":          map[string]any{"type": "array", "items": idSchema("Asset id."), "description": "Assets the order is about, within the template's min/max and asset type."},
-					"created_by_user_id": idSchema("Optional user id recorded as responsible_user_id on a newly opened mobile warehouse."),
-					"block_responsibles": map[string]any{"type": "object", "additionalProperties": idSchema("Id of the user, crew or third party that runs the block."), "description": "Templates with blocks: who runs each block, by block name, e.g. {\"Preparacion\": 4, \"Trabajo\": 7}. Every block needs one."},
+					"title":                map[string]any{"type": "string", "description": "Short title of the work to do. Required, except with a template (defaults to the template's name)."},
+					"description":          map[string]any{"type": "string", "description": "Optional details (defaults to the template's description)."},
+					"assigned_to":          map[string]any{"type": "string", "description": "Simple orders only: technician name or email. Ignored when an assignment resolves the responsible."},
+					"template_id":          idSchema("Id of the template the order follows."),
+					"template_version":     map[string]any{"type": "integer", "description": "Optional: fail if the template is not at this version."},
+					"assignment_type":      map[string]any{"type": "string", "enum": []any{AssignmentDirect, AssignmentBoard}, "description": "direct_assignment: assign now. board_posting: publish for someone to claim."},
+					"responsible_type":     map[string]any{"type": "string", "enum": []any{"user", "crew", "third_party"}, "description": "Who is responsible, or who may claim it."},
+					"responsible_id":       idSchema("Direct assignment: id of the crew or outsourced party. Omit for a board posting."),
+					"header_values":        map[string]any{"type": "object", "description": "Answers by header tag, for the header items filled at creation (see ListTemplates header_items)."},
+					"asset_ids":            map[string]any{"type": "array", "items": idSchema("Asset id."), "description": "Assets the order is about, within the template's min/max and asset type."},
+					"created_by_user_id":   idSchema("Optional user id recorded as responsible_user_id on a newly opened mobile warehouse."),
+					"extra_consumable_ids": map[string]any{"type": "array", "items": idSchema("Consumable id."), "description": "Templates that allow extra consumables: consumables the order plans besides the template's. Ignored otherwise (rejected)."},
+					"block_responsibles":   map[string]any{"type": "object", "additionalProperties": idSchema("Id of the user, crew or third party that runs the block."), "description": "Templates with blocks: who runs each block, by block name, e.g. {\"Preparacion\": 4, \"Trabajo\": 7}. Every block needs one."},
 				},
 				"additionalProperties": false,
 			}),
@@ -405,44 +406,44 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"required":             []string{"type", "consumable_id", "user_id", "quantity", "reason"},
 				"additionalProperties": false,
 			}),
-		mk("ConsumeFromOrder",
-			"Consume stock of a consumable from an open work order's mobile warehouse (atomic exit movement via RegisterMovement). "+
-				"Load stock into the mobile warehouse first with RegisterMovement (transfer). Rejects completed orders (final_state), orders without a mobile warehouse "+
-				"(no_mobile_warehouse), consumables excluded by the template when extra consumables are disabled (consumable_not_allowed), and insufficient stock (insufficient_stock). "+
-				"Supports idempotent retries via request_id.",
-			"/api/v1/orders/consume",
-			map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"order_id":      map[string]any{"type": "string", "minLength": 1},
-					"consumable_id": idSchema("Id of the consumable being consumed."),
-					"user_id":       idSchema("Id of the user recording the consumption."),
-					"quantity":      map[string]any{"type": "number", "exclusiveMinimum": 0, "description": "Positive quantity with at most 2 decimals."},
-					"reason":        map[string]any{"type": "string", "description": "Optional reason (defaults to order consumption note)."},
-					"reference":     map[string]any{"type": "string", "description": "Optional reference (defaults to WO-<order_id>)."},
-					"request_id":    map[string]any{"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Optional 32 lowercase hex idempotency key."},
-				},
-				"required":             []string{"order_id", "consumable_id", "user_id", "quantity"},
-				"additionalProperties": false,
-			}),
-		mk("ReturnLeftovers",
-			"Return leftover stock of a consumable from a work order's mobile warehouse back to a target warehouse (atomic transfer via RegisterMovement). "+
-				"Works on both open and completed orders. Omit quantity to return all remaining stock of that consumable in the mobile warehouse (fails with no_leftovers if empty). "+
-				"Supports idempotent retries via request_id.",
-			"/api/v1/orders/return-leftovers",
+		mk("RecordOrderConsumable",
+			"Record what an order takes for its work, while it runs (the order must have its execution header confirmed and be open; only the order's responsible, user_id, can). "+
+				"intent confirm loads a consumable the order plans (the template's or an extra chosen at creation), add loads one that is not planned (only if the template allows extras), "+
+				"more loads additional quantity of one already loaded (request_id makes the retry safe) and skip says a planned consumable will not be used. "+
+				"Loading is a transfer from origin_warehouse_id into the order's mobile warehouse saved in one Commit with the consumption record. Repeating a request changes nothing (already_recorded). "+
+				"Rejections come back as INVALID_TRANSITION with details.rule (not_responsible, header_not_confirmed, awaiting_claim, final_state, consumables_disabled, extras_not_allowed, already_listed, not_recorded, insufficient_stock, already_recorded). "+
+				"Settle what was loaded, once the order is finished, with SettleOrderConsumable.",
+			"/api/v1/orders/consumables/record",
 			map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"order_id":            map[string]any{"type": "string", "minLength": 1},
-					"consumable_id":       idSchema("Id of the consumable being returned."),
-					"target_warehouse_id": idSchema("Destination warehouse id receiving the leftovers."),
-					"user_id":             idSchema("Id of the user recording the return."),
-					"quantity":            map[string]any{"type": "number", "exclusiveMinimum": 0, "description": "Optional positive quantity (max 2 decimals). Omit to return all remaining stock."},
-					"reason":              map[string]any{"type": "string", "description": "Optional reason (defaults to order leftover return note)."},
-					"reference":           map[string]any{"type": "string", "description": "Optional reference (defaults to WO-<order_id>)."},
-					"request_id":          map[string]any{"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Optional 32 lowercase hex idempotency key."},
+					"consumable_id":       idSchema("Id of the consumable."),
+					"user_id":             idSchema("The user who records; must be the order's responsible."),
+					"intent":              map[string]any{"type": "string", "enum": []any{ConsumeConfirm, ConsumeAdd, ConsumeMore, ConsumeSkip}},
+					"quantity":            map[string]any{"type": "number", "exclusiveMinimum": 0, "description": "confirm, add, more: positive quantity with at most 2 decimals taken from the origin warehouse."},
+					"origin_warehouse_id": idSchema("confirm, add, more: warehouse the consumable is taken from (not the order's mobile warehouse)."),
+					"request_id":          map[string]any{"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "more only: 32 lowercase hex key of this extra load; generated and returned if omitted."},
 				},
-				"required":             []string{"order_id", "consumable_id", "target_warehouse_id", "user_id"},
+				"required":             []string{"order_id", "consumable_id", "user_id", "intent"},
+				"additionalProperties": false,
+			}),
+		mk("SettleOrderConsumable",
+			"Close one consumable of a finished order (final state reached; only the order's responsible, user_id, can): used says how much of what was loaded was actually used; "+
+				"that quantity leaves the mobile warehouse (exit) and the surplus goes to return_warehouse_id (transfer), all in one Commit with the settlement record. "+
+				"return_warehouse_id is required when used is less than what was loaded. A consumable is settled once; repeating the same settlement changes nothing (already_settled). "+
+				"Rejections come back as INVALID_TRANSITION with details.rule (not_responsible, not_finished, nothing_loaded, insufficient_stock, already_recorded). GetOrder shows each consumable's state in consumables.",
+			"/api/v1/orders/consumables/settle",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"order_id":            map[string]any{"type": "string", "minLength": 1},
+					"consumable_id":       idSchema("Id of the consumable to settle."),
+					"user_id":             idSchema("The user who settles; must be the order's responsible."),
+					"used":                map[string]any{"type": "number", "minimum": 0, "description": "Quantity actually used, from 0 up to the loaded quantity (at most 2 decimals)."},
+					"return_warehouse_id": idSchema("Warehouse receiving the surplus; required when used is less than the loaded quantity."),
+				},
+				"required":             []string{"order_id", "consumable_id", "user_id", "used"},
 				"additionalProperties": false,
 			}),
 		mk("ListTemplates",

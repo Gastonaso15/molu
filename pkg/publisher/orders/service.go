@@ -23,6 +23,9 @@ type Service struct {
 	blockDefID string
 
 	movementMu sync.Mutex
+	// consumptionMu serialises the consumption tools of one order so that a
+	// repeated request finds the record the first one saved.
+	consumptionMu sync.Mutex
 }
 
 func NewService(sub Substrate) *Service { return &Service{sub: sub} }

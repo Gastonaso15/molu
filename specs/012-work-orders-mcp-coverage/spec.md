@@ -140,7 +140,7 @@ Seam dejó de ser "solo configuración" en la ejecución. Esto invalida supuesto
 ### 8.3 Efecto sobre la cobertura
 - Fila 4: de "no viable" a **hecha** (T19). Las 16 funciones del correo tienen ya herramienta.
 - Fila 8 (cambiar estado): realineada en T20 (§8.4): confirmar cabecera, ejecutar bloques y avanzar con la máquina propia de la orden. Sigue sin existir pausar/cancelar/aprobar.
-- Fila 15 (almacén móvil): sigue **pendiente de realinear** (T21) hasta que molu replique el flujo nuevo de consumo y liquidación. Lo ya construido sigue funcionando contra el contrato de `a3bd15c`, pero puede dejar datos que Seam no interpreta igual.
+- Fila 15 (almacén móvil): realineada en T21 (§8.5): registrar la carga de insumos a la orden y liquidar al terminar, con los registros `work_order_consumptions` de Seam. Lo ya construido sigue funcionando contra el contrato de `a3bd15c`, pero puede dejar datos que Seam no interpreta igual.
 - Pedidos a WO que cambian: 1 resuelto; 5 y 9 respondidos en gran parte por el código nuevo (falta confirmar con WO que ese es el diseño definitivo); el resto sigue abierto.
 
 ### 8.4 T20 hecha: ejecución de bloques y avance (26-nov-2026)
@@ -163,5 +163,26 @@ Contra la rama `work_orders` en `25e7fa7`. Funciones del publicador: 33 (`work_o
 - La identidad del que actúa (`user_id`) la informa el cliente, sin verificar (igual que `ClaimOrder`).
 - La firma del técnico ya no se pide en el avance de las órdenes con máquina (Seam no la recoge en esta ruta); `signed` en `GetOrder` solo vale para órdenes antiguas. Falta confirmar con WO dónde queda la firma.
 - No se replicó la comprobación de Seam de que el estado de la máquina coincida con el de la orden al cargar (el sustrato no expone leer una máquina); sí se comprueba el estado que devuelve el `fsm_walk`.
-- `ConsumeFromOrder` y `ReturnLeftovers` no exigen cabecera confirmada ni responsable (Seam sí): T21.
+- `ConsumeFromOrder` y `ReturnLeftovers` no exigían cabecera confirmada ni responsable (Seam sí): resuelto en T21 (§8.5), donde se reemplazan.
 - `ListTemplates`/`GetTemplate` no muestran aún `responsible_type` por bloque como dato destacado para el agente (sí va en `blocks`).
+
+### 8.5 T21 hecha: consumo y liquidación de insumos (26-nov-2026)
+Contra la rama `work_orders` en `25e7fa7`. Se **reemplazan** `ConsumeFromOrder` y `ReturnLeftovers` (T12) por dos funciones que siguen el flujo real; las funciones del publicador siguen siendo 33.
+
+**Cómo funciona en Seam y ahora en molu**
+- **`RecordOrderConsumable`** (`intent` confirm | add | more | skip): registra lo que la orden toma para trabajar. *Cargar* es una **transferencia desde un almacén de origen al almacén móvil** de la orden, guardada en un solo `Commit` con el registro `work_order_consumptions` (`status` used, con `origin_warehouse_id` y `target_warehouse_id` = almacén móvil). `confirm` carga un insumo planificado (los de la plantilla y los `extra_consumable_ids` elegidos al abrir la orden); `add` carga uno no planificado (solo si la plantilla permite extras); `more` suma otra carga a uno ya cargado (con `request_id` propio para reintentar sin duplicar); `skip` marca un insumo planificado como no usado (guarda el registro y toca la orden). Exige cabecera confirmada, orden abierta y que actúe el responsable de la orden. El `request_id` del movimiento y el id del registro salen de la clave `work_order:<orden>:consumable:<insumo>[:<request>]` (SHA-256), así que repetir la misma petición no escribe y otra distinta con la misma clave es `already_recorded`.
+- **`SettleOrderConsumable`** (`used`, `return_warehouse_id`): solo con la orden en su estado final. Lo usado **sale** del almacén móvil (movimiento `exit`) y el sobrante se **transfiere** a un almacén de devolución, todo en un `Commit` con el registro `settled`; el stock del insumo se actualiza con `_version`. Cada insumo se liquida una vez (repetir lo mismo no escribe; otro valor es `already_recorded`). Si todo se usó no hace falta almacén de devolución.
+- **`CreateOrder`** acepta `extra_consumable_ids` (validados: existen, sin repetir, solo con plantillas que permiten extras).
+- **`GetOrder`** devuelve `consumables`: por insumo, nombre, unidad, cantidad sugerida, estado, cantidad cargada y la liquidación (usado, devuelto, almacén de devolución).
+- `RegisterMovement` sigue disponible para entradas, ajustes y movimientos entre almacenes; ya no es la vía para consumir en una orden.
+
+**Por qué se reemplazaron en vez de dejarlas**: consumir con un `exit` desde el almacén móvil, como hacía `ConsumeFromOrder`, deja movimientos que Seam no asocia a la orden (sin `work_order_consumptions`) y salta las reglas de cabecera y responsable. Mantenerlas permitía a un agente dejar datos que la pantalla de Seam no reconcilia.
+
+**Verificación**: `consumption_test.go` (creación con extras, reglas, idempotencia, `more`, `skip`, `add`, liquidación parcial/total/nula, un commit rechazado no escribe nada), E2E por MCP actualizado, y contra xolu real `TestRealXolu_MobileWarehouseLifecycle` (carga, repetición, `more`, liquidación antes y después de cerrar, stock final por almacén). 18/18 `TestRealXolu_*` verdes.
+
+**Limitaciones y pendientes**
+- `user_id` lo informa el cliente, sin verificar.
+- Seam guarda el control de concurrencia de la orden con la `_version` del formulario (`entity_version`); molu usa la `_version` leída al momento.
+- Falta el endpoint de Seam que lista el stock por almacén de un insumo para elegir el origen: en molu se consulta con `GetConsumable`/`GetWarehouse`.
+- No se replicó el caso de registros "legacy" de consumo (`LegacyUsed`, sin origen/destino): se ignoran al sumar lo cargado.
+- Las órdenes con consumos hechos con `ConsumeFromOrder` antes de T21 tienen movimientos sin registro de consumo; no se migran.

@@ -1040,39 +1040,60 @@ func TestRealXolu_MobileWarehouseLifecycle(t *testing.T) {
 	if err != nil || o.MobileWarehouseID != o.ID {
 		t.Fatalf("CreateOrder: %+v err=%v", o, err)
 	}
-	// Load 5 into mobile warehouse.
-	if _, err := svc.RegisterMovement(ctx, MovementInput{
-		Type: MovementTransfer, ConsumableID: ID(cons), UserID: "1",
-		OriginWarehouseID: ID(central), TargetWarehouseID: ID(o.MobileWarehouseID),
-		Quantity: f64(5), Reason: "Carga orden",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// Consume 2 from order.
-	consumed, err := svc.ConsumeFromOrder(ctx, ConsumeFromOrderInput{
-		OrderID: o.ID, ConsumableID: ID(cons), UserID: "1", Quantity: f64(2),
-	})
-	if err != nil || consumed.Movement.StockAfter != 3 {
-		t.Fatalf("ConsumeFromOrder: %+v err=%v", consumed, err)
-	}
-	// Run the block, confirm the header and close the order.
+	// Confirm the header, record the load (5 into the mobile warehouse),
+	// run the block, close the order and settle (3 used, 2 back).
 	if _, err := svc.ConfirmExecutionHeader(ctx, ConfirmHeaderInput{OrderID: o.ID, UserID: ID(lead)}); err != nil {
 		t.Fatal(err)
+	}
+	loaded, err := svc.RecordOrderConsumable(ctx, RecordConsumableInput{
+		OrderID: o.ID, ConsumableID: ID(cons), Intent: ConsumeConfirm, UserID: ID(lead),
+		OriginWarehouseID: ID(central), Quantity: f64(5),
+	})
+	if err != nil || loaded.Movement == nil || loaded.Movement.StockAfter != 5 || *loaded.Movement.TargetStockAfter != 5 || loaded.Consumable.Loaded != 5 {
+		t.Fatalf("RecordOrderConsumable: %+v err=%v", loaded, err)
+	}
+	if again, err := svc.RecordOrderConsumable(ctx, RecordConsumableInput{
+		OrderID: o.ID, ConsumableID: ID(cons), Intent: ConsumeConfirm, UserID: ID(lead), OriginWarehouseID: ID(central), Quantity: f64(5),
+	}); err != nil || !again.AlreadyRecorded {
+		t.Fatalf("repeat: %+v err=%v", again, err)
+	}
+	more, err := svc.RecordOrderConsumable(ctx, RecordConsumableInput{
+		OrderID: o.ID, ConsumableID: ID(cons), Intent: ConsumeMore, UserID: ID(lead), OriginWarehouseID: ID(central), Quantity: f64(1),
+	})
+	if err != nil || more.Consumable.Loaded != 6 || more.RequestID == "" {
+		t.Fatalf("more: %+v err=%v", more, err)
 	}
 	for _, intent := range []string{IntentStart, IntentComplete} {
 		if _, err := svc.ExecuteBlock(ctx, ExecuteBlockInput{OrderID: o.ID, Block: "Revision", Intent: intent, UserID: ID(lead), Values: map[string]any{"ok": true}}); err != nil {
 			t.Fatal(err)
 		}
 	}
+	var te *TransitionError
+	if _, err := svc.SettleOrderConsumable(ctx, SettleConsumableInput{OrderID: o.ID, ConsumableID: ID(cons), UserID: ID(lead), Used: f64(4), ReturnWarehouseID: ID(central)}); !errors.As(err, &te) || te.Details["rule"] != "not_finished" {
+		t.Fatalf("settle before closing: %v", err)
+	}
 	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, UserID: ID(lead)}); err != nil {
 		t.Fatal(err)
 	}
-	// Return all remaining leftovers (3) back to central.
-	ret, err := svc.ReturnLeftovers(ctx, ReturnLeftoversInput{
-		OrderID: o.ID, ConsumableID: ID(cons), TargetWarehouseID: ID(central), UserID: "1",
-	})
-	if err != nil || ret.Movement.Quantity != 3 || ret.Movement.StockAfter != 0 || *ret.Movement.TargetStockAfter != 8 {
-		t.Fatalf("ReturnLeftovers: %+v err=%v", ret, err)
+	settled, err := svc.SettleOrderConsumable(ctx, SettleConsumableInput{OrderID: o.ID, ConsumableID: ID(cons), UserID: ID(lead), Used: f64(4), ReturnWarehouseID: ID(central)})
+	if err != nil || !settled.Consumable.Settled || settled.Consumable.Used != 4 || settled.Consumable.Returned != 2 {
+		t.Fatalf("SettleOrderConsumable: %+v err=%v", settled, err)
+	}
+	if again, err := svc.SettleOrderConsumable(ctx, SettleConsumableInput{OrderID: o.ID, ConsumableID: ID(cons), UserID: ID(lead), Used: f64(4), ReturnWarehouseID: ID(central)}); err != nil || !again.AlreadySettled {
+		t.Fatalf("settle again: %+v err=%v", again, err)
+	}
+	// Central started with 10, gave 6 and got 2 back; the mobile warehouse is empty.
+	d, err := svc.GetOrder(ctx, o.ID)
+	if err != nil || len(d.Consumables) != 1 || !d.Consumables[0].Settled || d.Consumables[0].Loaded != 6 {
+		t.Fatalf("GetOrder = %+v err=%v", d.Consumables, err)
+	}
+	cdoc, err := sub.GetEntity(ctx, consumableEntity, cons)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byWh, _ := cdoc[movementStockField].(map[string]any)
+	if intOf(byWh[central]) != 600 || intOf(byWh[o.ID]) != 0 {
+		t.Fatalf("stock_by_warehouse = %v (want central 6.00, mobile 0)", byWh)
 	}
 }
 

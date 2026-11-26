@@ -54,6 +54,22 @@ func (s *Service) GetOrder(ctx context.Context, id string) (OrderDetail, error) 
 	if d.Blocks, err = s.orderBlocks(ctx, id); err != nil {
 		return OrderDetail{}, err
 	}
+	if mid := intOf(doc["mobile_warehouse_id"]); mid > 0 && templateOrder(doc) {
+		tpl, terr := s.loadTemplate(ctx, idString(doc["template_id"]))
+		var ve *ValidationError
+		switch {
+		case terr == nil:
+			lines, lerr := s.consumableLines(ctx, intOf(id), tpl, doc, mid)
+			if lerr != nil {
+				return OrderDetail{}, lerr
+			}
+			if d.Consumables, err = s.consumableViews(ctx, lines); err != nil {
+				return OrderDetail{}, err
+			}
+		case !errors.As(terr, &ve):
+			return OrderDetail{}, terr
+		}
+	}
 	if executionOrder(doc) {
 		d.HeaderConfirmedAt, _ = doc["execution_header_completed_at"].(string)
 		// Orders that run blocks keep each block's answers on its own record.

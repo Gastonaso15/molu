@@ -104,6 +104,9 @@ type CreateInput struct {
 	// user, crew or third party according to the block's responsible_type in
 	// the template. Every block of the template needs one.
 	BlockResponsibles map[string]ID `json:"block_responsibles,omitempty"`
+	// ExtraConsumableIDs are consumables the order plans besides the
+	// template's; only for templates that allow extra consumables.
+	ExtraConsumableIDs []ID `json:"extra_consumable_ids,omitempty"`
 }
 
 // AdvanceInput is the payload of work_orders.AdvanceOrder.
@@ -416,8 +419,12 @@ type OrderDetail struct {
 	Signed          bool   `json:"signed"`
 	// HeaderConfirmedAt is when the header filled at execution time was
 	// confirmed (orders that run blocks); blocks cannot start before it.
-	HeaderConfirmedAt string         `json:"header_confirmed_at,omitempty"`
-	BlockValues       map[string]any `json:"block_values,omitempty"` // as stored: keys template_block_<block>_line_<line>
+	HeaderConfirmedAt string `json:"header_confirmed_at,omitempty"`
+	// Consumables are the order's consumables with what was loaded into its
+	// mobile warehouse and how each was settled (orders from a template that
+	// enables consumables).
+	Consumables []OrderConsumable `json:"consumables,omitempty"`
+	BlockValues map[string]any    `json:"block_values,omitempty"` // as stored: keys template_block_<block>_line_<line>
 	// BlockAnswers is BlockValues by block and line name (template orders whose
 	// template can still be read).
 	BlockAnswers    map[string]map[string]any `json:"block_answers,omitempty"`
