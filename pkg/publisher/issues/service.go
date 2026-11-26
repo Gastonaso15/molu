@@ -72,7 +72,7 @@ func (s *IssueService) CreateIssue(ctx context.Context, req CreateIssueRequest) 
 
 	defID, err := s.xolu.EnsureMachineDefinition(ctx, req.Tenant)
 	if err != nil {
-		return Issue{}, s.mapSubstrateError(req.Tenant, "machine_def", "issue_lifecycle", err)
+		return Issue{}, s.mapSubstrateError(req.Tenant, "machine_def", DefinitionName, err)
 	}
 
 	machID, initialState, err := s.xolu.CreateMachine(ctx, req.Tenant, defID)

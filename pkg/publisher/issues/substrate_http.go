@@ -83,7 +83,7 @@ func (h *HTTPSubstrate) EnsureMachineDefinition(ctx context.Context, tenant stri
 	// Definition of the 8-state lifecycle
 	def := map[string]any{
 		"name":        DefinitionName,
-		"description": "Issue Tracker lifecycle (8 states)",
+		"description": "Seam AMS Issues lifecycle (8 states, iteration 1)",
 		"initial":     "reported",
 		"determinism": "firstmatch",
 		"states": map[string]any{
@@ -104,6 +104,7 @@ func (h *HTTPSubstrate) EnsureMachineDefinition(ctx context.Context, tenant stri
 			{"from": "in_progress", "input": "resolve", "to": "resolved"},
 			{"from": "resolved", "input": "close", "to": "closed"},
 			{"from": []any{"reported", "triaged", "in_progress", "on_hold", "resolved"}, "input": "reject", "to": "rejected"},
+			{"from": []any{"reported", "triaged", "in_progress"}, "input": "merge", "to": "duplicate"},
 		},
 	}
 

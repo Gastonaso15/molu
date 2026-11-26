@@ -13,7 +13,7 @@ const (
 	// EntityType is the xolu entity that stores issues.
 	EntityType = "issues"
 	// DefinitionName is the xolu FSM definition that governs the issue lifecycle.
-	DefinitionName = "issue_lifecycle"
+	DefinitionName = "seam_issue_lifecycle"
 	// TokenRef is the reference the Execution Bridge resolves to the bearer token.
 	TokenRef = "issues:api-token"
 )
@@ -141,4 +141,3 @@ func CalculateSLADeadlines(priority, assetCategory string, now time.Time) (strin
 
 	return firstRespDeadline, resDeadline
 }
-

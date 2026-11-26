@@ -263,3 +263,141 @@ func TestHTTPSubstrate_NonFSM4xx_NotSubstrateUnavailable(t *testing.T) {
 		t.Fatalf("unexpected SUBSTRATE_UNAVAILABLE for 400 client error: %v", err)
 	}
 }
+
+func TestHTTPSubstrate_EnsureMachineDefinition_SeamLifecycle(t *testing.T) {
+	if issues.DefinitionName != "seam_issue_lifecycle" {
+		t.Fatalf("DefinitionName = %q, want %q", issues.DefinitionName, "seam_issue_lifecycle")
+	}
+
+	t.Run("creates_exact_seam_8_state_definition_with_merge", func(t *testing.T) {
+		var postedDef map[string]any
+		var postCalls int
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.URL.Path == "/api/v2/fsm/def" && r.Method == http.MethodGet:
+				_ = json.NewEncoder(w).Encode(map[string]any{"definitions": []any{}})
+			case r.URL.Path == "/api/v2/fsm/def" && r.Method == http.MethodPost:
+				postCalls++
+				_ = json.NewDecoder(r.Body).Decode(&postedDef)
+				w.WriteHeader(http.StatusCreated)
+				_ = json.NewEncoder(w).Encode(map[string]any{"id": int64(99), "name": postedDef["name"]})
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer srv.Close()
+
+		sub := issues.NewHTTPSubstrate(srv.URL, "", 5*time.Second)
+		defID, err := sub.EnsureMachineDefinition(context.Background(), "dev")
+		if err != nil {
+			t.Fatalf("EnsureMachineDefinition failed: %v", err)
+		}
+		if defID != 99 || postCalls != 1 {
+			t.Fatalf("defID=%d postCalls=%d, want 99 and 1", defID, postCalls)
+		}
+		if postedDef["name"] != "seam_issue_lifecycle" {
+			t.Errorf("posted name = %v, want seam_issue_lifecycle", postedDef["name"])
+		}
+		if postedDef["initial"] != "reported" {
+			t.Errorf("posted initial = %v, want reported", postedDef["initial"])
+		}
+		if postedDef["determinism"] != "firstmatch" {
+			t.Errorf("posted determinism = %v, want firstmatch", postedDef["determinism"])
+		}
+
+		states, _ := postedDef["states"].(map[string]any)
+		wantStates := map[string]bool{
+			"reported":    false,
+			"triaged":     false,
+			"in_progress": false,
+			"on_hold":     false,
+			"resolved":    false,
+			"closed":      true,
+			"rejected":    true,
+			"duplicate":   true,
+		}
+		if len(states) != len(wantStates) {
+			t.Fatalf("got %d states (%v), want %d", len(states), states, len(wantStates))
+		}
+		for sName, wantTerm := range wantStates {
+			st, ok := states[sName].(map[string]any)
+			if !ok {
+				t.Errorf("missing state %q", sName)
+				continue
+			}
+			if gotTerm, _ := st["terminal"].(bool); gotTerm != wantTerm {
+				t.Errorf("state %q terminal = %v, want %v", sName, gotTerm, wantTerm)
+			}
+		}
+
+		rawTrans, _ := postedDef["transitions"].([]any)
+		if len(rawTrans) != 8 {
+			t.Fatalf("got %d transitions, want 8: %v", len(rawTrans), rawTrans)
+		}
+		var mergeFound bool
+		seenInputs := map[string]bool{}
+		for _, item := range rawTrans {
+			tr, _ := item.(map[string]any)
+			inp, _ := tr["input"].(string)
+			seenInputs[inp] = true
+			if inp == "merge" {
+				mergeFound = true
+				if tr["to"] != "duplicate" {
+					t.Errorf("merge target = %v, want duplicate", tr["to"])
+				}
+				fromArr, _ := tr["from"].([]any)
+				wantFrom := map[string]bool{"reported": true, "triaged": true, "in_progress": true}
+				if len(fromArr) != len(wantFrom) {
+					t.Errorf("merge from = %v, want [reported triaged in_progress]", fromArr)
+				}
+				for _, f := range fromArr {
+					fs, _ := f.(string)
+					if !wantFrom[fs] {
+						t.Errorf("unexpected merge from state %q", fs)
+					}
+				}
+			}
+		}
+		for _, req := range []string{"triage", "start", "hold", "resume", "resolve", "close", "reject", "merge"} {
+			if !seenInputs[req] {
+				t.Errorf("missing transition %q", req)
+			}
+		}
+		if !mergeFound {
+			t.Errorf("merge transition not found in %v", rawTrans)
+		}
+	})
+
+	t.Run("reuses_existing_seam_issue_lifecycle_without_posting", func(t *testing.T) {
+		var postCalls int
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.URL.Path == "/api/v2/fsm/def" && r.Method == http.MethodGet:
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"definitions": []any{
+						map[string]any{"id": int64(55), "name": "seam_issue_lifecycle"},
+					},
+				})
+			case r.URL.Path == "/api/v2/fsm/def" && r.Method == http.MethodPost:
+				postCalls++
+				w.WriteHeader(http.StatusCreated)
+				_ = json.NewEncoder(w).Encode(map[string]any{"id": int64(56)})
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer srv.Close()
+
+		sub := issues.NewHTTPSubstrate(srv.URL, "", 5*time.Second)
+		defID, err := sub.EnsureMachineDefinition(context.Background(), "dev")
+		if err != nil {
+			t.Fatalf("EnsureMachineDefinition failed: %v", err)
+		}
+		if defID != 55 {
+			t.Fatalf("defID = %d, want 55", defID)
+		}
+		if postCalls != 0 {
+			t.Fatalf("postCalls = %d, want 0 when seam_issue_lifecycle already exists", postCalls)
+		}
+	})
+}

@@ -68,7 +68,7 @@ Las filas ❌ confirman, contra Seam real, las diferencias que esta lista ya des
   - **Problema**: un `AdvanceIssue` no permitido (por ejemplo `close` desde `in_progress`) devuelve `SUBSTRATE_UNAVAILABLE`. xolu responde con un código `XOLU-FSM…` en un 4xx y el publicador solo reconoce HTTP 409 o el texto `INVALID_TRANSITION`.
   - **Hecho cuando**: toda transición rechazada por la FSM (transición inexistente, guarda) devuelve `XOLU-INVALID_TRANSITION` con `details.xolu_code` y el mensaje de xolu verbatim, igual que `pkg/publisher/orders`; `SUBSTRATE_UNAVAILABLE` queda solo para xolu inalcanzable o 5xx; un 404 de la máquina sigue siendo `NOT_FOUND`. Prueba contra xolu real incluida.
 
-- [ ] **T7. Una sola definición de FSM, la de Seam, con `merge`.**
+- [x] **T7. Una sola definición de FSM, la de Seam, con `merge`.**
   - **Archivos**: `pkg/publisher/issues/types.go`, `substrate_http.go`, `registrar.go`, sus tests
   - **Problema**: el publicador crea `issue_lifecycle`; Seam usa `seam_issue_lifecycle`. Conviven dos definiciones en xolu y la nuestra no tiene la transición `merge → duplicate` (sí tiene las otras 7). Además, `issue_lifecycle` se duplica en cada incidencia (T14): resolver ambas juntas.
   - **Hecho cuando**: `DefinitionName` es `seam_issue_lifecycle`; si ya existe en xolu se reutiliza, y si no se crea idéntica a la de Seam (8 estados, `firstmatch`, las 8 transiciones, incluida `merge` desde `reported`/`triaged`/`in_progress` hacia `duplicate`); el enum de `transition` en el esquema de `issues.AdvanceIssue` incluye `merge`; no queda ninguna definición `issue_lifecycle` nueva.

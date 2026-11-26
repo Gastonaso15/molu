@@ -162,3 +162,28 @@ func TestIssueRegistrar_UnregisterRemovesAllTools(t *testing.T) {
 	}
 }
 
+func TestIssueRegistrar_AdvanceIssueSchemaIncludesMerge(t *testing.T) {
+	r := issues.NewRegistrar("http://hub:8091", "http://publisher:8093", fastIssueBackoff())
+	for _, tl := range r.Tools() {
+		if tl.Name != "issues.AdvanceIssue" {
+			continue
+		}
+		props, _ := tl.InputSchema["properties"].(map[string]any)
+		trProp, _ := props["transition"].(map[string]any)
+		enumRaw, _ := trProp["enum"].([]any)
+		got := map[string]bool{}
+		for _, v := range enumRaw {
+			if s, ok := v.(string); ok {
+				got[s] = true
+			}
+		}
+		want := []string{"triage", "start", "hold", "resume", "resolve", "close", "reject", "merge"}
+		for _, w := range want {
+			if !got[w] {
+				t.Errorf("AdvanceIssue transition enum %v missing %q", enumRaw, w)
+			}
+		}
+		return
+	}
+	t.Fatal("issues.AdvanceIssue tool not returned by Registrar.Tools()")
+}

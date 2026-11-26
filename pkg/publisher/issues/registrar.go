@@ -92,7 +92,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"additionalProperties": false,
 			}),
 		mk("AdvanceIssue",
-			"Advance an issue through its lifecycle by firing a transition input (triage, start, hold, resume, resolve, close, reject). "+
+			"Advance an issue through its lifecycle by firing a transition input (triage, start, hold, resume, resolve, close, reject, merge). "+
 				"Invalid transitions are rejected by the FSM and returned verbatim.",
 			"/api/v1/issues/advance",
 			map[string]any{
@@ -100,7 +100,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"properties": map[string]any{
 					"tenant":     map[string]any{"type": "string", "description": "Tenant identifier."},
 					"issue_id":   map[string]any{"type": "integer", "description": "Issue ID to transition."},
-					"transition": map[string]any{"type": "string", "enum": []any{"triage", "start", "hold", "resume", "resolve", "close", "reject"}, "description": "Lifecycle transition input."},
+					"transition": map[string]any{"type": "string", "enum": []any{"triage", "start", "hold", "resume", "resolve", "close", "reject", "merge"}, "description": "Lifecycle transition input."},
 					"actor_id":   map[string]any{"type": "integer", "description": "User ID performing the transition."},
 				},
 				"required":             []any{"issue_id", "transition"},
@@ -185,4 +185,3 @@ func (r *Registrar) post(ctx context.Context, path string, body any) error {
 		return permanentError{fmt.Errorf("hub answered %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
 	}
 }
-
