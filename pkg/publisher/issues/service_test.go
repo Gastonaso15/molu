@@ -241,14 +241,14 @@ func TestCreateIssue_WithCriticalAsset(t *testing.T) {
 		t.Errorf("expected critical asset category, got %q", issue.AssetCategory)
 	}
 
-	// Critical priority on critical asset -> 15 min response, 120 min resolution
+	// Critical priority on critical asset -> 60 min response, 240 min resolution (Seam table)
 	respDeadline, err := time.Parse(time.RFC3339, issue.SLAFirstResponseDeadline)
 	if err != nil {
 		t.Fatalf("failed to parse first response deadline: %v", err)
 	}
 	diff := respDeadline.Sub(before)
-	if diff < 14*time.Minute || diff > 16*time.Minute {
-		t.Errorf("expected ~15 min deadline, got %v", diff)
+	if diff < 59*time.Minute || diff > 61*time.Minute { 
+		t.Errorf("expected ~60 min deadline, got %v", diff)
 	}
 }
 
@@ -551,6 +551,46 @@ func TestCreateIssue_AssetCriticalityMapping(t *testing.T) {
 			stored, _ := mockX.GetEntity(context.Background(), "dev", "issues", iss.ID)
 			if got, _ := stored["asset_category"].(string); got != tc.wantCategory {
 				t.Fatalf("stored asset_category = %q, want %q", got, tc.wantCategory)
+			}
+		})
+	}
+}
+
+func TestDefaultSLATables_MatchSeam(t *testing.T) {
+	cases := []struct {
+		category   string
+		priority   string
+		wantFirst  int64
+		wantResolv int64
+	}{
+		// critico
+		{"critico", "critical", 60, 240},
+		{"critico", "high", 120, 1440},
+		{"critico", "medium", 240, 1440},
+		{"critico", "low", 240, 2880},
+		{"critico", "unknown", 120, 1440},
+		// normal
+		{"normal", "critical", 120, 1440},
+		{"normal", "high", 240, 2880},
+		{"normal", "medium", 480, 4320},
+		{"normal", "low", 480, 10080},
+		{"normal", "unknown", 240, 2880},
+	}
+
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	for _, tc := range cases {
+		t.Run(tc.category+"_"+tc.priority, func(t *testing.T) {
+			if got := issues.DefaultSLAFirstResponseMinutes(tc.priority, tc.category); got != tc.wantFirst {
+				t.Errorf("DefaultSLAFirstResponseMinutes(%q, %q) = %d, want %d", tc.priority, tc.category, got, tc.wantFirst)
+			}
+			if got := issues.DefaultSLAResolutionMinutes(tc.priority, tc.category); got != tc.wantResolv {
+				t.Errorf("DefaultSLAResolutionMinutes(%q, %q) = %d, want %d", tc.priority, tc.category, got, tc.wantResolv)
+			}
+			gotFirstDL, gotResDL := issues.CalculateSLADeadlines(tc.priority, tc.category, now)
+			wantFirstDL := now.Add(time.Duration(tc.wantFirst) * time.Minute).Format(time.RFC3339)
+			wantResDL := now.Add(time.Duration(tc.wantResolv) * time.Minute).Format(time.RFC3339)
+			if gotFirstDL != wantFirstDL || gotResDL != wantResDL {
+				t.Errorf("CalculateSLADeadlines = (%s, %s), want (%s, %s)", gotFirstDL, gotResDL, wantFirstDL, wantResDL)
 			}
 		})
 	}

@@ -102,53 +102,51 @@ func AssetCategoryFromCriticality(criticality string) string {
 	}
 }
 
-// Default SLA calculation helpers based on priority and asset criticality.
-func DefaultSLAFirstResponseMinutes(priority, assetCategory string) int64 {
-	switch priority {
-	case "critical":
-		if assetCategory == AssetCategoryCritico {
-			return 15
-		}
-		return 30
-	case "high":
-		if assetCategory == AssetCategoryCritico {
-			return 60
-		}
-		return 120
-	case "medium":
-		if assetCategory == AssetCategoryCritico {
-			return 240
-		}
-		return 480
-	case "low":
-		return 1440
-	default:
-		return 480
-	}
+type slaTable struct {
+	critico    map[string]int64
+	criticoDef int64
+	normal     map[string]int64
+	normalDef  int64
 }
 
-func DefaultSLAResolutionMinutes(priority, assetCategory string) int64 {
-	switch priority {
-	case "critical":
-		if assetCategory == AssetCategoryCritico {
-			return 120
+func (t slaTable) lookup(priority, assetCategory string) int64 {
+	if assetCategory == AssetCategoryCritico {
+		if m, ok := t.critico[priority]; ok {
+			return m
 		}
-		return 240
-	case "high":
-		if assetCategory == AssetCategoryCritico {
-			return 480
-		}
-		return 960
-	case "medium":
-		if assetCategory == AssetCategoryCritico {
-			return 1440
-		}
-		return 2880
-	case "low":
-		return 4320
-	default:
-		return 2880
+		return t.criticoDef
 	}
+	if m, ok := t.normal[priority]; ok {
+		return m
+	}
+	return t.normalDef
+}
+
+var (
+	firstResponseSLA = slaTable{
+		critico:    map[string]int64{"critical": 60, "high": 120, "medium": 240, "low": 240},
+		criticoDef: 120,
+		normal:     map[string]int64{"critical": 120, "high": 240, "medium": 480, "low": 480},
+		normalDef:  240,
+	}
+	resolutionSLA = slaTable{
+		critico:    map[string]int64{"critical": 240, "high": 1440, "medium": 1440, "low": 2880},
+		criticoDef: 1440,
+		normal:     map[string]int64{"critical": 1440, "high": 2880, "medium": 4320, "low": 10080},
+		normalDef:  2880,
+	}
+)
+
+// DefaultSLAFirstResponseMinutes returns Seam default first-response minutes by priority and asset category.
+// Note: Seam allows per-template overrides (slaMinutesFromTemplate); this publisher uses only these defaults.
+func DefaultSLAFirstResponseMinutes(priority, assetCategory string) int64 {
+	return firstResponseSLA.lookup(priority, assetCategory)
+}
+
+// DefaultSLAResolutionMinutes returns Seam default resolution minutes by priority and asset category.
+// Note: Seam allows per-template overrides (slaMinutesFromTemplate); this publisher uses only these defaults.
+func DefaultSLAResolutionMinutes(priority, assetCategory string) int64 {
+	return resolutionSLA.lookup(priority, assetCategory)
 }
 
 func CalculateSLADeadlines(priority, assetCategory string, now time.Time) (string, string) {

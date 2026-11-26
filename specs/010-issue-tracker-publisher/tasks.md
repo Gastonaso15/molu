@@ -78,7 +78,7 @@ Las filas ❌ confirman, contra Seam real, las diferencias que esta lista ya des
   - **Problema**: se compara `criticality == "critical"`, pero Seam guarda `Alta`/`Media`/`Baja` (o `High`/`Medium`/`Low`). Un activo crítico queda como `normal` en molu y como `critico` en Seam.
   - **Hecho cuando**: criticidad `Alta`/`High` produce `asset_category = "critico"`; `Media`/`Baja`/`Medium`/`Low`, vacío, activo ausente o ilegible producen `"normal"`; los valores guardados son `critico`/`normal` (no `critical`). Si el activo no existe, `NOT_FOUND` como hoy.
 
-- [ ] **T9. Tablas SLA idénticas a las de Seam.**
+- [x] **T9. Tablas SLA idénticas a las de Seam.**
   - **Archivos**: `pkg/publisher/issues/types.go`, `service.go`, tests
   - **Problema**: `DefaultSLAFirstResponseMinutes` y `DefaultSLAResolutionMinutes` tienen valores propios (15/30/60… min) que no coinciden con los de Seam. Para activo crítico con prioridad alta, la resolución es 960 min en molu y 1440 en Seam.
   - **Tabla de Seam** (minutos, por categoría y prioridad `critical`/`high`/`medium`/`low`; el valor por defecto es para una prioridad desconocida):
