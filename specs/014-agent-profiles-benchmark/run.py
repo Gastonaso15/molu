@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Benchmark runner for spec 014: same prompts, three agent profiles, timings + state verification.
+Updated 26-nov-2026 for the execution model of work_orders.* (block responsibles, header, blocks, consumption and settlement).
 
 usage: run.py [--reps N] [--profiles 1,2,3] [--prompts L1,L2,G1,G2,V1,V2] [--tag NAME]
 Each run is a fresh headless `claude -p` in an empty directory outside the repo with no built-in tools.
@@ -14,8 +15,8 @@ RESULTS = os.path.join(HERE, "results")
 PROMPTS = {
     "L1": ("lectura", False, "¿Qué plantillas de órdenes de trabajo existen y qué estados tiene la de traslado de activos?"),
     "L2": ("lectura", False, "¿Hay algún consumible con stock bajo? ¿En qué depósito?"),
-    "G1": ("guiada", True, "Crea una orden con la plantilla Demo WO - Traslado de activos para los equipos de prueba WO 1 y WO 2, asignada a la Cuadrilla Traslados, y llévala hasta el estado final: punto de llegada -34.90,-56.16, fecha 2026-11-24, recepción confirmada, firma Fabricio."),
-    "G2": ("guiada", True, "Crea una orden con la plantilla de mantenimiento preventivo para el equipo de prueba WO 1 asignada a la Cuadrilla Mantenimiento, carga 10 unidades de Filtro de prueba WO en el Depósito Central, transfiere 4 al almacén móvil de la orden, consume 1 (usuario 1) y devuelve el resto al Depósito Central."),
+    "G1": ("guiada", True, "Crea una orden con la plantilla Demo WO - Traslado de activos para los equipos de prueba WO 1 y WO 2, asignada a la Cuadrilla Traslados, y llévala hasta el estado final: punto de llegada -34.90,-56.16, fecha 2026-11-24, recepción confirmada."),
+    "G2": ("guiada", True, "Crea una orden con la plantilla de mantenimiento preventivo para el equipo de prueba WO 1, asignada a la Cuadrilla Mantenimiento (la preparación a cargo del usuario 1). Carga 10 unidades de Filtro de prueba WO en el Depósito Central, lleva 4 al almacén móvil de la orden y llévala hasta el estado final. Al terminar, registra que se usó 1 (usuario 1) y devuelve el resto al Depósito Central."),
     "V1": ("vaga", True, "Hay stock bajo de algo. Reponelo para que quede por encima del mínimo."),
     "V2": ("vaga", True, "Hay una orden en el tablero sin dueño. Dejala en manos de quien corresponda y avanzala un paso."),
 }
@@ -28,6 +29,9 @@ PRIMING = ("Eres un asistente de operaciones de mantenimiento que trabaja sobre 
 def mcp_config(profile):
     c = json.load(open(os.path.expanduser("~/.claude.json")))["projects"][REPO]["mcpServers"]["molu"]
     env = dict(c["env"])
+    # Optional isolated stack (does not touch the dev xolu): BENCH_XOLU_URL / BENCH_HUB_URL.
+    if os.environ.get("BENCH_XOLU_URL"): env["MOLU_FRONT_XOLU_URL"] = os.environ["BENCH_XOLU_URL"]
+    if os.environ.get("BENCH_HUB_URL"): env["MOLU_FRONT_HUB_URL"] = os.environ["BENCH_HUB_URL"]
     if profile == 1:  # no Hub: only the 13 generic xolu primitives
         for k in list(env):
             if "HUB" in k or k.startswith("MOLU_FRONT_TOKEN_") or k == "MOLU_FRONT_DEFAULT_TENANT":
@@ -45,7 +49,10 @@ def workdir(profile):
     return d
 
 def reset():
-    subprocess.run([os.path.join(REPO, ".dev-xolu", "demo-reset.sh")], cwd=REPO, capture_output=True, timeout=600)
+    # BENCH_RESET: command that leaves the (isolated) stack in the demo state; default is the dev stack's demo-reset.sh.
+    cmd = os.environ.get("BENCH_RESET") or os.path.join(REPO, ".dev-xolu", "demo-reset.sh")
+    p = subprocess.run([cmd], cwd=REPO, capture_output=True, text=True, timeout=600)
+    if p.returncode != 0: print("RESET FAILED:", (p.stdout + p.stderr)[-400:], flush=True)
 
 def wo(tool, args):
     p = subprocess.run(["python3", os.path.join(REPO, ".dev-xolu", "wo.py"), "work_orders." + tool, json.dumps(args), "10000000"],
@@ -69,17 +76,24 @@ def verify(pid, text):
         cand = [o for o in orders() if str(o.get("template_id")) == "3" and "tablero" not in o.get("title", "") and str(o.get("responsible_id")) == "2"]
         if not cand: return 0, "no hay orden de traslado asignada a la cuadrilla 2"
         o = cand[0]; full = set(map(str, o.get("asset_ids", []))) == {"19", "20"}
+        d, _ = wo("GetOrder", {"order_id": o["id"]})
+        blocks_ok = bool(d.get("blocks")) and all(b.get("state") == "completed" for b in d["blocks"])
+        header_ok = bool(d.get("header_confirmed_at")) and (d.get("header_values") or {}).get("recepcion_confirmada") is True
+        ans = json.dumps(d.get("block_answers", {})); answers_ok = "-34.9" in ans and "2026-11-24" in ans
         if o.get("terminal"):
-            d, _ = wo("GetOrder", {"order_id": o["id"]}); ans = json.dumps(d.get("block_answers", {}))
-            return (1 if full and "-34.9" in ans else 0.5), f"terminal, activos_ok={full}, respuestas={ans[:80]}"
+            ok = full and blocks_ok and header_ok and answers_ok
+            return (1 if ok else 0.5), f"terminal, activos_ok={full}, bloques_ok={blocks_ok}, cabecera_ok={header_ok}, respuestas={ans[:80]}"
         return 0.5, f"orden creada pero estado={o.get('state')}"
     if pid == "G2":
         cand = [o for o in orders() if str(o.get("template_id")) == "1"]
         if not cand: return 0, "no hay orden de mantenimiento"
-        d, _ = wo("GetConsumable", {"consumable_id": "1"}); st = d.get("stock", [])
+        o = cand[0]; d, _ = wo("GetOrder", {"order_id": o["id"]})
+        line = next((c for c in d.get("consumables", []) if str(c.get("consumable_id")) == "1"), {})
+        settled = line.get("settled") is True and line.get("used") == 1 and line.get("returned") == 3
+        g, _ = wo("GetConsumable", {"consumable_id": "1"}); st = g.get("stock", [])
         central = sum(s["quantity"] for s in st if str(s.get("warehouse_id")) == "1"); mobile = sum(s["quantity"] for s in st if s.get("mobile"))
-        ok = central == 9 and mobile == 0 and str(cand[0].get("responsible_id")) == "1"
-        return (1 if ok else 0.5), f"central={central} movil={mobile} cuadrilla={cand[0].get('responsible_id')}"
+        ok = central == 9 and mobile == 0 and settled and o.get("terminal") and str(o.get("responsible_id")) == "1"
+        return (1 if ok else 0.5), f"central={central} movil={mobile} liquidado={settled} terminal={o.get('terminal')} cuadrilla={o.get('responsible_id')}"
     if pid == "V1":
         d, err = wo("ListLowStock", {}); empty = err and "EMPTY" in json.dumps(d)
         return (1 if empty else 0), ("sin alertas" if empty else "sigue bajo")

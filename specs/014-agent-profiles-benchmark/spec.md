@@ -20,8 +20,8 @@ sin memoria ni settings del usuario, `demo-reset.sh` antes de cada corrida que m
 |---|---|---|
 | L1 | lectura | plantillas existentes y estados de la de traslado |
 | L2 | lectura | consumibles con stock bajo y dónde |
-| G1 | guiada | crear orden de traslado, avanzarla al estado final con respuestas y firma |
-| G2 | guiada | flujo de consumibles (orden, entrada, transferencia, consumo, devolución) |
+| G1 | guiada | crear orden de traslado asignada a la cuadrilla, confirmar la cabecera, ejecutar el bloque con sus respuestas y llevarla al estado final |
+| G2 | guiada | orden de mantenimiento con consumibles: entrada de stock, carga al almacén móvil, ejecución completa hasta el estado final y liquidación (usado 1, devolver el resto) |
 | V1 | vaga | "hay stock bajo de algo, reponelo" |
 | V2 | vaga | "hay una orden en el tablero sin dueño, dejala en manos de quien corresponda y avanzala" |
 Texto exacto en `run.py`.
@@ -39,3 +39,13 @@ costo (USD), si usó el SKILL, si hizo preguntas al usuario, y **calidad** (perf
 
 ## 6. Límites
 Un solo modelo (el del CLI local), pocas repeticiones, verificador propio. No mide Gemini ni otros clientes.
+
+## 7. Actualización del 26-nov-2026 (flujo de ejecución de `25e7fa7`)
+Los prompts y el SKILL de la primera ronda (25-nov) apuntaban al flujo anterior de `work_orders.*` (30 funciones: avance con respuestas y firma, `ConsumeFromOrder`, `ReturnLeftovers`). Desde entonces molu pasó a 33 funciones con el modelo de ejecución de Seam (spec 012 §8): responsable por bloque al crear, confirmación de cabecera, `ExecuteBlock`, `user_id` en el avance, y consumo con `RecordOrderConsumable` y `SettleOrderConsumable`. Cambios en este spec:
+- **G1 y G2** se reescribieron para ese flujo (ver §3); se quitó la firma de G1. G2 ahora exige llevar la orden al estado final porque la liquidación solo existe con la orden terminada. L1, L2, V1 y V2 no cambian de texto; V2 ahora requiere además confirmar la cabecera para poder avanzar (más ambigüedad, a propósito).
+- **SKILL** `work-orders-seam` reescrito (ejecución en 4 pasos, quién actúa, consumibles, reglas de error nuevas).
+- **Verificadores** de `run.py`: G1 comprueba orden terminal, activos, cabecera confirmada con `recepcion_confirmada`, bloques completados y respuestas; G2 comprueba orden terminal, liquidación del filtro (usado 1, devuelto 3) y stock final (central 9, móvil 0). Validados con una corrida "oráculo" contra un xolu aparte: 0 sin hacer nada, 0.5 con avance parcial, 1.0 con la solución completa.
+- **Reinicio de la demo** (`.dev-xolu/demo-reset.sh`, local y fuera de git): la orden de tablero se crea ahora con `block_responsibles`.
+- El **informe** de la primera ronda se conserva como histórico (ver su cabecera): sus números no son comparables con los de la segunda ronda.
+- **Segunda ronda hecha (26-nov-2026)**: 36 corridas en un stack aislado (`BENCH_XOLU_URL`, `BENCH_HUB_URL` y `BENCH_RESET` en `run.py`; `.dev-xolu/bench-reset.sh`, local). Resultados en `informe-ronda2.md` y `results/ronda2.jsonl`: perfiles 2 y 3 resuelven G1 y G2 perfectas (4/4), el perfil pelado no puede ejecutar el flujo (G1/G2 regular, V1 mala), y el SKILL no mejora la calidad y cuesta un 59 % más.
+- Pendiente: ajustar la rúbrica de V2 (hoy una pregunta por un dato obligatorio cuenta como fallo parcial), el perfil 4 con `molu_help` (pedido de Horacio del 25-nov), tareas más ambiguas y el cliente de Gastón (Gemini).
