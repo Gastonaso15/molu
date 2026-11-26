@@ -1321,6 +1321,9 @@ func TestRealXolu_SetTemplateEnabled(t *testing.T) {
 	if err := open(); err != nil {
 		t.Fatalf("an enabled template opens orders: %v", err)
 	}
+	if _, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(old), AssignmentType: AssignmentBoard, ResponsibleType: "crew"}); !errors.As(err, &te) || te.Details["rule"] != "template_not_latest" {
+		t.Fatalf("a superseded version must refuse orders, got %v", err)
+	}
 	if _, err := svc.SetTemplateEnabled(ctx, SetTemplateEnabledInput{TemplateID: ID(old), Enabled: &off}); !errors.As(err, &te) || te.Details["rule"] != "not_latest" {
 		t.Fatalf("a superseded version: want not_latest, got %v", err)
 	}

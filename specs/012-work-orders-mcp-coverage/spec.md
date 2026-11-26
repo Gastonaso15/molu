@@ -126,7 +126,7 @@ El 26-nov-2026 la rama `work_orders` recibió el commit `25e7fa7` ("Enable/Disab
 - Crear una WO desde una plantilla deshabilitada o no `latest` se rechaza con 409 (`internal/ui/workorders.go`, `workOrderTemplateForCreate`).
 - **Hecho en molu (T19)**: `work_orders.SetTemplateEnabled` (`template_enabled.go`); `Template.enabled` en `ListTemplates`/`GetTemplate`; `CreateOrder` rechaza una plantilla deshabilitada con `INVALID_TRANSITION` (`details.rule=template_disabled`); `CreateTemplate`/`PublishTemplateVersion` guardan `enabled: true`. 31 funciones registradas. Pruebas unitarias y HTTP; **no** se probó contra xolu real.
 - **Diferencia consciente**: Seam hace el PATCH sin `_version`; molu usa `_version` (un cambio concurrente da `stale_state`). Repetir el estado actual no escribe (`changed: false`).
-- **Brecha que queda**: `CreateOrder` de molu no comprueba que la plantilla sea `latest` (Seam sí). Es una divergencia previa, no resuelta aquí.
+- **Brecha que quedaba, resuelta en T22**: `CreateOrder` no comprobaba que la plantilla fuera `latest`; ahora rechaza una versión reemplazada con `INVALID_TRANSITION` (`details.rule=template_not_latest`), como Seam (409 `latest_only`).
 
 ### 8.2 Nuevas divergencias de ejecución (no implementadas; sin pruebas contra xolu real)
 Seam dejó de ser "solo configuración" en la ejecución. Esto invalida supuestos de §2, §5 (pedidos 5 y 9) y de T9/T12:

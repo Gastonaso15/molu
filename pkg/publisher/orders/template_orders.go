@@ -23,6 +23,9 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 		return WorkOrder{}, &ValidationError{Fields: []string{"template_version"},
 			Reason: fmt.Sprintf("template %s is at version %d, not %d", tpl.ID, tpl.Version, in.TemplateVersion)}
 	}
+	if !tpl.Latest {
+		return WorkOrder{}, rejection("template_not_latest", "only the latest version of a template can open orders: use ListTemplates to find it", "")
+	}
 	if !tpl.Enabled {
 		return WorkOrder{}, rejection("template_disabled", "the template is disabled: enable it with SetTemplateEnabled before opening orders from it", "")
 	}

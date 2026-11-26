@@ -188,3 +188,39 @@ func TestSetTemplateEnabled_HTTP(t *testing.T) {
 		t.Fatalf("missing enabled: status = %d", r.StatusCode)
 	}
 }
+
+func TestCreateOrder_RefusesASupersededTemplateVersion(t *testing.T) {
+	ctx := context.Background()
+	fs := newFake()
+	seedTemplateWrite(fs)
+	svc := NewService(fs)
+	in := validTemplateInput()
+	in.HeaderItems, in.Blocks, in.ConsumablesEnabled, in.Consumables, in.Actions = nil, nil, false, nil, nil
+	in.MinAssets, in.MaxAssets, in.AssetTypeID = 0, 0, ""
+	v1, err := svc.CreateTemplate(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs.entities[TemplateEntityType][v1.ID]["_version"] = int64(1)
+	open := func(id string) error {
+		_, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(id), Title: "x", AssignmentType: AssignmentBoard, ResponsibleType: "crew"})
+		return err
+	}
+	if err := open(v1.ID); err != nil {
+		t.Fatalf("the latest version opens orders: %v", err)
+	}
+	v2, err := svc.PublishTemplateVersion(ctx, PublishTemplateVersionInput{PreviousTemplateID: ID(v1.ID), CreateTemplateInput: in})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orders := len(fs.entities[EntityType])
+	if err := open(v1.ID); ruleOf(err) != "template_not_latest" {
+		t.Fatalf("the superseded version: err = %v", err)
+	}
+	if len(fs.entities[EntityType]) != orders || len(fs.machines) != 1 {
+		t.Fatal("a refused order wrote something")
+	}
+	if err := open(v2.ID); err != nil {
+		t.Fatalf("the new version opens orders: %v", err)
+	}
+}

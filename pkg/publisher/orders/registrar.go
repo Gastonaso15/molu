@@ -67,7 +67,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			"Open a new work order. Without template_id it is a simple order (draft, then in_progress, then completed). "+
 				"With template_id (see ListTemplates) it follows that template's workflow: assignment_type and responsible_type are required, "+
 				"header_values answers the template's header items filled at creation, and asset_ids picks its assets. "+
-				"Every template order gets its own workflow machine. If the template has blocks, block_responsibles is required: one responsible id per block, by block name, "+
+				"Only the latest, enabled version of a template can open orders (template_not_latest, template_disabled). Every template order gets its own workflow machine. If the template has blocks, block_responsibles is required: one responsible id per block, by block name, "+
 				"of the type the block asks for (user, crew or third_party; see ListTemplates/GetTemplate blocks.responsible_type). Each block gets its own record/lifecycle (pending); consumables open an empty mobile warehouse "+
 				"(mobile_warehouse_id == order id). All in one atomic Commit (at most 25 appended records). Ids of such orders are large numbers, treat them as opaque strings. "+
 				"A direct assignment needs a crew or third_party responsible_id; use board_posting or AssignOrder for a user.",

@@ -49,6 +49,7 @@ type workOrderTemplate struct {
 	Version     int
 	Name        string
 	Description string
+	Latest      bool
 	Enabled     bool
 	AssetTypeID int64
 	MinAssets   int
@@ -70,6 +71,7 @@ func parseTemplateDoc(id string, doc map[string]any) (workOrderTemplate, error) 
 	t.Name, _ = doc["name"].(string)
 	t.Description, _ = doc["description"].(string)
 	t.Version = int(intOf(doc["version"]))
+	t.Latest, _ = doc["latest"].(bool)
 	t.Enabled = templateEnabled(doc)
 	t.AssetTypeID = intOf(doc["asset_type_id"])
 	t.MinAssets = int(intOf(doc["min_assets"]))
