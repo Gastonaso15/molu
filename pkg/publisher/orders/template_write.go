@@ -405,6 +405,7 @@ func (s *Service) buildTemplateDoc(ctx context.Context, in CreateTemplateInput, 
 	doc := map[string]any{
 		"version":                     version,
 		"latest":                      true,
+		"enabled":                     true,
 		"name":                        name,
 		"description":                 strings.TrimSpace(in.Description),
 		"color":                       strings.TrimSpace(in.Color),

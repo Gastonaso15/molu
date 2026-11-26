@@ -23,6 +23,9 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 		return WorkOrder{}, &ValidationError{Fields: []string{"template_version"},
 			Reason: fmt.Sprintf("template %s is at version %d, not %d", tpl.ID, tpl.Version, in.TemplateVersion)}
 	}
+	if !tpl.Enabled {
+		return WorkOrder{}, rejection("template_disabled", "the template is disabled: enable it with SetTemplateEnabled before opening orders from it", "")
+	}
 	if err := tpl.validateWorkflow(); err != nil {
 		return WorkOrder{}, &ValidationError{Fields: []string{"template_id"}, Reason: "template workflow is invalid: " + err.Error()}
 	}

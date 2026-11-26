@@ -203,6 +203,13 @@ func (s *Server) Handler() http.Handler {
 		}
 		return c.PublishTemplateVersion(r.Context(), in)
 	})))
+	mux.Handle("/api/v1/orders/templates/set-enabled", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in SetTemplateEnabledInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.SetTemplateEnabled(r.Context(), in)
+	})))
 	return withRequestID(mux)
 }
 

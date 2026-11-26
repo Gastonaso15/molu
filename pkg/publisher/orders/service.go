@@ -211,6 +211,7 @@ func templateFromRow(row map[string]any) Template {
 	t.Name, _ = row["name"].(string)
 	t.Description, _ = row["description"].(string)
 	t.Latest, _ = row["latest"].(bool)
+	t.Enabled = templateEnabled(row)
 	t.Version = int(intOf(row["version"]))
 	if a := idString(row["asset_type_id"]); a != "" && a != "0" {
 		t.AssetTypeID = a

@@ -148,11 +148,14 @@ type TemplateHeaderItem struct {
 // Template is the read-only summary of a work order template: what is needed
 // to open an order from it with work_orders.CreateOrder.
 type Template struct {
-	ID             string               `json:"id"`
-	Name           string               `json:"name"`
-	Description    string               `json:"description,omitempty"`
-	Version        int                  `json:"version"`
-	Latest         bool                 `json:"latest"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Version     int    `json:"version"`
+	Latest      bool   `json:"latest"`
+	// Enabled is false when the template was disabled with SetTemplateEnabled:
+	// CreateOrder refuses it. A document without the field reads as enabled.
+	Enabled        bool                 `json:"enabled"`
 	AssetTypeID    string               `json:"asset_type_id,omitempty"`
 	MinAssets      int                  `json:"min_assets,omitempty"`
 	MaxAssets      int                  `json:"max_assets,omitempty"`

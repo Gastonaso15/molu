@@ -49,6 +49,7 @@ type workOrderTemplate struct {
 	Version     int
 	Name        string
 	Description string
+	Enabled     bool
 	AssetTypeID int64
 	MinAssets   int
 	MaxAssets   int
@@ -69,6 +70,7 @@ func parseTemplateDoc(id string, doc map[string]any) (workOrderTemplate, error) 
 	t.Name, _ = doc["name"].(string)
 	t.Description, _ = doc["description"].(string)
 	t.Version = int(intOf(doc["version"]))
+	t.Enabled = templateEnabled(doc)
 	t.AssetTypeID = intOf(doc["asset_type_id"])
 	t.MinAssets = int(intOf(doc["min_assets"]))
 	t.MaxAssets = int(intOf(doc["max_assets"]))
@@ -464,4 +466,16 @@ func roundTrip(src any, dst any) error {
 		return err
 	}
 	return json.Unmarshal(raw, dst)
+}
+
+// templateEnabled reads the enabled flag of a work_order_templates document.
+// Templates saved before the flag existed have no field and read as enabled,
+// the same default the work order module applies.
+func templateEnabled(doc map[string]any) bool {
+	v, has := doc["enabled"]
+	if !has {
+		return true
+	}
+	b, _ := v.(bool)
+	return b
 }

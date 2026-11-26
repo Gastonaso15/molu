@@ -1,8 +1,8 @@
 # Spec 012 — Cobertura MCP del módulo Work Orders
 
-**Estado**: Borrador para revisión (22-nov-2026)
+**Estado**: Borrador para revisión (22-nov-2026); actualizado el 26-nov-2026 al commit `25e7fa7` (ver §8)
 **Origen**: correo de Granero (propuesta de funciones WO para MCP) y correo de Horacio (el equipo IA verifica, inventaría brechas y solo entonces pide ayuda a WO).
-**Referencia de WO**: únicamente la rama `work_orders` de `Gastonaso15/seam-CURE`, commit `a3bd15c`. Las ramas de Seam son versiones paralelas que se unirán más adelante; las demás copias locales (por ejemplo `seam-v0.4.5-checkpoint`) no son referencia para este spec.
+**Referencia de WO**: únicamente la rama `work_orders` de `Gastonaso15/seam-CURE`, commit `25e7fa7` (26-nov-2026; hasta el 25-nov era `a3bd15c`, y §1–§7 se escribieron contra ese commit: donde difieren, manda §8). Las ramas de Seam son versiones paralelas que se unirán más adelante; las demás copias locales (por ejemplo `seam-v0.4.5-checkpoint`) no son referencia para este spec.
 **Código de referencia leído**: `internal/ui/{workorders,workorders_templates,workorders_blocks_helper,workorders_helper,crew,outsourced,warehouse,consumable,movement,wo_action}.go`.
 
 ## 1. Objetivo
@@ -38,7 +38,7 @@ Leyenda de "Primitivos hoy": ✅ resuelto con `list/get/find/create/update` sin 
 | 1 | Listar / consultar plantillas (versión activa, bloques, campos, reglas/acciones) | ✅ lectura | Parcial: `ListTemplates` no devuelve bloques, consumibles ni acciones | **Ampliar** `ListTemplates` y **agregar** `GetTemplate` |
 | 2 | Crear y editar plantillas | ⚠️ `create` con la estructura anidada exacta | No | **Nueva** `CreateTemplate` (valida estructura) — ver pregunta de alcance |
 | 3 | Publicar / versionar plantilla | ⚠️ hay que dejar `latest=false` en la anterior y `version+1` | No | **Nueva** `PublishTemplateVersion` (o incluida en edición) |
-| 4 | Activar / desactivar / archivar plantilla | ❌ no existe el campo en Seam | No | **Pedir a WO** el campo y su regla |
+| 4 | Activar / desactivar / archivar plantilla | ✅ desde `25e7fa7` (campo `enabled`; no hay archivado aparte) | **Nueva** `SetTemplateEnabled` (T19, hecha) | Hecho; ya no es un pedido a WO (§8) |
 
 ### Ciclo de vida y ejecución
 | # | Función | Primitivos hoy | Publicador hoy | Decisión |
@@ -79,7 +79,7 @@ Leyenda de "Primitivos hoy": ✅ resuelto con `list/get/find/create/update` sin 
 
 ## 5. Pedidos para el equipo WO (cuando se confirmen)
 
-1. Campo y regla de **activar/desactivar/archivar plantilla** (fila 4). Hoy no existe.
+1. ~~Campo y regla de activar/desactivar/archivar plantilla (fila 4).~~ **Resuelto en `25e7fa7`** (campo `enabled`; solo la versión `latest` se puede cambiar; no hay archivado aparte). Ver §8.
 2. **Prioridad** y **ubicación** de la WO (fila 7): confirmar si existen o si se difieren.
 3. **Pausar, cancelar y aprobar** (fila 8): el ciclo de plantilla solo avanza con `complete`. Confirmar si son estados de plantilla o transiciones aún por construir.
 4. **Reasignar** (fila 9): hoy solo se asigna al crear o al reclamar. Confirmar la regla.
@@ -115,3 +115,29 @@ Entorno: xolu 0.31.0 limpio (puerto 9595, `levantar-xolu-macos.sh --no-seed`) m�
 - `create` sobre `crews` acepta cualquier contenido sin validar (por ejemplo un `responsible_user_id` inexistente): confirma que la escritura por primitivos es insegura para el agente.
 
 **Efectos colaterales**: el xolu de prueba quedó con datos de las pruebas (órdenes, plantillas 4 y 5, cuadrilla "Cuadrilla MCP") y sigue corriendo en el puerto 9595 (`./scripts/levantar-xolu-macos.sh stop --port 9595`). Se creó `molu/.token.dev` y se recompilaron los binarios en `bin/`.
+
+## 8. Actualización al commit `25e7fa7` (26-nov-2026)
+
+El 26-nov-2026 la rama `work_orders` recibió el commit `25e7fa7` ("Enable/Disable templates added… Progress on Execution of WO…", 455 archivos). Se leyó `a3bd15c..25e7fa7` en lo que toca a Work Orders; el resto (seeds en formato `.seed`, incidencias, CSS) no se revisó.
+
+### 8.1 Resuelto: activar/desactivar plantilla (fila 4, pedido 1)
+- `work_order_templates.enabled` (booleano; un documento sin el campo se lee como habilitado). Se cambia con PATCH `{"enabled": bool}` (`WorkOrderTemplateSetEnabled`, `internal/ui/workorders_templates.go`).
+- Solo se puede cambiar la versión `latest` (409 si no). Una versión nueva nace con `enabled: true`.
+- Crear una WO desde una plantilla deshabilitada o no `latest` se rechaza con 409 (`internal/ui/workorders.go`, `workOrderTemplateForCreate`).
+- **Hecho en molu (T19)**: `work_orders.SetTemplateEnabled` (`template_enabled.go`); `Template.enabled` en `ListTemplates`/`GetTemplate`; `CreateOrder` rechaza una plantilla deshabilitada con `INVALID_TRANSITION` (`details.rule=template_disabled`); `CreateTemplate`/`PublishTemplateVersion` guardan `enabled: true`. 31 funciones registradas. Pruebas unitarias y HTTP; **no** se probó contra xolu real.
+- **Diferencia consciente**: Seam hace el PATCH sin `_version`; molu usa `_version` (un cambio concurrente da `stale_state`). Repetir el estado actual no escribe (`changed: false`).
+- **Brecha que queda**: `CreateOrder` de molu no comprueba que la plantilla sea `latest` (Seam sí). Es una divergencia previa, no resuelta aquí.
+
+### 8.2 Nuevas divergencias de ejecución (no implementadas; sin pruebas contra xolu real)
+Seam dejó de ser "solo configuración" en la ejecución. Esto invalida supuestos de §2, §5 (pedidos 5 y 9) y de T9/T12:
+
+1. **Ejecución de bloques** (`workorders_execution.go`): ya existen rutas que (a) confirman los campos de cabecera "al ejecutar" (`execution_header_completed_at`; antes de eso la cabecera no está lista), (b) inician (`pending → in_progress`), guardan y completan un bloque, con su FSM por bloque en un `Commit`, respetando predecesores y que quien actúa sea el responsable del bloque. Las respuestas ya no van en `block_values` de la orden sino en `values` de cada `work_order_blocks`. `AdvanceOrder` de molu (T9) escribe en `block_values`, que Seam ya no usa para esto.
+2. **Avance de la orden**: Seam exige cabecera confirmada y, para llegar al último estado, **todos los bloques `completed`** (`canAdvance`). `AdvanceOrder` de molu no lo exige: puede cerrar órdenes que Seam no dejaría cerrar.
+3. **Consumo de insumos** (`workorders_execution.go`, `movement.go`): el modelo cambió. Registrar un consumo es una **transferencia desde un almacén de origen hacia el almacén móvil**, con un registro `work_order_consumptions` (`used`/`skipped`, `request_id` derivado de orden+consumible) y el mismo `Commit` que el movimiento. Al terminar se **liquida** (`intent=settle`): la cantidad usada sale (`exit`) del almacén móvil y el sobrante se transfiere a un almacén de devolución, todo en un `Commit` y con un registro `settled`. `ConsumeFromOrder` (hace `exit` desde el móvil) y `ReturnLeftovers` (T12) no coinciden con este flujo y no escriben `work_order_consumptions`; órdenes tocadas por molu quedarían sin registro de consumo en la UI de Seam.
+4. **Movimientos**: el asiento `movement` ahora sale de `movementLedgerEntry` con los mismos campos; la lógica de `RegisterMovement` (T11) no cambió en sustancia. Pendiente comprobar con un caso real que molu y Seam escriben el mismo asiento.
+5. Nuevas entidades: `work_order_consumptions`; la orden guarda `execution_header_completed_at/_by_user_id`, `extra_consumable_ids` (nombre exacto por confirmar en el código) y los bloques `values`, `started_at`, `completed_at`.
+
+### 8.3 Efecto sobre la cobertura
+- Fila 4: de "no viable" a **hecha** (T19). Las 16 funciones del correo tienen ya herramienta.
+- Filas 8 y 15: pasan de "con matiz" / "completa" a **"requiere realineación"** (T20, T21) hasta que molu replique el flujo nuevo de ejecución y consumo. Lo ya construido sigue funcionando contra el contrato de `a3bd15c`, pero puede dejar datos que Seam no interpreta igual.
+- Pedidos a WO que cambian: 1 resuelto; 5 y 9 respondidos en gran parte por el código nuevo (falta confirmar con WO que ese es el diseño definitivo); el resto sigue abierto.

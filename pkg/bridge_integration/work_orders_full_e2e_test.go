@@ -312,7 +312,7 @@ func toInt64Any(v any) int64 {
 // order lifecycle through the full MCP stack (stdio MCP client -> molu ->
 // Execution Bridge -> Hub Standalone -> publisher-orders -> wire-level xolu):
 //
-//  1. Discover all 30 work_orders.* tools via tools/list (unified with 13 primitives).
+//  1. Discover all 31 work_orders.* tools via tools/list (unified with 13 primitives).
 //  2. Create crew, warehouse and consumable.
 //  3. Register initial stock entry (plus idempotent replay check).
 //  4. Create a template with workflow states, headers, blocks and consumables.
@@ -387,7 +387,7 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 
 	h := &c1Harness{stdin: stdinW, lines: lines}
 
-	// 1. Unified discovery: 13 primitives + 30 work_orders.* tools = 43 tools.
+	// 1. Unified discovery: 13 primitives + 31 work_orders.* tools = 44 tools.
 	listResp := h.rpc(t, "tools/list", map[string]any{})
 	tools := listResp["result"].(map[string]any)["tools"].([]any)
 	domainCount := 0
@@ -397,8 +397,8 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 			domainCount++
 		}
 	}
-	if domainCount != 30 {
-		t.Fatalf("discovered %d work_orders.* tools, want 30 (total tools=%d)", domainCount, len(tools))
+	if domainCount != 31 {
+		t.Fatalf("discovered %d work_orders.* tools, want 31 (total tools=%d)", domainCount, len(tools))
 	}
 
 	// 2. Create crew, central warehouse and consumable.

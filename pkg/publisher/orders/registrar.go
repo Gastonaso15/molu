@@ -462,6 +462,19 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"Rejects already-superseded versions with INVALID_TRANSITION (details.rule=not_latest) and concurrent changes with stale_state.",
 			"/api/v1/orders/templates/publish-version",
 			templateWriteSchema(true)),
+		mk("SetTemplateEnabled",
+			"Enable or disable a work order template for new orders (the module's enable/disable switch). Only the latest version can be switched; a superseded version is rejected with INVALID_TRANSITION (details.rule=not_latest). "+
+				"Existing orders are not affected; CreateOrder refuses a disabled template with details.rule=template_disabled. Setting the state the template already has changes nothing (changed=false). Concurrent changes answer stale_state.",
+			"/api/v1/orders/templates/set-enabled",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"template_id": idSchema("Id of the template to switch (see ListTemplates; must be its latest version)."),
+					"enabled":     map[string]any{"type": "boolean", "description": "true to allow new orders from it, false to stop them."},
+				},
+				"required":             []string{"template_id", "enabled"},
+				"additionalProperties": false,
+			}),
 	}
 }
 
