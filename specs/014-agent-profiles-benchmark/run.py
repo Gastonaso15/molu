@@ -26,6 +26,29 @@ PRIMING = ("Eres un asistente de operaciones de mantenimiento que trabaja sobre 
            "hay una función adecuada. Si un dato se puede deducir consultando (List*/Get*), consúltalo en vez de preguntar al usuario. "
            "Actúa hasta terminar la tarea y resume al final qué quedó hecho (ids, estados, stock). Responde en español.")
 
+sys.path.insert(0, HERE)
+from gemini_runner import run_gemini
+
+def mcp_env(profile):
+    env = dict(os.environ)
+    env["MOLU_FRONT_XOLU_URL"] = os.environ.get("BENCH_XOLU_URL", "http://127.0.0.1:9898")
+    env["MOLU_FRONT_XOLU_AUTH_MODE"] = "bearer"
+    env["MOLU_FRONT_XOLU_TOKEN_FILE"] = os.path.join(REPO, ".dev-xolu", ".token")
+    env["MOLU_FRONT_TELEMETRY_ENABLED"] = "false"
+    env["MOLU_FRONT_LOG_LEVEL"] = "error"
+    env["MOLU_FRONT_CALL_TIMEOUT"] = "30s"
+    env["MOLU_FRONT_DOMAIN_CALL_TIMEOUT"] = "30s"
+    if profile == 1:
+        for k in list(env):
+            if "HUB" in k or k.startswith("MOLU_FRONT_TOKEN_") or k == "MOLU_FRONT_DEFAULT_TENANT":
+                env.pop(k)
+    else:
+        env["MOLU_FRONT_HUB_URL"] = os.environ.get("BENCH_HUB_URL", "http://127.0.0.1:8391")
+        env["MOLU_FRONT_HUB_AUTH_MODE"] = "none"
+        env["MOLU_FRONT_DEFAULT_TENANT"] = os.environ.get("MOLU_FRONT_DEFAULT_TENANT", "dev")
+        env["MOLU_FRONT_TOKEN_ORDERS_API_TOKEN"] = os.environ.get("BENCH_ORDERS_TOKEN", "bench-orders-token")
+    return env
+
 def mcp_config(profile):
     c = json.load(open(os.path.expanduser("~/.claude.json")))["projects"][REPO]["mcpServers"]["molu"]
     env = dict(c["env"])
@@ -144,10 +167,27 @@ def run_claude(profile, prompt, tag):
                 tool_errors=errs, usd=round(res.get("total_cost_usd", 0) or 0, 3), used_skill=skill, timeout=timeout,
                 text=res.get("result") or "", tools_seen=tools_seen)
 
+def resolve_runner(arg):
+    if arg != "auto":
+        return arg
+    if shutil.which("claude") and os.path.exists(os.path.expanduser("~/.claude.json")):
+        return "claude"
+    return "gemini"
+
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--reps", type=int, default=1); ap.add_argument("--profiles", default="1,2,3")
-    ap.add_argument("--prompts", default="L1,L2,G1,G2,V1,V2"); ap.add_argument("--tag", default="run")
-    a = ap.parse_args(); os.makedirs(os.path.join(RESULTS, "raw"), exist_ok=True); os.makedirs(WORK, exist_ok=True)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--reps", type=int, default=1)
+    ap.add_argument("--profiles", default="1,2,3")
+    ap.add_argument("--prompts", default="L1,L2,G1,G2,V1,V2")
+    ap.add_argument("--tag", default="run")
+    ap.add_argument("--runner", choices=["auto", "gemini", "claude"], default="auto")
+    ap.add_argument("--model", default=os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview"))
+    ap.add_argument("--max-turns", type=int, default=60)
+    ap.add_argument("--timeout", type=int, default=900)
+    a = ap.parse_args()
+    runner = resolve_runner(a.runner)
+    os.makedirs(os.path.join(RESULTS, "raw"), exist_ok=True)
+    os.makedirs(WORK, exist_ok=True)
     out = open(os.path.join(RESULTS, f"{a.tag}.jsonl"), "a")
     for rep in range(1, a.reps + 1):
         for prof in map(int, a.profiles.split(",")):
@@ -156,14 +196,23 @@ def main():
                 kind, mutates, prompt = PROMPTS[pid]
                 if mutates or not fresh: reset(); fresh = True
                 tag = f"{a.tag}-p{prof}-{pid}-r{rep}"
-                r = run_claude(prof, prompt, tag)
+                if runner == "gemini":
+                    r = run_gemini(
+                        prof, prompt, tag,
+                        repo=REPO, cwd=workdir(prof), mcp_env=mcp_env(prof),
+                        priming=PRIMING, skill_path=os.path.join(HERE, "skill", "work-orders-seam", "SKILL.md"),
+                        raw_path=os.path.join(RESULTS, "raw", tag + ".jsonl"),
+                        model=a.model, max_turns=a.max_turns, timeout_s=a.timeout,
+                    )
+                else:
+                    r = run_claude(prof, prompt, tag)
                 score, detail = verify(pid, r["text"])
                 asked = "?" in r["text"][-400:]
                 row = dict(profile=prof, prompt=pid, kind=kind, rep=rep, score=score, detail=detail, asked=asked,
                            quality=quality(score, asked, r["tool_errors"]), **{k: v for k, v in r.items() if k not in ("text", "tools_seen")},
                            answer=r["text"][:600])
                 out.write(json.dumps(row, ensure_ascii=False) + "\n"); out.flush()
-                print(f"p{prof} {pid} r{rep}: {row['quality']:9s} {row['wall_s']:6.1f}s  turns={row['turns']} calls={row['tool_calls']} err={row['tool_errors']} skill={row['used_skill']} | {detail}", flush=True)
+                print(f"[{runner}] p{prof} {pid} r{rep}: {row['quality']:9s} {row['wall_s']:6.1f}s  turns={row['turns']} calls={row['tool_calls']} err={row['tool_errors']} skill={row['used_skill']} | {detail}", flush=True)
     reset()
 
 if __name__ == "__main__":
