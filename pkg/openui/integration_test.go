@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 )
@@ -31,8 +32,13 @@ func TestOpenAILLMIntegration(t *testing.T) {
 	// 3. Llamar a OLLAMA para que genere OpenUI Lang
 	ollamaURL := "http://localhost:11434/api/chat"
 
+	// Modelo configurable (OLLAMA_MODEL); por defecto el que usó el equipo.
+	model := os.Getenv("OLLAMA_MODEL")
+	if model == "" {
+		model = "qwen3.5:4b"
+	}
 	payload := map[string]any{
-		"model": "qwen3.5:4b",
+		"model": model,
 		"messages": []map[string]any{
 			{"role": "system", "content": prompt},
 			{"role": "user", "content": "Genera una interfaz de usuario para un agente que necesita acceder a herramientas de trabajo y inventario. Usa el formato OpenUI Lang."},
@@ -47,12 +53,15 @@ func TestOpenAILLMIntegration(t *testing.T) {
 
 	resp, err := http.Post(ollamaURL, "application/json", bytes.NewBuffer(jsonPayload))
 	if err != nil {
-		t.Fatalf("Error connecting to OLLAMA: %v", err)
+		t.Skipf("OLLAMA no está disponible (%v): prueba de integración omitida", err)
 	}
 
 	// Asegurarse de cerrar el body
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		t.Skipf("el modelo %q no está instalado en OLLAMA (ollama pull %s) u OLLAMA no lo conoce: prueba omitida", model, model)
+	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("OLLAMA returned status code %d", resp.StatusCode)
 	}
@@ -72,6 +81,9 @@ func TestOpenAILLMIntegration(t *testing.T) {
 
 	// 4. Parsear el resultado con nuestro parser de Go
 	parserResult := Parse(openuiLang)
+	if parserResult == nil {
+		t.Fatal("Parse nunca debe devolver nil, aunque la respuesta del modelo no sea OpenUI Lang válido")
+	}
 
 	// Imprimir resultados usando fmt.Print (no tiene las restricciones de t.Logf)
 	separator := strings.Repeat("=", 60)

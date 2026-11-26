@@ -50,6 +50,8 @@ type Tokenizer struct {
 type Parser struct {
 	tokens    []Token
 	pos       int
+	depth     int  // profundidad de recursión actual de parseExpression
+	tooDeep   bool // se superó maxParseDepth
 	errors    []string
 	bindings  map[string]any
 	functionCalls map[string]func(args any) any
@@ -115,6 +117,9 @@ func (t *Tokenizer) Tokenize() []Token {
 			(t.input[t.pos] >= 'A' && t.input[t.pos] <= 'Z') ||
 			t.input[t.pos] == '_' || t.input[t.pos] == '$' {
 			start := t.pos
+			// El primer carácter (letra, '_' o '$') se consume siempre: antes, un '$' inicial
+			// no cumplía la condición del bucle y la posición nunca avanzaba (bucle infinito).
+			t.pos++
 			for t.pos < len(t.input) && ((t.input[t.pos] >= 'a' && t.input[t.pos] <= 'z') ||
 				(t.input[t.pos] >= 'A' && t.input[t.pos] <= 'Z') ||
 				t.input[t.pos] == '_' || isDigit(t.input[t.pos])) {
@@ -218,8 +223,20 @@ type ExpressionNode struct {
 	CallArgs []*ExpressionNode
 }
 
+// Límites que garantizan que Parse termina y no agota memoria ni pila con entradas
+// hostiles (por ejemplo, la respuesta de un modelo que se descontrola).
+const (
+	maxInputBytes = 1 << 20 // 1 MiB de OpenUI Lang
+	maxParseDepth = 500     // anidamiento máximo de expresiones
+)
+
 // Parse parsea y evalúa el texto de OpenUI Lang y retorna un ParseResult.
+// Nunca entra en un bucle infinito ni entra en pánico: una entrada inválida o
+// demasiado grande devuelve un ParseResult con Errors descriptivos.
 func Parse(input string) *ParseResult {
+	if len(input) > maxInputBytes {
+		return &ParseResult{Errors: []string{fmt.Sprintf("entrada demasiado grande: %d bytes (máximo %d)", len(input), maxInputBytes)}}
+	}
 	parser := NewParser(input)
 	return parser.Parse()
 }
@@ -236,7 +253,14 @@ func (p *Parser) Parse() *ParseResult {
 		stmt := p.parseStatement()
 		if stmt != nil {
 			statements = append(statements, stmt)
+		} else {
+			// Garantiza progreso: un token que no inicia una statement se descarta.
+			// Sin esto, una entrada como `Text("x")` o `(` no avanzaba nunca.
+			p.pos++
 		}
+	}
+	if p.tooDeep {
+		result.Errors = append(result.Errors, fmt.Sprintf("anidamiento demasiado profundo (máximo %d niveles)", maxParseDepth))
 	}
 
 	// Evaluar statements y construir el árbol
@@ -289,6 +313,14 @@ const (
 
 // parseExpression usa un Pratt parser para parsear expresiones.
 func (p *Parser) parseExpression(precedence ...int) *ExpressionNode {
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > maxParseDepth {
+		p.tooDeep = true
+		p.pos = len(p.tokens) // abandona el resto de la entrada
+		return nil
+	}
+
 	// Obtener el operando izquierdo usando parsePrimary
 	left := p.parsePrimary()
 

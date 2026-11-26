@@ -84,3 +84,23 @@ Esta integración resuelve el deseo de tener respuestas de agente más ricas e i
 - [POR DEFINIR] Formato exacto del system prompt generado desde el catálogo de Molu
 - [POR DEFINIR] Qué subset de OpenUI Lang 1.0 se soportará vs qué quedará para futuras fases
 - [POR DEFINIR] Cómo el frontend cliente (React/Vue/etc) se integrará con el backend Go
+## Verificación del 26-nov-2026
+
+Probado contra los criterios de finalización con un catálogo real de 49 herramientas (13 primitivas, 33 de órdenes, 3 de incidencias). El estado del paquete `pkg/openui` es de **prototipo**: no está conectado a molu (nada lo importa; `tools/list` no lo usa) y `MOLU_FRONT_OPENUI_ENABLED` (RF-8) no existe.
+
+| Criterio / requisito | Resultado |
+|---|---|
+| Rendimiento: 200 herramientas en < 10 ms | ✅ 5.8 ms (con detector de carreras) |
+| RF-7 concurrencia, sin data races | ✅ |
+| RF-6 neutralidad (sin el nombre del producto en código ni prompt) | ✅ |
+| Casos límite: catálogo vacío, herramienta sin mapeo | ✅ |
+| RF-5: variables reactivas y transformaciones en el prompt | ✅ el prompt define `$variables` y las funciones `Count`, `Sum`, `Filter`, `Each` (sin el prefijo `@`) |
+| RF-3: una entrada inválida falla con gracia | ❌ → **corregido** (ver abajo) |
+| Parser que evalúa programas simples | ⚠️ solo literales y referencias de una statement; no evalúa llamadas a componentes (`Stack([...])`) ni programas de varias statements |
+| Mapeo a al menos 5 tipos de componente | ❌ los 49 salen `Generic`: con namespace el prefijo del nombre oculta el verbo (`create`, `list`...) y los tipos Query/Mutation/Card/Table/Chart nunca se asignan; además todos los `get*` se llaman `Query` y pierden su nombre |
+| Prompt ≤ 50 % del JSON equivalente | ❌ 95 % (47 261 bytes contra 49 751) |
+| Prompt determinista | ❌ se recorre un mapa de funciones sin ordenar |
+| Prueba de integración con un LLM | ⚠️ necesita Ollama con `qwen3.5:4b`; no tenía aserciones; ahora se omite si falta el entorno y acepta `OLLAMA_MODEL` |
+| RF-1, RF-2, RF-4, RF-8, diagramas, entrada en MEMORY | ❌ pendientes |
+
+**Corregido (26-nov-2026)**: el parser no terminaba con cualquier `$variable` (el tokenizador aceptaba `$` como primer carácter de un identificador pero el bucle de lectura no lo aceptaba, así que la posición no avanzaba y se generaban tokens vacíos sin fin) ni con una entrada que no empezara por un identificador (`(`, `Text("x")`, `foo bar`: `parseStatement` devolvía `nil` sin consumir nada). Como el prompt de molu enseña `$title = ""`, cualquier respuesta con variables colgaba el proceso y agotaba la memoria. Ahora `Parse` consume siempre al menos un token por vuelta, limita el anidamiento (500 niveles) y la entrada (1 MiB) y devuelve errores descriptivos. Pruebas nuevas en `parser_test.go` y `prompt_test.go` (generador, mapeo, neutralidad, rendimiento, concurrencia y 18 entradas hostiles con límite de tiempo); las brechas de la tabla quedan como pruebas omitidas con el motivo a la vista (`*_KnownGap`).
