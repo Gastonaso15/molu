@@ -11,6 +11,7 @@ tiempo de respuesta. El código fuente de Seam NO es input de ningún perfil.
 | 1 | Agente pelado | molu sin Hub: solo los 13 primitivos de xolu | ninguno |
 | 2 | Seam + Xolu | molu + Hub: 13 primitivos + 30 `work_orders.*` | ninguno |
 | 3 | Seam + Xolu + priming | igual que 2 | system prompt de priming + SKILL `work-orders-seam` |
+| 4 | Seam + Xolu + `molu_help` | igual que 2 + la herramienta `molu_help` | system prompt fijo + preámbulo corto en cada petición (idea de Horacio, spec 016); sin SKILL |
 
 Control común: mismo modelo, carpeta de trabajo vacía fuera del repo, sin herramientas de archivos,
 sin memoria ni settings del usuario, `demo-reset.sh` antes de cada corrida que muta estado.
@@ -48,4 +49,9 @@ Los prompts y el SKILL de la primera ronda (25-nov) apuntaban al flujo anterior 
 - **Reinicio de la demo** (`.dev-xolu/demo-reset.sh`, local y fuera de git): la orden de tablero se crea ahora con `block_responsibles`.
 - El **informe** de la primera ronda se conserva como histórico (ver su cabecera): sus números no son comparables con los de la segunda ronda.
 - **Segunda ronda hecha (26-nov-2026)**: 36 corridas en un stack aislado (`BENCH_XOLU_URL`, `BENCH_HUB_URL` y `BENCH_RESET` en `run.py`; `.dev-xolu/bench-reset.sh`, local). Resultados en `informe-ronda2.md` y `results/ronda2.jsonl`: perfiles 2 y 3 resuelven G1 y G2 perfectas (4/4), el perfil pelado no puede ejecutar el flujo (G1/G2 regular, V1 mala), y el SKILL no mejora la calidad y cuesta un 59 % más.
-- Pendiente: ajustar la rúbrica de V2 (hoy una pregunta por un dato obligatorio cuenta como fallo parcial), el perfil 4 con `molu_help` (pedido de Horacio del 25-nov), tareas más ambiguas y el cliente de Gastón (Gemini).
+- **Tercera ronda hecha (26-nov-2026)**: perfil 4 (system prompt y preámbulo de Horacio + `molu_help`, sin SKILL; spec 016), 12 corridas. Resultados en `informe-ronda3.md` y `results/ronda3.jsonl`: calidad equivalente a los perfiles 2 y 3, y **0 llamadas a `molu_help` en las 12 corridas**: no demuestra que la ayuda sirva.
+- Los datos de todas las rondas están en `planilla-benchmark.xlsx` (se regenera con `make_planilla.py`, necesita `openpyxl`).
+- Pendiente: ajustar la rúbrica de V2 (hoy una pregunta por un dato obligatorio cuenta como fallo parcial), probar la ayuda con un modelo más débil o con una superficie reducida de herramientas, tareas más ambiguas.
+
+## 8. Datos conservados
+`results/*.jsonl` (una fila por corrida: calidad, tiempos, llamadas, errores, tokens, costo) se conservan de todas las rondas: bastan para rehacer cualquier tabla. Las transcripciones completas (`results/raw/`) solo ocupan espacio y sirven para auditar una corrida: se conservan únicamente las de la ronda más reciente de cada tipo de modelo y se borran las anteriores.

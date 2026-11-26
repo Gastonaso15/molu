@@ -2,7 +2,7 @@
 
 > **Nota (26-nov-2026):** este informe corresponde a la primera ronda (25-nov), hecha con el flujo anterior de `work_orders.*` (30 funciones, firma en el avance, `ConsumeFromOrder`/`ReturnLeftovers`). El SKILL, los prompts G1/G2 y los verificadores se actualizaron al flujo de ejecución actual (spec 014 §7). Los números de abajo son un histórico y no son comparables con los de la segunda ronda.
 
-Fecha: 25-nov-2026. 36 corridas (3 perfiles × 6 prompts × 2 repeticiones). Mismo modelo (el del CLI local), agente de cero en carpeta vacía, sin herramientas de archivos, sin acceso al código de Seam. Estado de xolu reiniciado antes de cada corrida que muta. Calidad calculada sobre el estado final de xolu (rúbrica en `spec.md`). Datos crudos: `results/main.jsonl` y `results/raw/`.
+Fecha: 25-nov-2026. 36 corridas (3 perfiles × 6 prompts × 2 repeticiones). Mismo modelo (el del CLI local), agente de cero en carpeta vacía, sin herramientas de archivos, sin acceso al código de Seam. Estado de xolu reiniciado antes de cada corrida que muta. Calidad calculada sobre el estado final de xolu (rúbrica en `spec.md`). Datos crudos: `results/main.jsonl` (resumen por corrida). Las transcripciones completas de esta ronda se eliminaron (solo se conservan las de la ronda más reciente).
 
 ## 1. Resumen por perfil
 

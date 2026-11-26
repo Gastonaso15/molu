@@ -2,7 +2,7 @@
 """Benchmark runner for spec 014: same prompts, three agent profiles, timings + state verification.
 Updated 26-nov-2026 for the execution model of work_orders.* (block responsibles, header, blocks, consumption and settlement).
 
-usage: run.py [--reps N] [--profiles 1,2,3] [--prompts L1,L2,G1,G2,V1,V2] [--tag NAME]
+usage: run.py [--reps N] [--profiles 1,2,3,4] [--prompts L1,L2,G1,G2,V1,V2] [--tag NAME]
 Each run is a fresh headless `claude -p` in an empty directory outside the repo with no built-in tools.
 """
 import argparse, json, os, shutil, subprocess, sys, time
@@ -27,7 +27,6 @@ PRIMING = ("Eres un asistente de operaciones de mantenimiento que trabaja sobre 
            "Actúa hasta terminar la tarea y resume al final qué quedó hecho (ids, estados, stock). Responde en español.")
 
 sys.path.insert(0, HERE)
-from gemini_runner import run_gemini
 
 def mcp_env(profile):
     env = dict(os.environ)
@@ -49,6 +48,14 @@ def mcp_env(profile):
         env["MOLU_FRONT_TOKEN_ORDERS_API_TOKEN"] = os.environ.get("BENCH_ORDERS_TOKEN", "bench-orders-token")
     return env
 
+# Profile 4 (Horacio's idea, 25-nov-2026): a fixed system prompt, a short preamble in front of every user message
+# and the molu_help tool, with no SKILL. The texts are his, verbatim.
+SYSTEM4 = ("You are a helpful assistant in logistics and physical assets management, helping with the management and the operation of Seam AMS, "
+           "our assets management system. To that end, you have several functions available to you through the molu MCP tool. The user assumes you will "
+           "be using molu for most things, and you can use the molu_help function to learn anything about the molu tool, and Seam AMS operations.")
+PREAMBLE4 = ("Use the molu MCP tool to answer the following user request. When in doubt use molu's molu_help function. "
+             "The following is what the user said:\n")
+
 def mcp_config(profile):
     c = json.load(open(os.path.expanduser("~/.claude.json")))["projects"][REPO]["mcpServers"]["molu"]
     env = dict(c["env"])
@@ -59,8 +66,13 @@ def mcp_config(profile):
         for k in list(env):
             if "HUB" in k or k.startswith("MOLU_FRONT_TOKEN_") or k == "MOLU_FRONT_DEFAULT_TENANT":
                 env.pop(k)
-    path = os.path.join(WORK, f"mcp-p{1 if profile == 1 else 2}.json")
-    json.dump({"mcpServers": {"molu": {"command": c["command"], "args": [], "env": env}}}, open(path, "w"))
+    # molu_help exists only in profile 4; the other profiles must not see it.
+    env["MOLU_FRONT_HELP_ENABLED"] = "true" if profile == 4 else "false"
+    if profile == 4:  # the domain texts ship with their publishers; the built-in ones are generic
+        env["MOLU_FRONT_HELP_DIR"] = os.pathsep.join(os.path.join(REPO, "pkg", "publisher", p, "help") for p in ("orders", "issues"))
+    command = os.environ.get("BENCH_MOLU_BIN") or c["command"]
+    path = os.path.join(WORK, f"mcp-p{4 if profile == 4 else 1 if profile == 1 else 2}.json")
+    json.dump({"mcpServers": {"molu": {"command": command, "args": [], "env": env}}}, open(path, "w"))
     return path
 
 def workdir(profile):
@@ -135,10 +147,13 @@ def quality(score, asked, errors):
 
 def run_claude(profile, prompt, tag):
     cwd = workdir(profile)
+    if profile == 4: prompt = PREAMBLE4 + prompt
     cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--mcp-config", mcp_config(profile),
            "--setting-sources", "project" if profile == 3 else "", "--no-session-persistence", "--max-turns", "60"]
     if profile == 3:
         cmd += ["--tools", "Skill", "--allowedTools", "mcp__molu", "Skill", "--append-system-prompt", PRIMING]
+    elif profile == 4:
+        cmd += ["--tools", "", "--allowedTools", "mcp__molu", "--disable-slash-commands", "--append-system-prompt", SYSTEM4]
     else:
         cmd += ["--tools", "", "--allowedTools", "mcp__molu", "--disable-slash-commands"]
     t0 = time.time()
@@ -149,7 +164,7 @@ def run_claude(profile, prompt, tag):
         out, timeout = (e.stdout or b"").decode() if isinstance(e.stdout, bytes) else (e.stdout or ""), True
     wall = time.time() - t0
     open(os.path.join(RESULTS, "raw", tag + ".jsonl"), "w").write(out)
-    calls = errs = 0; skill = False; res = {}; tools_seen = []
+    calls = errs = helps = 0; skill = False; res = {}; tools_seen = []
     for line in out.splitlines():
         try: ev = json.loads(line)
         except Exception: continue
@@ -158,13 +173,14 @@ def run_claude(profile, prompt, tag):
                 if b.get("type") == "tool_use":
                     calls += 1; tools_seen.append(b["name"])
                     if b["name"] == "Skill": skill = True
+                    if b["name"].endswith("molu_help"): helps += 1
         elif ev.get("type") == "user":
             for b in (ev["message"].get("content") or []):
                 if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("is_error") and "EMPTY" not in json.dumps(b.get("content")):
                     errs += 1
         elif ev.get("type") == "result": res = ev
     return dict(wall_s=round(wall, 1), api_s=round(res.get("duration_api_ms", 0) / 1000, 1), turns=res.get("num_turns"), tool_calls=calls,
-                tool_errors=errs, usd=round(res.get("total_cost_usd", 0) or 0, 3), used_skill=skill, timeout=timeout,
+                tool_errors=errs, usd=round(res.get("total_cost_usd", 0) or 0, 3), used_skill=skill, help_calls=helps, timeout=timeout,
                 text=res.get("result") or "", tools_seen=tools_seen)
 
 def resolve_runner(arg):
@@ -197,6 +213,7 @@ def main():
                 if mutates or not fresh: reset(); fresh = True
                 tag = f"{a.tag}-p{prof}-{pid}-r{rep}"
                 if runner == "gemini":
+                    from gemini_runner import run_gemini  # lazy: needs `requests`, which the Claude runner does not
                     r = run_gemini(
                         prof, prompt, tag,
                         repo=REPO, cwd=workdir(prof), mcp_env=mcp_env(prof),
@@ -212,7 +229,7 @@ def main():
                            quality=quality(score, asked, r["tool_errors"]), **{k: v for k, v in r.items() if k not in ("text", "tools_seen")},
                            answer=r["text"][:600])
                 out.write(json.dumps(row, ensure_ascii=False) + "\n"); out.flush()
-                print(f"[{runner}] p{prof} {pid} r{rep}: {row['quality']:9s} {row['wall_s']:6.1f}s  turns={row['turns']} calls={row['tool_calls']} err={row['tool_errors']} skill={row['used_skill']} | {detail}", flush=True)
+                print(f"[{runner}] p{prof} {pid} r{rep}: {row['quality']:9s} {row['wall_s']:6.1f}s  turns={row['turns']} calls={row['tool_calls']} err={row['tool_errors']} skill={row['used_skill']} help={row.get('help_calls', 0)} | {detail}", flush=True)
     reset()
 
 if __name__ == "__main__":
