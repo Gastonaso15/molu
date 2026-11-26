@@ -187,48 +187,8 @@ func (h *HTTPSubstrate) do(ctx context.Context, tenant, method, path string, in,
 	}
 
 	if resp.StatusCode >= 400 {
-		var xErr struct {
-			Code    string         `json:"code"`
-			Message string         `json:"message"`
-			Details map[string]any `json:"details"`
-			Error   *struct {
-				Code    string         `json:"code"`
-				Message string         `json:"message"`
-				Details map[string]any `json:"details"`
-			} `json:"error"`
-		}
-		if json.Unmarshal(raw, &xErr) == nil {
-			code := xErr.Code
-			msg := xErr.Message
-			details := xErr.Details
-			if xErr.Error != nil {
-				if code == "" {
-					code = xErr.Error.Code
-				}
-				if msg == "" {
-					msg = xErr.Error.Message
-				}
-				if details == nil {
-					details = xErr.Error.Details
-				}
-			}
-			if strings.Contains(code, "INVALID_TRANSITION") || resp.StatusCode == http.StatusConflict {
-				if !strings.HasPrefix(code, "XOLU-") {
-					code = "XOLU-INVALID_TRANSITION"
-				}
-				return &taxonomy.TypedError{
-					Code:    code,
-					Message: msg,
-					Details: details,
-				}
-			}
-		}
-		if resp.StatusCode >= 500 {
-			return taxonomy.NewSubstrateUnavailable(taxonomy.NowRFC3339(), taxonomy.NextRetryRFC3339(1, 100*time.Millisecond, 5*time.Second), 1, 3)
-		}
-		return fmt.Errorf("xolu status %d: %s", resp.StatusCode, string(raw))
+		return parseXoluError(resp.StatusCode, raw)
 	}
-
 	if out != nil && len(raw) > 0 {
 		return json.Unmarshal(raw, out)
 	}
@@ -255,4 +215,79 @@ func extractItems(v any) []map[string]any {
 		}
 	}
 	return res
+}
+
+type xoluClientError struct {
+	Status int
+	Raw    string
+}
+
+func (e *xoluClientError) Error() string {
+	return fmt.Sprintf("xolu status %d: %s", e.Status, e.Raw)
+}
+
+// parseXoluError handles every error shape xolu emits: {"error":"XOLU-FSM004",...}
+// (FSM routes), {"error":{"code","message"}} (nested) and flat {"code","message"}.
+func parseXoluError(status int, raw []byte) error {
+	if status >= 500 {
+		return taxonomy.NewSubstrateUnavailable(taxonomy.NowRFC3339(), taxonomy.NextRetryRFC3339(1, 100*time.Millisecond, 5*time.Second), 1, 3)
+	}
+	var m map[string]any
+	if json.Unmarshal(raw, &m) == nil {
+		var code, msg, detail string
+		var rawDetails map[string]any
+		switch e := m["error"].(type) {
+		case string:
+			code = e
+		case map[string]any:
+			code, _ = e["code"].(string)
+			msg, _ = e["message"].(string)
+			detail, _ = e["detail"].(string)
+			rawDetails, _ = e["details"].(map[string]any)
+		}
+		if code == "" {
+			code, _ = m["code"].(string)
+		}
+		if msg == "" {
+			msg, _ = m["message"].(string)
+		}
+		if detail == "" {
+			detail, _ = m["detail"].(string)
+		}
+		if rawDetails == nil {
+			rawDetails, _ = m["details"].(map[string]any)
+		}
+		if strings.HasPrefix(code, "XOLU-FSM") || strings.Contains(code, "INVALID_TRANSITION") || status == http.StatusConflict {
+			details := map[string]any{}
+			for k, v := range rawDetails {
+				details[k] = v
+			}
+			if code != "" {
+				details["xolu_code"] = code
+			}
+			if detail != "" {
+				details["detail"] = detail
+			}
+			if state, _ := m["state"].(string); state != "" {
+				details["state"] = state
+			}
+			if ai, ok := m["available_inputs"].([]any); ok && len(ai) > 0 {
+				var inputs []string
+				for _, v := range ai {
+					if s, ok := v.(string); ok {
+						inputs = append(inputs, s)
+					}
+				}
+				if len(inputs) > 0 {
+					details["available_inputs"] = inputs
+				}
+			}
+			return &taxonomy.TypedError{
+				Code:    taxonomy.PrefixXolu + string(taxonomy.CodeInvalidTransition),
+				Message: msg,
+				Details: details,
+			}
+		}
+	}
+	return &xoluClientError{Status: status, Raw: strings.TrimSpace(string(raw))}
 }

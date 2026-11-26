@@ -193,6 +193,10 @@ func (s *IssueService) mapSubstrateError(tenant, entityType, id string, err erro
 	if errors.As(err, &te) {
 		return te
 	}
+	var ce *xoluClientError
+	if errors.As(err, &ce) {
+		return err
+	}
 	now := taxonomy.NowRFC3339()
 	nextRetry := taxonomy.NextRetryRFC3339(1, 100*time.Millisecond, 5*time.Second)
 	return taxonomy.NewSubstrateUnavailable(now, nextRetry, 1, 3)
@@ -266,4 +270,3 @@ func toInt64(v any) int64 {
 		return 0
 	}
 }
-

@@ -63,7 +63,7 @@ Las filas ❌ confirman, contra Seam real, las diferencias que esta lista ya des
   - **Hecho cuando**: `extractItems` (o su sustituto) reconoce `definitions`; el simulador de pruebas responde con esa forma; una prueba crea dos incidencias seguidas y comprueba que xolu tiene **una** definición con ese nombre; una prueba contra xolu real (`MOLU_REAL_XOLU_URL`) hace lo mismo. Conviene resolverla junto con T7, que cambia el nombre de la definición. Las definiciones duplicadas que ya existan en un xolu de desarrollo no se borran solas.
   - **Riesgo hoy**: con definiciones repetidas, Seam y xolu siguen funcionando (cada máquina apunta a la suya), pero el catálogo de FSM se llena de copias; el equivalente en Work Orders rompería a Seam (`multiple FSM definitions named`), por eso conviene corregirlo antes de que alguien ejecute el publicador de incidencias de forma continua.
 
-- [ ] **T6. Rechazo de transición inválida contra xolu real (corrige un fallo).**
+- [x] **T6. Rechazo de transición inválida contra xolu real (corrige un fallo).**
   - **Archivos**: `pkg/publisher/issues/substrate_http.go`, `service.go`, `substrate_http_test.go`, `service_test.go`
   - **Problema**: un `AdvanceIssue` no permitido (por ejemplo `close` desde `in_progress`) devuelve `SUBSTRATE_UNAVAILABLE`. xolu responde con un código `XOLU-FSM…` en un 4xx y el publicador solo reconoce HTTP 409 o el texto `INVALID_TRANSITION`.
   - **Hecho cuando**: toda transición rechazada por la FSM (transición inexistente, guarda) devuelve `XOLU-INVALID_TRANSITION` con `details.xolu_code` y el mensaje de xolu verbatim, igual que `pkg/publisher/orders`; `SUBSTRATE_UNAVAILABLE` queda solo para xolu inalcanzable o 5xx; un 404 de la máquina sigue siendo `NOT_FOUND`. Prueba contra xolu real incluida.
