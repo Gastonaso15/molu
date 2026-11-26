@@ -33,21 +33,48 @@ type fakeSubstrate struct {
 	commitSavesThenErr error // Commit saves, then answers with this error
 	failMachineAt      int   // the Nth CreateMachineWithRef fails (1-based)
 	machineCalls       int
+
+	// template workflow definitions: definition id -> definition, machine id -> definition id
+	defs       map[string]Definition
+	machineDef map[string]string
+
+	// orderWithoutMachine makes Commit store template orders without their
+	// machine_id, as the orders opened before the execution model are. Those
+	// keep the older single-write advance; tests of the execution model turn
+	// it off (see newExecFake).
+	orderWithoutMachine bool
 }
 
 func newFake() *fakeSubstrate {
-	return &fakeSubstrate{machines: map[string]*Machine{}, entities: map[string]map[string]map[string]any{}}
+	return &fakeSubstrate{machines: map[string]*Machine{}, entities: map[string]map[string]map[string]any{}, orderWithoutMachine: true}
 }
 
-func (f *fakeSubstrate) EnsureDefinition(_ context.Context, _ string, _ Definition) (string, error) {
+// newExecFake is a fake whose template orders keep their workflow machine.
+func newExecFake() *fakeSubstrate {
+	f := newFake()
+	f.orderWithoutMachine = false
+	return f
+}
+
+func (f *fakeSubstrate) EnsureDefinition(_ context.Context, name string, def Definition) (string, error) {
 	f.ensureCalls.Add(1)
 	if f.ensureErr != nil {
 		return "", f.ensureErr
 	}
+	if f.failWith == nil && name != DefinitionName {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.defs == nil {
+			f.defs = map[string]Definition{}
+		}
+		id := "def:" + name
+		f.defs[id] = def
+		return id, nil
+	}
 	return "42", f.failWith
 }
 
-func (f *fakeSubstrate) CreateMachine(_ context.Context, _ string) (Machine, error) {
+func (f *fakeSubstrate) CreateMachine(_ context.Context, defID string) (Machine, error) {
 	if f.failWith != nil {
 		return Machine{}, f.failWith
 	}
@@ -56,6 +83,13 @@ func (f *fakeSubstrate) CreateMachine(_ context.Context, _ string) (Machine, err
 	f.next++
 	id := strconv.Itoa(1000 + f.next)
 	m := &Machine{ID: id, State: StateDraft}
+	if def, ok := f.defs[defID]; ok {
+		m.State, _ = def["initial"].(string)
+		if f.machineDef == nil {
+			f.machineDef = map[string]string{}
+		}
+		f.machineDef[id] = defID
+	}
 	f.machines[id] = m
 	return *m, nil
 }
@@ -69,6 +103,9 @@ func (f *fakeSubstrate) CreateEntity(_ context.Context, entityType string, data 
 	f.next++
 	id := strconv.Itoa(f.next)
 	f.put(entityType, id, data)
+	if f.orderWithoutMachine && entityType == EntityType && templateOrder(data) {
+		f.entities[entityType][id]["machine_id"] = int64(0)
+	}
 	return id, nil
 }
 
@@ -154,6 +191,14 @@ func (f *fakeSubstrate) Walk(_ context.Context, id, input string, payload map[st
 		return WalkResult{}, &XoluError{Status: 404, Code: "XOLU-FSM001", Message: "machine not found"}
 	}
 	prev := m.State
+	if defID, ok := f.machineDef[id]; ok {
+		next, terminal, err := f.defStep(defID, m, input)
+		if err != nil {
+			return WalkResult{}, err
+		}
+		m.State, m.Terminal = next, terminal
+		return WalkResult{Previous: prev, Current: next, Terminal: terminal}, nil
+	}
 	switch {
 	case m.Terminal:
 		return WalkResult{}, &XoluError{Status: 409, Code: "XOLU-FSM003",

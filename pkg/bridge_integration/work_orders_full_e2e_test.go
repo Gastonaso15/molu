@@ -30,14 +30,18 @@ type fullWireXolu struct {
 	seq      int64
 	fsmSeq   int64
 	defs     map[string]int64
-	machines map[string]string // machine id -> state
+	defDocs  map[int64]map[string]any // definition id -> definition
+	machines map[string]string        // machine id -> state
+	machDef  map[string]int64         // machine id -> definition id
 	entities map[string]map[string]map[string]any
 }
 
 func newFullWireXolu() *fullWireXolu {
 	return &fullWireXolu{
 		defs:     map[string]int64{},
+		defDocs:  map[int64]map[string]any{},
 		machines: map[string]string{},
+		machDef:  map[string]int64{},
 		entities: map[string]map[string]map[string]any{},
 	}
 }
@@ -85,6 +89,7 @@ func (x *fullWireXolu) handler() http.Handler {
 		name, _ := def["name"].(string)
 		x.fsmSeq++
 		x.defs[name] = x.fsmSeq
+		x.defDocs[x.fsmSeq] = def
 		xoluJSON(w, 200, map[string]any{"id": x.fsmSeq, "name": name})
 	})
 
@@ -92,10 +97,22 @@ func (x *fullWireXolu) handler() http.Handler {
 	mux.HandleFunc("/api/v2/fsm/machine", func(w http.ResponseWriter, r *http.Request) {
 		x.mu.Lock()
 		defer x.mu.Unlock()
+		var body struct {
+			Definition json.Number `json:"definition"`
+		}
+		dec := json.NewDecoder(r.Body)
+		dec.UseNumber()
+		_ = dec.Decode(&body)
+		defID, _ := body.Definition.Int64()
+		initial := "pending"
+		if def, ok := x.defDocs[defID]; ok {
+			initial, _ = def["initial"].(string)
+		}
 		x.fsmSeq++
 		id := strconv.FormatInt(1000+x.fsmSeq, 10)
-		x.machines[id] = "pending"
-		xoluJSON(w, 200, map[string]any{"id": 1000 + x.fsmSeq, "state": "pending"})
+		x.machines[id] = initial
+		x.machDef[id] = defID
+		xoluJSON(w, 200, map[string]any{"id": 1000 + x.fsmSeq, "state": initial})
 	})
 
 	// Atomic multi-entity commit
@@ -114,6 +131,10 @@ func (x *fullWireXolu) handler() http.Handler {
 				ID     *int64         `json:"id"`
 				Data   map[string]any `json:"data"`
 			} `json:"append"`
+			FSMWalk *struct {
+				Machine int64  `json:"machine"`
+				Input   string `json:"input"`
+			} `json:"fsm_walk"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			xoluError(w, 400, "XOLU-ST000", "bad json")
@@ -122,6 +143,27 @@ func (x *fullWireXolu) handler() http.Handler {
 		if len(req.Append) > 25 {
 			xoluError(w, 400, "XOLU-ST000", "too many appends")
 			return
+		}
+		walkTo := ""
+		if req.FSMWalk != nil {
+			mid := strconv.FormatInt(req.FSMWalk.Machine, 10)
+			state, ok := x.machines[mid]
+			if !ok {
+				xoluError(w, 404, "XOLU-FSM002", "machine not found")
+				return
+			}
+			def := x.defDocs[x.machDef[mid]]
+			transitions, _ := def["transitions"].([]any)
+			for _, raw := range transitions {
+				tr, _ := raw.(map[string]any)
+				if tr["from"] == state && tr["input"] == req.FSMWalk.Input {
+					walkTo, _ = tr["to"].(string)
+				}
+			}
+			if walkTo == "" {
+				xoluError(w, 409, "XOLU-FSM003", fmt.Sprintf("no transition for input %q from state %q", req.FSMWalk.Input, state))
+				return
+			}
 		}
 		updID := strconv.FormatInt(req.Update.ID, 10)
 		nextVer := int64(1)
@@ -156,6 +198,11 @@ func (x *fullWireXolu) handler() http.Handler {
 				aid = strconv.FormatInt(x.seq, 10)
 			}
 			x.putLocked(a.Entity, aid, a.Data, 1)
+		}
+		if req.FSMWalk != nil {
+			x.machines[strconv.FormatInt(req.FSMWalk.Machine, 10)] = walkTo
+			xoluJSON(w, 200, map[string]any{"status": "ok", "fsm_walk": map[string]any{"current": walkTo}})
+			return
 		}
 		xoluJSON(w, 200, map[string]any{"status": "ok"})
 	})
@@ -312,7 +359,7 @@ func toInt64Any(v any) int64 {
 // order lifecycle through the full MCP stack (stdio MCP client -> molu ->
 // Execution Bridge -> Hub Standalone -> publisher-orders -> wire-level xolu):
 //
-//  1. Discover all 31 work_orders.* tools via tools/list (unified with 13 primitives).
+//  1. Discover all 33 work_orders.* tools via tools/list (unified with 13 primitives).
 //  2. Create crew, warehouse and consumable.
 //  3. Register initial stock entry (plus idempotent replay check).
 //  4. Create a template with workflow states, headers, blocks and consumables.
@@ -320,10 +367,10 @@ func toInt64Any(v any) int64 {
 //  6. Verify backlog listing and awaiting_claim rejection before claim.
 //  7. Claim the order and confirm backlog is now EMPTY.
 //  8. Transfer stock from central warehouse into the order's mobile warehouse.
-//  9. Advance step 1 answering block 1 lines.
+//  9. Confirm the execution header, run block 1 and advance step 1.
 //
 // 10. Consume stock from the order's mobile warehouse.
-// 11. Close the order answering block 2 lines + technician signature; verify post-close consume rejected.
+// 11. Run block 2 and close the order (refused while a block is pending); verify post-close consume rejected.
 // 12. Return all remaining leftovers from mobile warehouse back to central warehouse.
 // 13. Inspect final order, warehouse and consumable balances.
 func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
@@ -387,7 +434,7 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 
 	h := &c1Harness{stdin: stdinW, lines: lines}
 
-	// 1. Unified discovery: 13 primitives + 31 work_orders.* tools = 44 tools.
+	// 1. Unified discovery: 13 primitives + 33 work_orders.* tools = 46 tools.
 	listResp := h.rpc(t, "tools/list", map[string]any{})
 	tools := listResp["result"].(map[string]any)["tools"].([]any)
 	domainCount := 0
@@ -397,8 +444,8 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 			domainCount++
 		}
 	}
-	if domainCount != 31 {
-		t.Fatalf("discovered %d work_orders.* tools, want 31 (total tools=%d)", domainCount, len(tools))
+	if domainCount != 33 {
+		t.Fatalf("discovered %d work_orders.* tools, want 33 (total tools=%d)", domainCount, len(tools))
 	}
 
 	// 2. Create crew, central warehouse and consumable.
@@ -484,6 +531,7 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 		"responsible_type":   "crew",
 		"asset_ids":          []any{11},
 		"created_by_user_id": 1,
+		"block_responsibles": map[string]any{"Preparacion": 1, "Mantenimiento": crewID},
 	}))
 	orderID := order["id"].(string)
 	mobileWHID, _ := order["mobile_warehouse_id"].(string)
@@ -497,7 +545,7 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 		t.Fatalf("backlog before claim = %v", backlog)
 	}
 	awaiting := e2eFailure(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{
-		"order_id": orderID, "input": "complete", "header_values": map[string]any{"observacion": "antes"},
+		"order_id": orderID, "input": "complete", "user_id": 1,
 	}))
 	if awaiting["code"] != "XOLU-INVALID_TRANSITION" || awaiting["details"].(map[string]any)["rule"] != "awaiting_claim" {
 		t.Fatalf("advance before claim = %v", awaiting)
@@ -530,12 +578,35 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 		t.Fatalf("transfer to mobile warehouse = %v", transfer)
 	}
 
-	// 9. Advance step 1 (Pendiente -> En curso) answering block 1 and execution header.
+	// 9. Execution: a block cannot start before the header is confirmed; then
+	//    confirm the header, run block 1 and advance (Pendiente -> En curso).
+	early := e2eFailure(t, h.call(t, "work_orders.ExecuteBlock", map[string]any{
+		"order_id": orderID, "block": "Preparacion", "intent": "start", "user_id": 1,
+	}))
+	if early["details"].(map[string]any)["rule"] != "header_not_confirmed" {
+		t.Fatalf("start before header = %v", early)
+	}
+	hdr := e2eSuccess(t, h.call(t, "work_orders.ConfirmExecutionHeader", map[string]any{
+		"order_id": orderID, "user_id": 1, "header_values": map[string]any{"observacion": "Equipo aislado"},
+	}))
+	if hdr["confirmed_at"] == "" || hdr["order"].(map[string]any)["header_values"].(map[string]any)["observacion"] != "Equipo aislado" {
+		t.Fatalf("confirm header = %v", hdr)
+	}
+	waits := e2eFailure(t, h.call(t, "work_orders.ExecuteBlock", map[string]any{
+		"order_id": orderID, "block": "Mantenimiento", "intent": "start", "user_id": 1,
+	}))
+	if waits["details"].(map[string]any)["rule"] != "predecessor_pending" {
+		t.Fatalf("start with pending predecessor = %v", waits)
+	}
+	e2eSuccess(t, h.call(t, "work_orders.ExecuteBlock", map[string]any{"order_id": orderID, "block": "Preparacion", "intent": "start", "user_id": 1}))
+	b1 := e2eSuccess(t, h.call(t, "work_orders.ExecuteBlock", map[string]any{
+		"order_id": orderID, "block": "Preparacion", "intent": "complete", "user_id": 1, "values": map[string]any{"aislado": true},
+	}))
+	if b1["block"].(map[string]any)["state"] != "completed" || b1["previous"] != "in_progress" {
+		t.Fatalf("complete block 1 = %v", b1)
+	}
 	step1 := e2eSuccess(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{
-		"order_id":      orderID,
-		"input":         "complete",
-		"header_values": map[string]any{"observacion": "Equipo aislado"},
-		"block_values":  map[string]any{"Preparacion": map[string]any{"aislado": true}},
+		"order_id": orderID, "input": "complete", "user_id": 1,
 	}))
 	if step1["current"] != "En curso" {
 		t.Fatalf("step 1 = %v", step1)
@@ -552,12 +623,26 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 		t.Fatalf("consume = %v", consumed)
 	}
 
-	// 11. Close order (En curso -> Cerrada) answering block 2 + signature.
+	// 11. Closing needs every block completed: refused with block 2 pending,
+	//     then run block 2 and close (En curso -> Cerrada).
+	notYet := e2eFailure(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{
+		"order_id": orderID, "input": "complete", "user_id": 1,
+	}))
+	if notYet["details"].(map[string]any)["rule"] != "blocks_incomplete" {
+		t.Fatalf("close with a pending block = %v", notYet)
+	}
+	e2eSuccess(t, h.call(t, "work_orders.ExecuteBlock", map[string]any{"order_id": orderID, "block": "Mantenimiento", "intent": "start", "user_id": 1}))
+	saved := e2eSuccess(t, h.call(t, "work_orders.ExecuteBlock", map[string]any{
+		"order_id": orderID, "block": "Mantenimiento", "intent": "save", "user_id": 1, "values": map[string]any{"horas": 1},
+	}))
+	if saved["block"].(map[string]any)["state"] != "in_progress" {
+		t.Fatalf("save keeps the block in progress: %v", saved)
+	}
+	e2eSuccess(t, h.call(t, "work_orders.ExecuteBlock", map[string]any{
+		"order_id": orderID, "block": "Mantenimiento", "intent": "complete", "user_id": 1, "values": map[string]any{"horas": 1.5},
+	}))
 	step2 := e2eSuccess(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{
-		"order_id":     orderID,
-		"input":        "complete",
-		"block_values": map[string]any{"Mantenimiento": map[string]any{"horas": 1.5}},
-		"payload":      map[string]any{"technician_signature": "data:image/png;base64,SIGN"},
+		"order_id": orderID, "input": "complete", "user_id": 1,
 	}))
 	if step2["current"] != "Cerrada" || step2["order"].(map[string]any)["terminal"] != true {
 		t.Fatalf("step 2 = %v", step2)
@@ -585,7 +670,7 @@ func TestWorkOrders_FullScenario_MCP_E2E(t *testing.T) {
 
 	// 13. Final inspection through GetOrder, GetWarehouse and GetConsumable.
 	detail := e2eSuccess(t, h.call(t, "work_orders.GetOrder", map[string]any{"order_id": orderID}))
-	if detail["state"] != "Cerrada" || detail["terminal"] != true || detail["signed"] != true || detail["claimed_by_user_id"] != "1" {
+	if detail["state"] != "Cerrada" || detail["terminal"] != true || detail["claimed_by_user_id"] != "1" || detail["header_confirmed_at"] == nil {
 		t.Fatalf("final order detail = %v", detail)
 	}
 	blocks, _ := detail["blocks"].([]any)

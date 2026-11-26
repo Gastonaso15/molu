@@ -34,6 +34,8 @@ const (
 
 	InputStart    = "start"
 	InputComplete = "complete"
+	// InputAdvance is the only input of a template order's own workflow machine.
+	InputAdvance = "advance"
 )
 
 // ID is a xolu entity id. It is sent as a string everywhere, but clients that
@@ -98,6 +100,10 @@ type CreateInput struct {
 	HeaderValues    map[string]any `json:"header_values,omitempty"` // answers by header tag (upon_creating items)
 	AssetIDs        []ID           `json:"asset_ids,omitempty"`
 	CreatedByUserID ID             `json:"created_by_user_id,omitempty"` // optional: sets responsible_user_id on a mobile warehouse
+	// BlockResponsibles names who runs each block, by block name: the id of a
+	// user, crew or third party according to the block's responsible_type in
+	// the template. Every block of the template needs one.
+	BlockResponsibles map[string]ID `json:"block_responsibles,omitempty"`
 }
 
 // AdvanceInput is the payload of work_orders.AdvanceOrder.
@@ -120,6 +126,10 @@ type AdvanceInput struct {
 	// that is not given (or is blank) keeps the one already stored.
 	BlockValues   map[string]any `json:"block_values,omitempty"`
 	WorkflowIndex *int           `json:"workflow_index,omitempty"`
+	// UserID is the user who advances an order that runs blocks (it has its own
+	// workflow machine): it must be the order's responsible. Not used for
+	// legacy orders.
+	UserID ID `json:"user_id,omitempty"`
 }
 
 // AdvanceResult reports the transition that xolu committed.
@@ -281,6 +291,9 @@ type Substrate interface {
 	// Commit saves one entity (insert or update by id) together with up to 25
 	// appended records, all or nothing.
 	Commit(ctx context.Context, req CommitRequest) error
+	// CommitWalk is Commit with req.FSMWalk set. It returns the state the
+	// machine reached, so the caller can check it is the one it expected.
+	CommitWalk(ctx context.Context, req CommitRequest) (string, error)
 	// CreateEntity stores a document and returns its id.
 	CreateEntity(ctx context.Context, entityType string, data map[string]any) (string, error)
 	GetEntity(ctx context.Context, entityType, id string) (map[string]any, error)
@@ -318,6 +331,16 @@ type CommitAppend struct {
 type CommitRequest struct {
 	Update CommitUpdate   `json:"update"`
 	Append []CommitAppend `json:"append"`
+	// FSMWalk, when set, fires one input on a machine in the same atomic
+	// write: if the transition is refused nothing is saved.
+	FSMWalk *CommitFSMWalk `json:"fsm_walk,omitempty"`
+}
+
+// CommitFSMWalk is the machine transition a Commit performs with its writes.
+type CommitFSMWalk struct {
+	Machine int64          `json:"machine"`
+	Input   string         `json:"input"`
+	Payload map[string]any `json:"payload,omitempty"`
 }
 
 // maxCommitAppends is how many records one xolu Commit can append.
@@ -358,6 +381,8 @@ type OrderBlock struct {
 	Name             string         `json:"name"`
 	State            string         `json:"state"`
 	PredecessorIndex *int           `json:"predecessor_index,omitempty"` // nil: no predecessor
+	ResponsibleType  string         `json:"responsible_type,omitempty"`
+	ResponsibleID    string         `json:"responsible_id,omitempty"`
 	Values           map[string]any `json:"values,omitempty"`
 	StartedAt        string         `json:"started_at,omitempty"`
 	CompletedAt      string         `json:"completed_at,omitempty"`
@@ -385,11 +410,14 @@ type MobileWarehouse struct {
 // returned.
 type OrderDetail struct {
 	WorkOrder
-	CreatedAt       string         `json:"created_at,omitempty"`
-	UpdatedAt       string         `json:"updated_at,omitempty"`
-	ClaimedByUserID string         `json:"claimed_by_user_id,omitempty"`
-	Signed          bool           `json:"signed"`
-	BlockValues     map[string]any `json:"block_values,omitempty"` // as stored: keys template_block_<block>_line_<line>
+	CreatedAt       string `json:"created_at,omitempty"`
+	UpdatedAt       string `json:"updated_at,omitempty"`
+	ClaimedByUserID string `json:"claimed_by_user_id,omitempty"`
+	Signed          bool   `json:"signed"`
+	// HeaderConfirmedAt is when the header filled at execution time was
+	// confirmed (orders that run blocks); blocks cannot start before it.
+	HeaderConfirmedAt string         `json:"header_confirmed_at,omitempty"`
+	BlockValues       map[string]any `json:"block_values,omitempty"` // as stored: keys template_block_<block>_line_<line>
 	// BlockAnswers is BlockValues by block and line name (template orders whose
 	// template can still be read).
 	BlockAnswers    map[string]map[string]any `json:"block_answers,omitempty"`

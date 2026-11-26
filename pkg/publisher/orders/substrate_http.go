@@ -91,6 +91,19 @@ func (h *HTTPSubstrate) Commit(ctx context.Context, req CommitRequest) error {
 	return h.do(ctx, http.MethodPost, "/api/v1/commit", req, nil)
 }
 
+// CommitWalk is Commit with a machine transition; it returns the state reached.
+func (h *HTTPSubstrate) CommitWalk(ctx context.Context, req CommitRequest) (string, error) {
+	var out struct {
+		FSMWalk struct {
+			Current string `json:"current"`
+		} `json:"fsm_walk"`
+	}
+	if err := h.do(ctx, http.MethodPost, "/api/v1/commit", req, &out); err != nil {
+		return "", err
+	}
+	return out.FSMWalk.Current, nil
+}
+
 func (h *HTTPSubstrate) CreateEntity(ctx context.Context, entityType string, data map[string]any) (string, error) {
 	var created map[string]any
 	if err := h.do(ctx, http.MethodPost, "/api/v1/"+url.PathEscape(entityType), data, &created); err != nil {

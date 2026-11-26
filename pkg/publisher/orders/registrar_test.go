@@ -42,8 +42,8 @@ func TestOrderRegistrar_RegistersFourNamespacedTools(t *testing.T) {
 	}
 
 	tools := reg.List(PublisherID)
-	if len(tools) != 31 {
-		t.Fatalf("registered %d tools, want 31: %+v", len(tools), tools)
+	if len(tools) != 33 {
+		t.Fatalf("registered %d tools, want 33: %+v", len(tools), tools)
 	}
 	byName := map[string]hub.ToolRegistration{}
 	for _, tl := range tools {
@@ -95,8 +95,8 @@ func TestOrderRegistrar_RegisterIsIdempotent(t *testing.T) {
 			t.Fatalf("Register #%d: %v", i, err)
 		}
 	}
-	if n := len(reg.List(PublisherID)); n != 31 {
-		t.Fatalf("%d tools after re-register, want 31", n)
+	if n := len(reg.List(PublisherID)); n != 33 {
+		t.Fatalf("%d tools after re-register, want 33", n)
 	}
 }
 
@@ -184,12 +184,12 @@ func TestOrderRegistrar_UnregisterWithoutPriorRegisterStillReportsErrors(t *test
 	}
 }
 
-// TestOrderRegistrar_AllThirtyOneToolsContractAudit verifies RF-6 and RF-7 across
-// every single registered tool: exact names and count (31), namespace and auth
+// TestOrderRegistrar_AllThirtyThreeToolsContractAudit verifies RF-6 and RF-7 across
+// every single registered tool: exact names and count (33), namespace and auth
 // metadata (token_ref), non-empty domain-neutral descriptions, JSON Schema
 // compilation under the Execution Bridge validator (accepting valid input and
 // rejecting unknown properties), and live route wiring on orders.Server.
-func TestOrderRegistrar_AllThirtyOneToolsContractAudit(t *testing.T) {
+func TestOrderRegistrar_AllThirtyThreeToolsContractAudit(t *testing.T) {
 	pubSrv := newTestServer(newFake())
 	defer pubSrv.Close()
 
@@ -219,6 +219,8 @@ func TestOrderRegistrar_AllThirtyOneToolsContractAudit(t *testing.T) {
 		},
 		"work_orders.PublishTemplateVersion": {"previous_template_id": 1, "name": "T", "workflow_states": []any{"A", "B"}},
 		"work_orders.SetTemplateEnabled":     {"template_id": 1, "enabled": false},
+		"work_orders.ConfirmExecutionHeader": {"order_id": "1", "user_id": 4},
+		"work_orders.ExecuteBlock":           {"order_id": "1", "block": "A", "intent": "start", "user_id": 4},
 		"work_orders.ListCrews":              {},
 		"work_orders.GetCrew":                {"crew_id": 1},
 		"work_orders.CreateCrew":             {"name": "C", "responsible_user_id": 1, "member_user_ids": []any{1, 2}},

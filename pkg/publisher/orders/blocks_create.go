@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -113,7 +114,7 @@ func commitRejected(status int) bool {
 // back with a token unique to this attempt: if it is there the creation
 // succeeded; if not, the machines are kept (the commit may still land) and the
 // error says which order may exist.
-func (s *Service) createOrderWithBlocksAndWarehouse(ctx context.Context, tpl workOrderTemplate, doc map[string]any, createdByUserID int64) (string, error) {
+func (s *Service) createOrderWithBlocksAndWarehouse(ctx context.Context, tpl workOrderTemplate, doc map[string]any, createdByUserID int64, blockResp []int64) (string, error) {
 	hasBlocks := len(tpl.Blocks) > 0
 	hasWarehouse := tpl.UsesConsumables
 
@@ -147,8 +148,31 @@ func (s *Service) createOrderWithBlocksAndWarehouse(ctx context.Context, tpl wor
 		return "", err
 	}
 
+	// Every template order has its own machine of the template version's
+	// workflow definition; the order's state moves with it.
+	wfDefID, err := s.sub.EnsureDefinition(ctx, TemplateDefinitionName(tpl.ID, tpl.Version), TemplateWorkflowDefinition(tpl.ID, tpl.Version, tpl.States))
+	if err != nil {
+		return "", classify(err, "")
+	}
+	wf, err := s.sub.CreateMachine(ctx, wfDefID)
+	if err != nil {
+		return "", classify(err, "")
+	}
+	machineIDs := []string{wf.ID}
+	if wf.State != tpl.States[0] {
+		s.discardMachines(ctx, machineIDs)
+		return "", fmt.Errorf("the workflow machine started in state %q, not %q", wf.State, tpl.States[0])
+	}
+	doc["machine_id"] = numericOrString(wf.ID)
+
+	// xolu refuses a Commit with nothing to append and no machine step, so an
+	// order with no blocks and no mobile warehouse is a plain create: there
+	// are no related records to save with it.
+	if appendCount == 0 {
+		return s.createOrderPlain(ctx, doc, token, machineIDs)
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
-	var machineIDs []string
 	appends := make([]CommitAppend, 0, appendCount)
 	for i, b := range tpl.Blocks {
 		ref := fmt.Sprintf("work_order:%d:block:%d", orderID, i)
@@ -171,6 +195,8 @@ func (s *Service) createOrderWithBlocksAndWarehouse(ctx context.Context, tpl wor
 			"name":              strings.TrimSpace(b.Name),
 			"machine_id":        numericOrString(m.ID),
 			"state":             m.State,
+			"responsible_type":  strings.TrimSpace(b.ResponsibleType),
+			"responsible_id":    blockResp[i],
 			"values":            map[string]any{},
 			"started_at":        "",
 			"completed_at":      "",
@@ -193,7 +219,7 @@ func (s *Service) createOrderWithBlocksAndWarehouse(ctx context.Context, tpl wor
 		doc["mobile_warehouse_id"] = orderID
 		title, _ := doc["title"].(string)
 		warehouseData := map[string]any{
-			"name":          title + " - warehouse",
+			"name":          title + " - " + warehouseDate(),
 			"type":          "mobile",
 			"work_order_id": orderID,
 			"enabled":       true,
@@ -279,4 +305,110 @@ func (s *Service) discardMachines(ctx context.Context, ids []string) {
 	for _, id := range ids {
 		_ = s.sub.DeleteMachine(cleanup, id)
 	}
+}
+
+// warehouseDate is the date the mobile warehouse's name carries (dd-mm-yyyy,
+// Montevideo time), as the work order module names it.
+func warehouseDate() string {
+	loc, err := time.LoadLocation("America/Montevideo")
+	if err != nil {
+		loc = time.FixedZone("UTC-3", -3*60*60)
+	}
+	return time.Now().In(loc).Format("02-01-2006")
+}
+
+// blockResponsibles resolves who runs each block. Every block needs one, of
+// the type its template block names (user, crew or third_party); the type
+// always comes from the template, never from the request.
+func (s *Service) blockResponsibles(ctx context.Context, tpl workOrderTemplate, given map[string]ID) ([]int64, []fieldProblem, error) {
+	out := make([]int64, len(tpl.Blocks))
+	if len(tpl.Blocks) > 0 {
+		if _, err := blockPredecessors(tpl.Blocks); err != nil {
+			return nil, nil, &ValidationError{Fields: []string{"template_id"}, Reason: "invalid block dependencies in the template: " + err.Error()}
+		}
+		n := len(tpl.Blocks)
+		if tpl.UsesConsumables {
+			n++
+		}
+		if n > maxCommitAppends {
+			return nil, nil, &ValidationError{Fields: []string{"template_id"},
+				Reason: fmt.Sprintf("the template needs %d commit records (blocks + mobile warehouse) but one commit holds at most %d records", n, maxCommitAppends)}
+		}
+	}
+	var problems []fieldProblem
+	known := map[string]bool{}
+	for _, b := range tpl.Blocks {
+		known[normName(b.Name)] = true
+	}
+	names := make([]string, 0, len(given))
+	for name := range given {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if !known[normName(name)] {
+			problems = append(problems, fieldProblem{"block_responsibles." + name, "not a block of this template"})
+		}
+	}
+	for i, b := range tpl.Blocks {
+		field := "block_responsibles." + strings.TrimSpace(b.Name)
+		var raw ID
+		for name, id := range given {
+			if normName(name) == normName(b.Name) {
+				raw = id
+			}
+		}
+		id, ok := parsePositiveID(raw)
+		if !ok {
+			problems = append(problems, fieldProblem{field, "required: the id of a " + strings.TrimSpace(b.ResponsibleType)})
+			continue
+		}
+		if _, err := s.resolveDirectResponsible(ctx, strings.TrimSpace(b.ResponsibleType), id); err != nil {
+			var ve *ValidationError
+			if errors.As(err, &ve) {
+				problems = append(problems, fieldProblem{field, ve.Reason})
+				continue
+			}
+			return nil, nil, err
+		}
+		out[i] = id
+	}
+	return out, problems, nil
+}
+
+// createOrderPlain stores an order that has no related records and lets xolu
+// assign its id. A rejected create removes the order's machine; one whose
+// outcome is unknown is looked up by this attempt's token before the machine
+// is given up on.
+func (s *Service) createOrderPlain(ctx context.Context, doc map[string]any, token string, machineIDs []string) (string, error) {
+	data := make(map[string]any, len(doc)+3)
+	for k, v := range doc {
+		data[k] = v
+	}
+	data["creation_token"] = token
+	data["block_execution_version"] = 1
+	data["block_count"] = 0
+	id, err := s.sub.CreateEntity(ctx, EntityType, data)
+	if err == nil {
+		return id, nil
+	}
+	var xe *XoluError
+	if errors.As(err, &xe) && commitRejected(xe.Status) {
+		s.discardMachines(ctx, machineIDs)
+		return "", classify(err, "")
+	}
+	check, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	rows, ferr := s.sub.FindEntities(check, EntityType, EntityQuery{
+		Where: []Condition{{Field: "creation_token", Op: "=", Value: token}}, Limit: 1,
+	})
+	if ferr == nil && len(rows) == 1 {
+		return idString(rows[0]["id"]), nil
+	}
+	if ferr == nil || isMissing(ferr) {
+		// xolu answered and the order is not there: nothing was created.
+		s.discardMachines(ctx, machineIDs)
+		return "", classify(err, "")
+	}
+	return "", &UnavailableError{Cause: fmt.Errorf("could not confirm the creation of the work order (it may have been created: look for creation_token %s with ListOrders before retrying): %w", token, err)}
 }

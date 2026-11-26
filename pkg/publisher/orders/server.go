@@ -210,6 +210,20 @@ func (s *Server) Handler() http.Handler {
 		}
 		return c.SetTemplateEnabled(r.Context(), in)
 	})))
+	mux.Handle("/api/v1/orders/execution/confirm-header", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in ConfirmHeaderInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.ConfirmExecutionHeader(r.Context(), in)
+	})))
+	mux.Handle("/api/v1/orders/execution/block", s.guard(s.handle(func(c *Service, r *http.Request, dec func(any) bool) (any, error) {
+		var in ExecuteBlockInput
+		if !dec(&in) {
+			return nil, errHandled
+		}
+		return c.ExecuteBlock(r.Context(), in)
+	})))
 	return withRequestID(mux)
 }
 

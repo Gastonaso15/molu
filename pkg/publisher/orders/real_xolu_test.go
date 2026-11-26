@@ -110,7 +110,9 @@ func TestRealXolu_TemplateOrder(t *testing.T) {
 		}
 		return id
 	}
-	crew := mk("crews", map[string]any{"name": "Cuadrilla real"})
+	u1 := mk(usersEntity, map[string]any{"name": "Responsable real", "active": true})
+	u2 := mk(usersEntity, map[string]any{"name": "Integrante real", "active": true})
+	crew := mk("crews", map[string]any{"name": "Cuadrilla real", "responsible_user_id": numericOrString(u1), "members": []any{numericOrString(u1), numericOrString(u2)}})
 	assetType := int64(77)
 	asset := mk("assets", map[string]any{"name": "Bomba real", "type_id": assetType})
 	tpl := mk(TemplateEntityType, map[string]any{
@@ -155,23 +157,42 @@ func TestRealXolu_TemplateOrder(t *testing.T) {
 		t.Fatalf("wrong asset type: want ValidationError, got %v", err)
 	}
 
-	_, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete})
+	// The order has its own workflow machine in xolu.
+	stored, err := sub.GetEntity(ctx, EntityType, o.ID)
+	if err != nil || intOf(stored["machine_id"]) == 0 || intOf(stored["block_execution_version"]) != 1 {
+		t.Fatalf("stored order: %v err=%v", stored, err)
+	}
+
+	var te *TransitionError
+	_, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, UserID: ID(u1)})
+	if !errors.As(err, &te) || te.Details["rule"] != "header_not_confirmed" {
+		t.Fatalf("header not confirmed: want header_not_confirmed, got %v", err)
+	}
+	_, err = svc.ConfirmExecutionHeader(ctx, ConfirmHeaderInput{OrderID: o.ID, UserID: ID(u1)})
 	if !errors.As(err, &ve) {
 		t.Fatalf("missing required answer: want ValidationError, got %v", err)
 	}
-	r, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, HeaderValues: map[string]any{"observacion": "lista"}})
+	if _, err = svc.ConfirmExecutionHeader(ctx, ConfirmHeaderInput{OrderID: o.ID, UserID: "999999", HeaderValues: map[string]any{"observacion": "x"}}); !errors.As(err, &te) || te.Details["rule"] != "not_responsible" {
+		t.Fatalf("a stranger: want not_responsible, got %v", err)
+	}
+	if _, err = svc.ConfirmExecutionHeader(ctx, ConfirmHeaderInput{OrderID: o.ID, UserID: ID(u2), HeaderValues: map[string]any{"observacion": "lista"}}); err != nil {
+		t.Fatalf("a crew member confirms the header: %v", err)
+	}
+	r, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, UserID: ID(u1)})
 	if err != nil || r.Current != "En curso" {
 		t.Fatalf("step 1: %+v %v", r, err)
 	}
-	var te *TransitionError
-	_, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, WorkflowIndex: new(int)})
+	_, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, UserID: ID(u1), WorkflowIndex: new(int)})
 	if !errors.As(err, &te) || te.Details["rule"] != "stale_state" {
 		t.Fatalf("stale step: want stale_state, got %v", err)
 	}
 	t.Logf("stale step: %q", te.Message)
-	r, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, Payload: map[string]any{"technician_signature": "sig"}})
+	r, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, UserID: ID(u1)})
 	if err != nil || r.Current != "Cerrada" || !r.Order.Terminal {
 		t.Fatalf("step 2: %+v %v", r, err)
+	}
+	if _, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, UserID: ID(u1)}); !errors.As(err, &te) || te.Details["rule"] != "final_state" {
+		t.Fatalf("after closing: want final_state, got %v", err)
 	}
 
 	// What xolu holds is what seam-CURE reads.
@@ -181,7 +202,7 @@ func TestRealXolu_TemplateOrder(t *testing.T) {
 	}
 	t.Logf("stored document: %v", doc)
 	if doc["state"] != "Cerrada" || idString(doc["workflow_index"]) != "2" || doc["workflow_mode"] != "template" ||
-		doc["technician_signature"] != "sig" || doc["completed_at"] == nil || idString(doc["machine_id"]) != "0" {
+		doc["completed_at"] == nil || intOf(doc["machine_id"]) == 0 || doc["execution_header_completed_at"] == nil {
 		t.Fatalf("document = %v", doc)
 	}
 
@@ -559,7 +580,10 @@ func TestRealXolu_ClaimOrder(t *testing.T) {
 	if _, err := svc.ClaimOrder(ctx, ClaimInput{OrderID: order, UserID: ID(userB)}); err == nil {
 		t.Fatal("a second user must not take a claimed order")
 	}
-	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: order, Input: InputComplete, Payload: map[string]any{"technician_signature": "firma"}}); err != nil {
+	if _, err := svc.ConfirmExecutionHeader(ctx, ConfirmHeaderInput{OrderID: order, UserID: ID(userA)}); err != nil {
+		t.Fatalf("the claimant confirms the header: %v", err)
+	}
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: order, Input: InputComplete, UserID: ID(userA)}); err != nil {
 		t.Fatalf("a claimed order must advance: %v", err)
 	}
 
@@ -606,7 +630,8 @@ func TestRealXolu_CreateOrderWithBlocks(t *testing.T) {
 		return id
 	}
 	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
-	crew := mk("crews", map[string]any{"name": "Cuadrilla bloques " + tag})
+	user := mk(usersEntity, map[string]any{"name": "Responsable bloques " + tag, "active": true})
+	crew := mk("crews", map[string]any{"name": "Cuadrilla bloques " + tag, "responsible_user_id": numericOrString(user), "members": []any{numericOrString(user)}})
 	assetType := int64(80)
 	asset := mk("assets", map[string]any{"name": "Equipo bloques", "type_id": assetType})
 	tpl := mk(TemplateEntityType, map[string]any{
@@ -620,7 +645,8 @@ func TestRealXolu_CreateOrderWithBlocks(t *testing.T) {
 		"consumables_allowed": false,
 	})
 
-	o, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)}})
+	responsibles := map[string]ID{"Preparacion": ID(user), "Trabajo": ID(crew)}
+	o, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)}, BlockResponsibles: responsibles})
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
@@ -648,7 +674,7 @@ func TestRealXolu_CreateOrderWithBlocks(t *testing.T) {
 		}
 	}
 	// The block definition is shared: opening a second order reuses it.
-	if _, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)}}); err != nil {
+	if _, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)}, BlockResponsibles: responsibles}); err != nil {
 		t.Fatalf("second order: %v", err)
 	}
 	listed, _ := svc.ListTemplates(ctx, ListTemplatesInput{})
@@ -682,9 +708,12 @@ func TestRealXolu_CommitIsAtomic(t *testing.T) {
 	}
 }
 
-// Advances an order with blocks, answering block lines by name, against the
-// real xolu: the answers must land under Seam's keys and read back by name.
-func TestRealXolu_AdvanceOrderWithBlockAnswers(t *testing.T) {
+// Runs an order's blocks against the real xolu: confirm the header, then start,
+// save and complete each block (each start and complete is one Commit that also
+// walks the block's own machine), and close the order (one Commit that walks
+// the order's workflow machine). The answers land on the block records under
+// the work order module's keys and read back by name.
+func TestRealXolu_ExecuteBlocks(t *testing.T) {
 	url := os.Getenv("MOLU_REAL_XOLU_URL")
 	if url == "" {
 		t.Skip("MOLU_REAL_XOLU_URL not set")
@@ -700,45 +729,115 @@ func TestRealXolu_AdvanceOrderWithBlockAnswers(t *testing.T) {
 		return id
 	}
 	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
-	crew := mk("crews", map[string]any{"name": "Cuadrilla respuestas " + tag})
+	lead := mk(usersEntity, map[string]any{"name": "Jefe " + tag, "active": true})
+	tech := mk(usersEntity, map[string]any{"name": "Tecnico " + tag, "active": true})
+	other := mk(usersEntity, map[string]any{"name": "Ajeno " + tag, "active": true})
+	crew := mk("crews", map[string]any{"name": "Cuadrilla respuestas " + tag, "responsible_user_id": numericOrString(lead), "members": []any{numericOrString(lead)}})
 	assetType := int64(81)
 	asset := mk("assets", map[string]any{"name": "Equipo respuestas", "type_id": assetType})
 	tpl := mk(TemplateEntityType, map[string]any{
 		"name": "Plantilla respuestas " + tag, "version": 1, "latest": true, "asset_type_id": assetType, "min_assets": 1, "max_assets": 1,
 		"workflow_states": []map[string]any{{"name": "Pendiente"}, {"name": "En curso"}, {"name": "Cerrada"}},
-		"header_items":    []map[string]any{},
+		"header_items": []map[string]any{
+			{"tag": "observacion", "type": "text", "to_fill_out": "upon_executing", "required": true},
+		},
 		"blocks": []map[string]any{
 			{"name": "Preparacion", "predecessor": "", "responsible_type": "user", "lines": []map[string]any{{"name": "aislado", "type": "boolean"}, {"name": "nota", "type": "text"}}},
 			{"name": "Trabajo", "predecessor": "Preparacion", "responsible_type": "crew", "lines": []map[string]any{{"name": "horas", "type": "number"}}},
 		},
 		"consumables_allowed": false,
 	})
-	o, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)}})
+	o, err := svc.CreateOrder(ctx, CreateInput{
+		TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew), AssetIDs: []ID{ID(asset)},
+		BlockResponsibles: map[string]ID{"Preparacion": ID(tech), "Trabajo": ID(crew)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	rule := func(err error) string {
+		var te *TransitionError
+		if errors.As(err, &te) {
+			r, _ := te.Details["rule"].(string)
+			return r
+		}
+		return ""
+	}
+	block := func(name, intent, user string, values map[string]any) (ExecuteBlockResult, error) {
+		return svc.ExecuteBlock(ctx, ExecuteBlockInput{OrderID: o.ID, Block: name, Intent: intent, UserID: ID(user), Values: values})
+	}
 
-	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, BlockValues: map[string]any{"Trabajo": map[string]any{"horas": "muchas"}}}); err == nil {
-		t.Fatal("a badly typed answer must be rejected")
+	if _, err := block("Preparacion", IntentStart, tech, nil); rule(err) != "header_not_confirmed" {
+		t.Fatalf("before the header: %v", err)
 	}
-	r, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, BlockValues: map[string]any{"Preparacion": map[string]any{"aislado": true, "nota": "listo"}}})
-	if err != nil || r.Current != "En curso" {
-		t.Fatalf("step 1 = %+v err=%v", r, err)
+	if _, err := svc.ConfirmExecutionHeader(ctx, ConfirmHeaderInput{OrderID: o.ID, UserID: ID(lead), HeaderValues: map[string]any{"observacion": "ok"}}); err != nil {
+		t.Fatal(err)
 	}
-	r, err = svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete,
-		BlockValues: map[string]any{"Trabajo": map[string]any{"horas": 2.5}}, Payload: map[string]any{"technician_signature": "firma"}})
+	if _, err := block("Trabajo", IntentStart, lead, nil); rule(err) != "predecessor_pending" {
+		t.Fatalf("predecessor: %v", err)
+	}
+	if _, err := block("Preparacion", IntentStart, other, nil); rule(err) != "not_responsible" {
+		t.Fatalf("a stranger: %v", err)
+	}
+	// The block's own responsible starts it (a user who is not the order's).
+	st, err := block("Preparacion", IntentStart, tech, nil)
+	if err != nil || st.Block.State != "in_progress" || st.Previous != "pending" {
+		t.Fatalf("start = %+v err=%v", st, err)
+	}
+	if _, err := block("Preparacion", IntentStart, tech, nil); rule(err) != "invalid_block_state" {
+		t.Fatalf("start twice: %v", err)
+	}
+	var ve *ValidationError
+	if _, err := block("Preparacion", IntentSave, tech, map[string]any{"aislado": "quiza"}); !errors.As(err, &ve) {
+		t.Fatalf("a badly typed answer must be rejected: %v", err)
+	}
+	if _, err := block("Preparacion", IntentSave, tech, map[string]any{"aislado": true}); err != nil {
+		t.Fatal(err)
+	}
+	done, err := block("Preparacion", IntentComplete, tech, map[string]any{"nota": "listo"})
+	if err != nil || done.Block.State != "completed" || done.Block.Values[blockLineKey(0, 0)] != true || done.Block.Values[blockLineKey(0, 1)] != "listo" {
+		t.Fatalf("complete = %+v err=%v", done, err)
+	}
+
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, UserID: ID(lead)}); err != nil {
+		t.Fatalf("step 1: %v", err)
+	}
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, UserID: ID(lead)}); rule(err) != "blocks_incomplete" {
+		t.Fatalf("closing with a block pending: %v", err)
+	}
+	if _, err := block("Trabajo", IntentStart, lead, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := block("Trabajo", IntentComplete, lead, map[string]any{"horas": 2.5}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, UserID: ID(lead)})
 	if err != nil || r.Current != "Cerrada" || !r.Order.Terminal {
-		t.Fatalf("step 2 = %+v err=%v", r, err)
+		t.Fatalf("close = %+v err=%v", r, err)
 	}
 
+	// The machines in xolu agree with the documents.
 	doc, err := sub.GetEntity(ctx, EntityType, o.ID)
-	bv, _ := doc["block_values"].(map[string]any)
-	if err != nil || bv["template_block_0_line_0"] != true || bv["template_block_0_line_1"] != "listo" || len(bv) != 3 {
-		t.Fatalf("stored block_values = %v err=%v", bv, err)
+	if err != nil || doc["state"] != "Cerrada" {
+		t.Fatalf("order = %v err=%v", doc, err)
+	}
+	hist, err := sub.MachineHistory(ctx, idString(doc["machine_id"]))
+	if err != nil || len(hist) != 3 || hist[2].To != "Cerrada" {
+		t.Fatalf("order machine history = %+v err=%v", hist, err)
 	}
 	d, err := svc.GetOrder(ctx, o.ID)
-	if err != nil || d.BlockAnswers["Preparacion"]["nota"] != "listo" || d.BlockAnswers["Trabajo"]["horas"] != json.Number("2.5") && d.BlockAnswers["Trabajo"]["horas"] != 2.5 || !d.Signed {
-		t.Fatalf("answers = %v signed=%v err=%v", d.BlockAnswers, d.Signed, err)
+	if err != nil || d.HeaderConfirmedAt == "" || d.BlockAnswers["Preparacion"]["nota"] != "listo" || d.Blocks[0].State != "completed" || d.Blocks[1].State != "completed" ||
+		(d.BlockAnswers["Trabajo"]["horas"] != json.Number("2.5") && d.BlockAnswers["Trabajo"]["horas"] != 2.5) {
+		t.Fatalf("detail = %+v err=%v", d, err)
+	}
+	for i := range d.Blocks {
+		rows, err := sub.FindEntities(ctx, "work_order_blocks", EntityQuery{Where: []Condition{{Field: "work_order_id", Op: "=", Value: numericOrString(o.ID)}, {Field: "block_index", Op: "=", Value: int64(i)}}, Limit: 1})
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("block %d record: %v %v", i, rows, err)
+		}
+		h, err := sub.MachineHistory(ctx, idString(rows[0]["machine_id"]))
+		if err != nil || len(h) != 3 || h[2].To != "completed" {
+			t.Fatalf("block %d machine history = %+v err=%v", i, h, err)
+		}
 	}
 }
 
@@ -920,7 +1019,8 @@ func TestRealXolu_MobileWarehouseLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	crew := mk("crews", map[string]any{"name": "Cuadrilla movil " + tag})
+	lead := mk(usersEntity, map[string]any{"name": "Jefe movil " + tag, "active": true})
+	crew := mk("crews", map[string]any{"name": "Cuadrilla movil " + tag, "responsible_user_id": numericOrString(lead), "members": []any{numericOrString(lead)}})
 	assetType := int64(82)
 	asset := mk("assets", map[string]any{"name": "Equipo movil " + tag, "type_id": assetType})
 	tpl := mk(TemplateEntityType, map[string]any{
@@ -935,7 +1035,7 @@ func TestRealXolu_MobileWarehouseLifecycle(t *testing.T) {
 
 	o, err := svc.CreateOrder(ctx, CreateInput{
 		TemplateID: ID(tpl), AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: ID(crew),
-		AssetIDs: []ID{ID(asset)}, CreatedByUserID: "1",
+		AssetIDs: []ID{ID(asset)}, CreatedByUserID: "1", BlockResponsibles: map[string]ID{"Revision": ID(crew)},
 	})
 	if err != nil || o.MobileWarehouseID != o.ID {
 		t.Fatalf("CreateOrder: %+v err=%v", o, err)
@@ -955,12 +1055,16 @@ func TestRealXolu_MobileWarehouseLifecycle(t *testing.T) {
 	if err != nil || consumed.Movement.StockAfter != 3 {
 		t.Fatalf("ConsumeFromOrder: %+v err=%v", consumed, err)
 	}
-	// Complete order with block answer + signature.
-	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{
-		OrderID: o.ID, Input: InputComplete,
-		BlockValues: map[string]any{"Revision": map[string]any{"ok": true}},
-		Payload:     map[string]any{"technician_signature": "firma"},
-	}); err != nil {
+	// Run the block, confirm the header and close the order.
+	if _, err := svc.ConfirmExecutionHeader(ctx, ConfirmHeaderInput{OrderID: o.ID, UserID: ID(lead)}); err != nil {
+		t.Fatal(err)
+	}
+	for _, intent := range []string{IntentStart, IntentComplete} {
+		if _, err := svc.ExecuteBlock(ctx, ExecuteBlockInput{OrderID: o.ID, Block: "Revision", Intent: intent, UserID: ID(lead), Values: map[string]any{"ok": true}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.AdvanceOrder(ctx, AdvanceInput{OrderID: o.ID, Input: InputComplete, UserID: ID(lead)}); err != nil {
 		t.Fatal(err)
 	}
 	// Return all remaining leftovers (3) back to central.
@@ -1130,4 +1234,74 @@ func TestRealXolu_TemplateWrite(t *testing.T) {
 		},
 	})
 	wantRule(t, err, "not_latest")
+}
+
+// Enables and disables a template against the real xolu: the flag is stored
+// on the template, a disabled template refuses new orders, and only the
+// latest version can be switched.
+func TestRealXolu_SetTemplateEnabled(t *testing.T) {
+	url := os.Getenv("MOLU_REAL_XOLU_URL")
+	if url == "" {
+		t.Skip("MOLU_REAL_XOLU_URL not set")
+	}
+	ctx := context.Background()
+	sub := NewHTTPSubstrate(url, os.Getenv("MOLU_REAL_XOLU_TOKEN"), 0)
+	svc := NewService(sub)
+	mk := func(entity string, doc map[string]any) string {
+		id, err := sub.CreateEntity(ctx, entity, doc)
+		if err != nil {
+			t.Fatalf("seed %s: %v", entity, err)
+		}
+		return id
+	}
+	tag := strconv.FormatInt(time.Now().UnixNano(), 36)
+	crew := mk("crews", map[string]any{"name": "Cuadrilla activa " + tag})
+	doc := func(version int, latest bool) map[string]any {
+		return map[string]any{
+			"name": "Plantilla activable " + tag, "version": version, "latest": latest, "min_assets": 0, "max_assets": 0,
+			"workflow_states": []map[string]any{{"name": "Pendiente"}, {"name": "Cerrada"}},
+			"header_items":    []map[string]any{}, "blocks": []any{}, "consumables_allowed": false,
+		}
+	}
+	old, cur := mk(TemplateEntityType, doc(1, false)), mk(TemplateEntityType, doc(2, true))
+	open := func() error {
+		_, err := svc.CreateOrder(ctx, CreateInput{TemplateID: ID(cur), AssignmentType: AssignmentBoard, ResponsibleType: "crew"})
+		return err
+	}
+	off, on := false, true
+
+	if err := open(); err != nil {
+		t.Fatalf("a template without the flag reads as enabled: %v", err)
+	}
+	res, err := svc.SetTemplateEnabled(ctx, SetTemplateEnabledInput{TemplateID: ID(cur), Enabled: &off})
+	if err != nil || !res.Changed || res.Template.Enabled {
+		t.Fatalf("disable = %+v err=%v", res, err)
+	}
+	stored, err := sub.GetEntity(ctx, TemplateEntityType, cur)
+	if err != nil || stored["enabled"] != false {
+		t.Fatalf("stored = %v err=%v", stored, err)
+	}
+	var te *TransitionError
+	if err := open(); !errors.As(err, &te) || te.Details["rule"] != "template_disabled" {
+		t.Fatalf("a disabled template must refuse orders, got %v", err)
+	}
+	listed, _ := svc.ListTemplates(ctx, ListTemplatesInput{})
+	for _, tp := range listed.Templates {
+		if tp.ID == cur && tp.Enabled {
+			t.Fatalf("ListTemplates still says enabled: %+v", tp)
+		}
+	}
+	if again, err := svc.SetTemplateEnabled(ctx, SetTemplateEnabledInput{TemplateID: ID(cur), Enabled: &off}); err != nil || again.Changed {
+		t.Fatalf("same state = %+v err=%v", again, err)
+	}
+	if res, err = svc.SetTemplateEnabled(ctx, SetTemplateEnabledInput{TemplateID: ID(cur), Enabled: &on}); err != nil || !res.Changed || !res.Template.Enabled {
+		t.Fatalf("enable = %+v err=%v", res, err)
+	}
+	if err := open(); err != nil {
+		t.Fatalf("an enabled template opens orders: %v", err)
+	}
+	if _, err := svc.SetTemplateEnabled(ctx, SetTemplateEnabledInput{TemplateID: ID(old), Enabled: &off}); !errors.As(err, &te) || te.Details["rule"] != "not_latest" {
+		t.Fatalf("a superseded version: want not_latest, got %v", err)
+	}
+	_ = crew
 }

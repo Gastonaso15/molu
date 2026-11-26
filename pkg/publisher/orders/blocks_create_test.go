@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func (f *fakeSubstrate) CreateMachineWithRef(_ context.Context, _ string, ref string) (Machine, error) {
+func (f *fakeSubstrate) CreateMachineWithRef(_ context.Context, defID string, ref string) (Machine, error) {
 	if f.failWith != nil {
 		return Machine{}, f.failWith
 	}
@@ -21,6 +21,13 @@ func (f *fakeSubstrate) CreateMachineWithRef(_ context.Context, _ string, ref st
 	f.next++
 	id := strconv.Itoa(2000 + f.next)
 	f.machines[id] = &Machine{ID: id, State: "pending"}
+	if def, ok := f.defs[defID]; ok {
+		f.machines[id].State, _ = def["initial"].(string)
+		if f.machineDef == nil {
+			f.machineDef = map[string]string{}
+		}
+		f.machineDef[id] = defID
+	}
 	if f.refs == nil {
 		f.refs = map[string]string{}
 	}
@@ -70,6 +77,9 @@ func (f *fakeSubstrate) Commit(_ context.Context, req CommitRequest) error {
 		}
 	}
 	f.put(req.Update.Entity, updateID, req.Update.Data)
+	if f.orderWithoutMachine && req.Update.Entity == EntityType && templateOrder(req.Update.Data) {
+		f.entities[EntityType][updateID]["machine_id"] = int64(0)
+	}
 	if nextVer > 0 {
 		f.entities[req.Update.Entity][updateID]["_version"] = nextVer
 	}
@@ -106,20 +116,43 @@ func threeBlocks() []any {
 	}
 }
 
+// blockWorld is the fake newBlockWorld built last: blockInput reads the
+// blocks of template 10 from it to name a responsible for each (user 9 for
+// user blocks, crew 7 for the rest). Tests here do not run in parallel.
+var blockWorld *fakeSubstrate
+
 func blockInput() CreateInput {
-	return CreateInput{TemplateID: "10", AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: "7", AssetIDs: []ID{"11"}}
+	in := CreateInput{TemplateID: "10", AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: "7", AssetIDs: []ID{"11"}}
+	if blockWorld == nil {
+		return in
+	}
+	in.BlockResponsibles = map[string]ID{}
+	blocks, _ := blockWorld.entities[TemplateEntityType]["10"]["blocks"].([]any)
+	for _, raw := range blocks {
+		b, _ := raw.(map[string]any)
+		name, _ := b["name"].(string)
+		if b["responsible_type"] == "user" {
+			in.BlockResponsibles[name] = "9"
+		} else {
+			in.BlockResponsibles[name] = "7"
+		}
+	}
+	return in
 }
 
 func newBlockWorld(t *testing.T, blocks []any) (*fakeSubstrate, *Service) {
 	t.Helper()
 	fs := newFake()
 	seedWorld(fs)
+	fs.put(usersEntity, "9", map[string]any{"name": "Ana", "active": true})
 	blockTemplate(fs, "10", blocks)
+	blockWorld = fs
 	return fs, NewService(fs)
 }
 
 func TestCreateOrder_WithBlocks_WritesOrderBlocksAndMachinesInOneCommit(t *testing.T) {
 	fs, svc := newBlockWorld(t, threeBlocks())
+	fs.orderWithoutMachine = false
 	o, err := svc.CreateOrder(context.Background(), blockInput())
 	if err != nil {
 		t.Fatal(err)
@@ -133,14 +166,14 @@ func TestCreateOrder_WithBlocks_WritesOrderBlocksAndMachinesInOneCommit(t *testi
 	}
 	doc := fs.entities[EntityType][o.ID]
 	if doc == nil || doc["workflow_mode"] != "template" || intOf(doc["block_count"]) != 3 || intOf(doc["block_execution_version"]) != 1 ||
-		intOf(doc["machine_id"]) != 0 || doc["state"] != "Pendiente" || doc["creation_token"] == "" || doc["creation_token"] == nil {
+		intOf(doc["machine_id"]) == 0 || doc["state"] != "Pendiente" || doc["creation_token"] == "" || doc["creation_token"] == nil {
 		t.Fatalf("order document = %v", doc)
 	}
 	if bv, ok := doc["block_values"].(map[string]any); !ok || len(bv) != 0 {
 		t.Errorf("block_values = %v", doc["block_values"])
 	}
 	blocks := fs.entities[workOrderBlocksEntity]
-	if len(blocks) != 3 || len(fs.machines) != 3 {
+	if len(blocks) != 3 || len(fs.machines) != 4 { // three blocks + the order's workflow
 		t.Fatalf("blocks=%d machines=%d", len(blocks), len(fs.machines))
 	}
 	var names []string
@@ -180,7 +213,15 @@ func TestCreateOrder_WithBlocks_EnsuresTheBlockDefinitionOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(rec.names) != 1 || rec.names[0] != BlockDefinitionName {
+	// The shared block definition is ensured once; each order also ensures
+	// its template version's workflow definition.
+	blockEnsures := 0
+	for _, n := range rec.names {
+		if n == BlockDefinitionName {
+			blockEnsures++
+		}
+	}
+	if blockEnsures != 1 || len(rec.names) != 3 || rec.names[0] != BlockDefinitionName || rec.names[1] != TemplateDefinitionName("10", 2) {
 		t.Fatalf("definitions ensured = %v", rec.names)
 	}
 	d := rec.defs[0]
@@ -242,7 +283,7 @@ func TestCreateOrder_WithBlocks_InvalidDependencies(t *testing.T) {
 }
 
 func TestCreateOrder_WithBlocks_ForwardPredecessorIsFine(t *testing.T) {
-	blocks := []any{map[string]any{"name": "A", "predecessor": "B"}, map[string]any{"name": "B"}}
+	blocks := []any{map[string]any{"name": "A", "responsible_type": "user", "predecessor": "B"}, map[string]any{"name": "B", "responsible_type": "user"}}
 	fs, svc := newBlockWorld(t, blocks)
 	if _, err := svc.CreateOrder(context.Background(), blockInput()); err != nil {
 		t.Fatal(err)
@@ -257,7 +298,7 @@ func TestCreateOrder_WithBlocks_ForwardPredecessorIsFine(t *testing.T) {
 func TestCreateOrder_WithBlocks_TooManyForOneCommit(t *testing.T) {
 	var blocks []any
 	for i := 0; i < 26; i++ {
-		blocks = append(blocks, map[string]any{"name": "B" + strconv.Itoa(i)})
+		blocks = append(blocks, map[string]any{"name": "B" + strconv.Itoa(i), "responsible_type": "user"})
 	}
 	fs, svc := newBlockWorld(t, blocks)
 	_, err := svc.CreateOrder(context.Background(), blockInput())
@@ -282,7 +323,7 @@ func TestCreateOrder_WithBlocks_MachineFailureCleansUp(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error")
 	}
-	if fs.commits != 0 || len(fs.deleted) != 2 || len(fs.machines) != 0 || len(fs.entities[EntityType]) != 0 {
+	if fs.commits != 0 || len(fs.deleted) != 3 || len(fs.machines) != 0 || len(fs.entities[EntityType]) != 0 {
 		t.Fatalf("commits=%d deleted=%v machines=%d orders=%d", fs.commits, fs.deleted, len(fs.machines), len(fs.entities[EntityType]))
 	}
 }
@@ -299,7 +340,7 @@ func TestCreateOrder_WithBlocks_RejectedCommitDeletesTheMachines(t *testing.T) {
 		if errors.As(err, &ue) {
 			t.Errorf("%d: a rejection is not an outage: %v", status, err)
 		}
-		if len(fs.deleted) != 3 || len(fs.machines) != 0 || len(fs.entities[EntityType]) != 0 {
+		if len(fs.deleted) != 4 || len(fs.machines) != 0 || len(fs.entities[EntityType]) != 0 {
 			t.Errorf("%d: deleted=%v machines=%d orders=%d", status, fs.deleted, len(fs.machines), len(fs.entities[EntityType]))
 		}
 	}
@@ -312,7 +353,7 @@ func TestCreateOrder_WithBlocks_UncertainCommitThatWasSavedIsSuccess(t *testing.
 	if err != nil {
 		t.Fatalf("the commit was saved: %v", err)
 	}
-	if len(fs.deleted) != 0 || len(fs.machines) != 3 || fs.entities[EntityType][o.ID] == nil {
+	if len(fs.deleted) != 0 || len(fs.machines) != 4 || fs.entities[EntityType][o.ID] == nil {
 		t.Fatalf("deleted=%v machines=%d", fs.deleted, len(fs.machines))
 	}
 }
@@ -329,7 +370,7 @@ func TestCreateOrder_WithBlocks_UncertainCommitNotSavedKeepsMachinesAndSaysWhich
 		t.Errorf("the error should say the order may exist: %v", err)
 	}
 	// The commit may still land: its machines must not be deleted.
-	if len(fs.deleted) != 0 || len(fs.machines) != 3 {
+	if len(fs.deleted) != 0 || len(fs.machines) != 4 {
 		t.Fatalf("deleted=%v machines=%d", fs.deleted, len(fs.machines))
 	}
 }
@@ -360,12 +401,14 @@ func TestListTemplates_BlockTemplatesAreUsable(t *testing.T) {
 	_ = fs
 }
 
-func TestCreateOrder_WithoutBlocksStaysASingleWrite(t *testing.T) {
-	fs := newFake()
+func TestCreateOrder_WithoutBlocksIsAPlainCreateWithItsWorkflowMachine(t *testing.T) {
+	fs := newExecFake()
 	seedWorld(fs)
 	o := mustCreate(t, NewService(fs), tplInput())
-	if fs.commits != 0 || fs.machineCalls != 0 {
-		t.Fatalf("commits=%d machines=%d", fs.commits, fs.machineCalls)
+	// A plain create (xolu refuses an empty Commit), and one machine: the
+	// order's own workflow; no block machines.
+	if fs.commits != 0 || fs.machineCalls != 0 || len(fs.machines) != 1 || intOf(fs.entities[EntityType][o.ID]["machine_id"]) == 0 {
+		t.Fatalf("commits=%d block machines=%d machines=%d", fs.commits, fs.machineCalls, len(fs.machines))
 	}
 	if bv, ok := fs.entities[EntityType][o.ID]["block_values"].(map[string]any); !ok || len(bv) != 0 {
 		t.Errorf("block_values = %v", fs.entities[EntityType][o.ID]["block_values"])

@@ -9,6 +9,7 @@ import (
 
 func seedMobileWarehouseWorld(fs *fakeSubstrate) {
 	seedWorld(fs)
+	fs.put(usersEntity, "9", map[string]any{"name": "Ana", "active": true})
 	fs.put(unitEntity, "1", map[string]any{"name": "Unidad", "symbol": "u"})
 	fs.put(warehouseEntity, "100", map[string]any{"name": "Deposito Central", "enabled": true, "_version": 1})
 	fs.put(consumableEntity, "10", map[string]any{
@@ -71,7 +72,7 @@ func TestCreateOrder_WithMobileWarehouseOnly(t *testing.T) {
 	wh := fs.entities[warehouseEntity][o.ID]
 	if wh == nil || wh["type"] != "mobile" || wh["enabled"] != true ||
 		idString(wh["work_order_id"]) != o.ID || intOf(wh["responsible_user_id"]) != 9 ||
-		wh["name"] != "Mantenimiento consumibles - warehouse" {
+		wh["name"] != "Mantenimiento consumibles - "+warehouseDate() {
 		t.Fatalf("mobile warehouse doc = %v", wh)
 	}
 
@@ -96,11 +97,12 @@ func TestCreateOrder_WithBlocksAndMobileWarehouse(t *testing.T) {
 	svc := NewService(fs)
 
 	o, err := svc.CreateOrder(ctx, CreateInput{
-		TemplateID:      "21",
-		AssignmentType:  AssignmentDirect,
-		ResponsibleType: "crew",
-		ResponsibleID:   "7",
-		AssetIDs:        []ID{"11"},
+		TemplateID:        "21",
+		AssignmentType:    AssignmentDirect,
+		ResponsibleType:   "crew",
+		ResponsibleID:     "7",
+		AssetIDs:          []ID{"11"},
+		BlockResponsibles: map[string]ID{"A": "9", "B": "7", "C": "7"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +117,7 @@ func TestCreateOrder_WithBlocksAndMobileWarehouse(t *testing.T) {
 	// 25 blocks + 1 mobile warehouse = 26 appends -> exceeds commit limit (25), must fail before creating machines.
 	blocks25 := make([]any, 25)
 	for i := range blocks25 {
-		blocks25[i] = map[string]any{"name": "B" + string(rune('A'+i)), "lines": []any{}}
+		blocks25[i] = map[string]any{"name": "B" + string(rune('A'+i)), "responsible_type": "user", "lines": []any{}}
 	}
 	fs.entities[TemplateEntityType]["21"]["blocks"] = blocks25
 	fs.machineCalls = 0
@@ -202,6 +204,7 @@ func TestConsumeFromOrder_SuccessAllowlistAndIdempotent(t *testing.T) {
 	// Order from template 21 (add_any_consumables_allowed=true) allows consumable 12.
 	o2, err := svc.CreateOrder(ctx, CreateInput{
 		TemplateID: "21", AssignmentType: AssignmentDirect, ResponsibleType: "crew", ResponsibleID: "7", AssetIDs: []ID{"11"},
+		BlockResponsibles: map[string]ID{"A": "9", "B": "7", "C": "7"},
 	})
 	if err != nil {
 		t.Fatal(err)

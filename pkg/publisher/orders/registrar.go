@@ -67,8 +67,9 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			"Open a new work order. Without template_id it is a simple order (draft, then in_progress, then completed). "+
 				"With template_id (see ListTemplates) it follows that template's workflow: assignment_type and responsible_type are required, "+
 				"header_values answers the template's header items filled at creation, and asset_ids picks its assets. "+
-				"If the template has blocks or enables consumables, each block gets its own record/lifecycle (pending) and consumables open an empty mobile warehouse "+
-				"(mobile_warehouse_id == order id) in one atomic Commit (at most 25 appended records). Ids of such orders are large numbers, treat them as opaque strings. "+
+				"Every template order gets its own workflow machine. If the template has blocks, block_responsibles is required: one responsible id per block, by block name, "+
+				"of the type the block asks for (user, crew or third_party; see ListTemplates/GetTemplate blocks.responsible_type). Each block gets its own record/lifecycle (pending); consumables open an empty mobile warehouse "+
+				"(mobile_warehouse_id == order id). All in one atomic Commit (at most 25 appended records). Ids of such orders are large numbers, treat them as opaque strings. "+
 				"A direct assignment needs a crew or third_party responsible_id; use board_posting or AssignOrder for a user.",
 			"/api/v1/orders/create",
 			map[string]any{
@@ -85,6 +86,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 					"header_values":      map[string]any{"type": "object", "description": "Answers by header tag, for the header items filled at creation (see ListTemplates header_items)."},
 					"asset_ids":          map[string]any{"type": "array", "items": idSchema("Asset id."), "description": "Assets the order is about, within the template's min/max and asset type."},
 					"created_by_user_id": idSchema("Optional user id recorded as responsible_user_id on a newly opened mobile warehouse."),
+					"block_responsibles": map[string]any{"type": "object", "additionalProperties": idSchema("Id of the user, crew or third party that runs the block."), "description": "Templates with blocks: who runs each block, by block name, e.g. {\"Preparacion\": 4, \"Trabajo\": 7}. Every block needs one."},
 				},
 				"additionalProperties": false,
 			}),
@@ -102,10 +104,11 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 		mk("AdvanceOrder",
 			"Move a work order forward. Simple orders: fire an input, start (draft to in_progress) or complete (in_progress to completed, "+
 				"requires payload.technician_signature); the state machine may reject it and the rejection is returned as-is. "+
-				"Template orders: the only input is complete, which moves to the next state of the template; header_values answers "+
-				"the header items filled while executing, block_values answers the lines of the template's blocks (GetOrder shows them as block_answers), "+
+				"Template orders opened with block execution (they have their own workflow machine): input complete moves to the next state and fires the machine in the same Commit; "+
+				"user_id (the order's responsible) is required, the execution header must be confirmed first (ConfirmExecutionHeader), and the step into the last state needs every block completed (ExecuteBlock). "+
+				"Header and block answers are not accepted here for those orders. Older template orders (no machine): header_values and block_values answer the header items and block lines, "+
 				"and the step that reaches the last state needs payload.technician_signature. "+
-				"Rejected steps (stale step, final state, board posting not claimed) come back as INVALID_TRANSITION with details.rule.",
+				"Rejected steps (stale step, final state, not claimed, header_not_confirmed, blocks_incomplete, not_responsible) come back as INVALID_TRANSITION with details.rule.",
 			"/api/v1/orders/advance",
 			map[string]any{
 				"type": "object",
@@ -116,6 +119,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 					"header_values":  map[string]any{"type": "object", "description": "Template orders: answers by header tag for the items filled while executing."},
 					"block_values":   map[string]any{"type": "object", "description": "Template orders with blocks, optional: answers to the blocks' lines by block name then line name, e.g. {\"Preparacion\": {\"aislado\": true}}. Checked against each line's type; a missing or blank answer keeps the stored one."},
 					"workflow_index": map[string]any{"type": "integer", "description": "Template orders, optional: the step you believe the order is at; a mismatch is rejected as stale."},
+					"user_id":        idSchema("Template orders with block execution: the user who advances it; must be the order's responsible."),
 				},
 				"required":             []any{"order_id", "input"},
 				"additionalProperties": false,
@@ -462,6 +466,39 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 				"Rejects already-superseded versions with INVALID_TRANSITION (details.rule=not_latest) and concurrent changes with stale_state.",
 			"/api/v1/orders/templates/publish-version",
 			templateWriteSchema(true)),
+		mk("ConfirmExecutionHeader",
+			"Confirm the header items filled while executing (header items with filled_at upon_executing) and freeze them. Needed once, before any block starts or the order advances. "+
+				"Only the order's responsible (user_id) can do it, while the order is claimed and not in its final state. Required items must be answered in header_values (by tag). "+
+				"Rejected steps come back as INVALID_TRANSITION with details.rule (not_responsible, awaiting_claim, final_state, header_already_confirmed). Only orders that run blocks (have their own workflow machine).",
+			"/api/v1/orders/execution/confirm-header",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"order_id":      map[string]any{"type": "string", "minLength": 1},
+					"user_id":       idSchema("The user who confirms; must be the order's responsible (the user, a member or responsible of the crew, or the third party's responsible)."),
+					"header_values": map[string]any{"type": "object", "description": "Answers by header tag for the items filled while executing."},
+				},
+				"required":             []string{"order_id", "user_id"},
+				"additionalProperties": false,
+			}),
+		mk("ExecuteBlock",
+			"Start, save or complete one block of an order (intent start, save or complete). Start needs the execution header confirmed and the block's predecessor completed, and moves the block pending to in_progress; "+
+				"save stores answers (values, by line name) without moving it; complete stores the answers and moves it to completed. Start and complete move the block's own machine in the same Commit as the block record. "+
+				"The actor (user_id) must be the order's responsible or the block's responsible. Rejections come back as INVALID_TRANSITION with details.rule (not_responsible, header_not_confirmed, predecessor_pending, invalid_block_state, awaiting_claim, final_state). "+
+				"Answers are checked against each line's type; one not given keeps the saved one.",
+			"/api/v1/orders/execution/block",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"order_id": map[string]any{"type": "string", "minLength": 1},
+					"block":    map[string]any{"type": "string", "minLength": 1, "description": "The block's name (see GetOrder blocks)."},
+					"intent":   map[string]any{"type": "string", "enum": []any{IntentStart, IntentSave, IntentComplete}},
+					"user_id":  idSchema("The user who acts; the order's responsible or the block's responsible."),
+					"values":   map[string]any{"type": "object", "description": "save/complete: answers to the block's lines by line name, e.g. {\"aislado\": true}."},
+				},
+				"required":             []string{"order_id", "block", "intent", "user_id"},
+				"additionalProperties": false,
+			}),
 		mk("SetTemplateEnabled",
 			"Enable or disable a work order template for new orders (the module's enable/disable switch). Only the latest version can be switched; a superseded version is rejected with INVALID_TRANSITION (details.rule=not_latest). "+
 				"Existing orders are not affected; CreateOrder refuses a disabled template with details.rule=template_disabled. Setting the state the template already has changes nothing (changed=false). Concurrent changes answer stale_state.",

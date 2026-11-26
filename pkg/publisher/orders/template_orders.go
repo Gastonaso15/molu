@@ -66,6 +66,12 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 	}
 	problems = append(problems, p...)
 
+	blockResp, p, err := s.blockResponsibles(ctx, tpl, in.BlockResponsibles)
+	if err != nil {
+		return WorkOrder{}, err
+	}
+	problems = append(problems, p...)
+
 	if err := validationFrom(problems); err != nil {
 		return WorkOrder{}, err
 	}
@@ -90,15 +96,7 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 		"header_values":    headers,
 		"asset_ids":        assets,
 	}
-	var id string
-	if len(tpl.Blocks) > 0 || tpl.UsesConsumables {
-		id, err = s.createOrderWithBlocksAndWarehouse(ctx, tpl, doc, createdByUserID)
-	} else {
-		id, err = s.sub.CreateEntity(ctx, EntityType, doc)
-		if err != nil {
-			err = classify(err, "")
-		}
-	}
+	id, err := s.createOrderWithBlocksAndWarehouse(ctx, tpl, doc, createdByUserID, blockResp)
 	if err != nil {
 		return WorkOrder{}, err
 	}
@@ -110,6 +108,9 @@ func (s *Service) createTemplateOrder(ctx context.Context, in CreateInput) (Work
 // together, guarded by the entity's _version so a concurrent change is
 // rejected instead of overwritten.
 func (s *Service) advanceTemplateOrder(ctx context.Context, in AdvanceInput, doc map[string]any) (AdvanceResult, error) {
+	if executionOrder(doc) {
+		return s.advanceExecutionOrder(ctx, in)
+	}
 	state, _ := doc["state"].(string)
 	if doc["assignment_type"] == AssignmentBoard && intOf(doc["responsible_id"]) == 0 {
 		return AdvanceResult{}, rejection("awaiting_claim", "the order is on the board and nobody has claimed it yet", state)

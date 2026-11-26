@@ -1,5 +1,7 @@
 package orders
 
+import "fmt"
+
 // LifecycleDefinition is the FSM Seam's Work Orders module uses for orders
 // created without a template (the "legacy" path):
 //
@@ -56,5 +58,33 @@ func BlockLifecycleDefinition() Definition {
 			map[string]any{"from": "pending", "input": InputStart, "to": "in_progress"},
 			map[string]any{"from": "in_progress", "input": InputComplete, "to": "completed"},
 		},
+	}
+}
+
+// TemplateDefinitionName is the FSM definition of one template version: every
+// order opened from that version gets its own machine of it.
+func TemplateDefinitionName(templateID string, version int) string {
+	return fmt.Sprintf("seam_work_order_template_%s_v%d", templateID, version)
+}
+
+// TemplateWorkflowDefinition is the machine of a template version: its
+// workflow states in order, one "advance" transition between consecutive
+// states, the last state terminal.
+func TemplateWorkflowDefinition(templateID string, version int, states []string) Definition {
+	defStates := map[string]any{}
+	transitions := make([]any, 0, len(states))
+	for i, st := range states {
+		defStates[st] = map[string]any{"terminal": i == len(states)-1}
+		if i < len(states)-1 {
+			transitions = append(transitions, map[string]any{"from": st, "input": InputAdvance, "to": states[i+1]})
+		}
+	}
+	return Definition{
+		"name":        TemplateDefinitionName(templateID, version),
+		"description": fmt.Sprintf("Workflow for work order template %s version %d", templateID, version),
+		"initial":     states[0],
+		"determinism": "firstmatch",
+		"states":      defStates,
+		"transitions": transitions,
 	}
 }

@@ -426,60 +426,9 @@ func TestCriterio1_E2E_UnregisteredToolIsNotOffered(t *testing.T) {
 	}
 }
 
-// A template order goes through the same path as a simple one, and a rule of the
-// template workflow reaches the MCP client as INVALID_TRANSITION, marked as the
-// publisher's own rule rather than an xolu FSM.
-func TestCriterio1_E2E_TemplateOrder(t *testing.T) {
-	h := setupCriterio1(t)
-	h.xolu.reference["work_order_templates:1"] = map[string]any{
-		"name": "Pump check", "version": 1, "latest": true,
-		"workflow_states": []any{map[string]any{"name": "Pending"}, map[string]any{"name": "Done"}},
-		"header_items":    []any{},
-	}
-	h.xolu.reference["crews:7"] = map[string]any{"name": "Cuadrilla A"}
-
-	created := e2eSuccess(t, h.call(t, "work_orders.CreateOrder", map[string]any{
-		"template_id": 1, "assignment_type": "direct_assignment", "responsible_type": "crew", "responsible_id": 7,
-	}))
-	id, _ := created["id"].(string)
-	if id == "" || created["state"] != "Pending" || created["assigned_to"] != "Cuadrilla A" || created["template_id"] != "1" {
-		t.Fatalf("created = %v", created)
-	}
-
-	// Invalid input is reported field by field. The publisher answers 400 and the
-	// bridge relays it as an error whose text names the fields.
-	if text := e2eErrorText(t, h.call(t, "work_orders.CreateOrder", map[string]any{"template_id": 1, "assignment_type": "nope"})); !strings.Contains(text, "assignment_type") {
-		t.Fatalf("validation failure should name the field: %s", text)
-	}
-
-	// "start" is not an input of a template workflow.
-	rejected := e2eFailure(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{"order_id": id, "input": "start"}))
-	details, _ := rejected["details"].(map[string]any)
-	if rejected["code"] != "XOLU-INVALID_TRANSITION" || details["rule"] != "invalid_input" || details["source"] != "work-orders-publisher" {
-		t.Fatalf("rejection = %v", rejected)
-	}
-	if h.xolu.walks != 0 {
-		t.Fatalf("a template order has no xolu FSM, but xolu was walked %d time(s)", h.xolu.walks)
-	}
-
-	// The only step is the sign-off.
-	if text := e2eErrorText(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{"order_id": id, "input": "complete"})); !strings.Contains(text, "technician_signature") {
-		t.Fatalf("missing signature should be named: %s", text)
-	}
-	done := e2eSuccess(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{
-		"order_id": id, "input": "complete", "payload": map[string]any{"technician_signature": "sig"},
-	}))
-	if done["current"] != "Done" {
-		t.Fatalf("complete: %v", done)
-	}
-	if doc := h.xolu.entities["work_orders:"+id]; doc["state"] != "Done" || doc["workflow_index"] != float64(1) || doc["completed_at"] == nil {
-		t.Fatalf("work_orders document = %v", doc)
-	}
-	again := e2eFailure(t, h.call(t, "work_orders.AdvanceOrder", map[string]any{"order_id": id, "input": "complete"}))
-	if d, _ := again["details"].(map[string]any); d["rule"] != "final_state" {
-		t.Fatalf("a finished order must be rejected: %v", again)
-	}
-}
+// The template-order flow (own workflow machine, block execution, rejections
+// of the publisher's own rules) is covered end to end, with a richer xolu
+// simulator, by TestWorkOrders_FullScenario_MCP_E2E.
 
 // e2eErrorText returns the text of a tool error that is not a typed taxonomy error.
 func e2eErrorText(t *testing.T, resp map[string]any) string {

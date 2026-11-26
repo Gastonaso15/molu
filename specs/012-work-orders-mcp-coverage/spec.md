@@ -139,5 +139,29 @@ Seam dejó de ser "solo configuración" en la ejecución. Esto invalida supuesto
 
 ### 8.3 Efecto sobre la cobertura
 - Fila 4: de "no viable" a **hecha** (T19). Las 16 funciones del correo tienen ya herramienta.
-- Filas 8 y 15: pasan de "con matiz" / "completa" a **"requiere realineación"** (T20, T21) hasta que molu replique el flujo nuevo de ejecución y consumo. Lo ya construido sigue funcionando contra el contrato de `a3bd15c`, pero puede dejar datos que Seam no interpreta igual.
+- Fila 8 (cambiar estado): realineada en T20 (§8.4): confirmar cabecera, ejecutar bloques y avanzar con la máquina propia de la orden. Sigue sin existir pausar/cancelar/aprobar.
+- Fila 15 (almacén móvil): sigue **pendiente de realinear** (T21) hasta que molu replique el flujo nuevo de consumo y liquidación. Lo ya construido sigue funcionando contra el contrato de `a3bd15c`, pero puede dejar datos que Seam no interpreta igual.
 - Pedidos a WO que cambian: 1 resuelto; 5 y 9 respondidos en gran parte por el código nuevo (falta confirmar con WO que ese es el diseño definitivo); el resto sigue abierto.
+
+### 8.4 T20 hecha: ejecución de bloques y avance (26-nov-2026)
+Contra la rama `work_orders` en `25e7fa7`. Funciones del publicador: 33 (`work_orders.ConfirmExecutionHeader` y `work_orders.ExecuteBlock` nuevas; `CreateOrder`, `AdvanceOrder` y `GetOrder` cambian de contrato).
+
+**Qué cambió respecto a §2 y a T8/T9**
+- **Máquina propia por orden**: toda orden con plantilla crea una máquina de la definición `seam_work_order_template_<plantilla>_v<versión>` (estados de la plantilla en orden, una transición `advance` entre consecutivos, el último terminal) y guarda su `machine_id`. Antes las órdenes con plantilla no tenían máquina.
+- **Responsable por bloque**: `CreateOrder` exige `block_responsibles` (por nombre de bloque) cuando la plantilla tiene bloques. El tipo (user, crew, third_party) sale de la plantilla; se valida que exista (y que el usuario esté activo). Cada registro de bloque guarda `responsible_type` y `responsible_id`.
+- **`ConfirmExecutionHeader`** (`user_id`, `header_values`): confirma una sola vez los ítems "al ejecutar" y los congela (`execution_header_completed_at/_by_user_id`). Solo el responsable de la orden; la orden debe estar reclamada y abierta.
+- **`ExecuteBlock`** (`block`, `intent` start|save|complete, `user_id`, `values` por nombre de línea): exige cabecera confirmada y predecesor completado; actúa el responsable de la orden o el del bloque. `start` y `complete` guardan el bloque y mueven su máquina en un único `Commit` con `fsm_walk`; `save` solo guarda. Las respuestas van en `values` del bloque con las claves `template_block_<i>_line_<j>`. `GetOrder` las vuelve a mostrar por nombre en `block_answers`.
+- **`AdvanceOrder`** en órdenes con máquina: exige `user_id` (responsable de la orden), cabecera confirmada, y todos los bloques completados para entrar al último estado; un `Commit` actualiza la orden y dispara `advance` en su máquina. Ya no acepta `header_values`, `block_values` ni firma para esas órdenes.
+- Las órdenes **sin máquina** (abiertas antes de T20) siguen avanzando con la ruta antigua (un solo PATCH). **Seam ya no puede ejecutarlas en su pantalla** ("template work order has no FSM machine").
+- El almacén móvil se nombra `<título> - dd-mm-aaaa` (hora de Montevideo), como Seam.
+
+**Hallazgos al probar contra xolu real** (127.0.0.1:9595)
+- xolu rechaza un `Commit` sin `append` ni `fsm_walk` (`XOLU-CM003`). Una orden sin bloques ni almacén móvil no tiene nada que anexar, así que se crea con un create simple (`creation_token` para resolver un resultado incierto). El doble de pruebas no lo detectaba. Por lectura del código, la rama de Seam también envía un commit así cuando hay máquina de plantilla; no se comprobó en vivo.
+- Los 18 `TestRealXolu_*` pasan, incluidos `ExecuteBlocks` (historial de las máquinas de cada bloque y de la orden) y `SetTemplateEnabled`.
+
+**Limitaciones conocidas**
+- La identidad del que actúa (`user_id`) la informa el cliente, sin verificar (igual que `ClaimOrder`).
+- La firma del técnico ya no se pide en el avance de las órdenes con máquina (Seam no la recoge en esta ruta); `signed` en `GetOrder` solo vale para órdenes antiguas. Falta confirmar con WO dónde queda la firma.
+- No se replicó la comprobación de Seam de que el estado de la máquina coincida con el de la orden al cargar (el sustrato no expone leer una máquina); sí se comprueba el estado que devuelve el `fsm_walk`.
+- `ConsumeFromOrder` y `ReturnLeftovers` no exigen cabecera confirmada ni responsable (Seam sí): T21.
+- `ListTemplates`/`GetTemplate` no muestran aún `responsible_type` por bloque como dato destacado para el agente (sí va en `blocks`).

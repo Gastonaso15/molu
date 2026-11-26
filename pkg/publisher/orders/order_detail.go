@@ -54,6 +54,26 @@ func (s *Service) GetOrder(ctx context.Context, id string) (OrderDetail, error) 
 	if d.Blocks, err = s.orderBlocks(ctx, id); err != nil {
 		return OrderDetail{}, err
 	}
+	if executionOrder(doc) {
+		d.HeaderConfirmedAt, _ = doc["execution_header_completed_at"].(string)
+		// Orders that run blocks keep each block's answers on its own record.
+		merged := map[string]any{}
+		for _, b := range d.Blocks {
+			for k, v := range b.Values {
+				merged[k] = v
+			}
+		}
+		if len(merged) > 0 {
+			tpl, terr := s.loadTemplate(ctx, idString(doc["template_id"]))
+			var ve *ValidationError
+			switch {
+			case terr == nil:
+				d.BlockAnswers = decodeBlockAnswers(tpl, merged)
+			case !errors.As(terr, &ve):
+				return OrderDetail{}, terr
+			}
+		}
+	}
 	if wid := idString(doc["mobile_warehouse_id"]); wid != "" && wid != "0" {
 		if d.MobileWarehouse, err = s.mobileWarehouse(ctx, wid); err != nil {
 			return OrderDetail{}, err
@@ -85,6 +105,10 @@ func (s *Service) orderBlocks(ctx context.Context, orderID string) ([]OrderBlock
 		b := OrderBlock{ID: idString(r["id"]), Index: int(intOf(r["block_index"]))}
 		b.Name, _ = r["name"].(string)
 		b.State, _ = r["state"].(string)
+		b.ResponsibleType, _ = r["responsible_type"].(string)
+		if rid := idString(r["responsible_id"]); rid != "" && rid != "0" {
+			b.ResponsibleID = rid
+		}
 		b.StartedAt, _ = r["started_at"].(string)
 		b.CompletedAt, _ = r["completed_at"].(string)
 		if v, ok := r["values"].(map[string]any); ok && len(v) > 0 {

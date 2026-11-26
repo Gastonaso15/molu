@@ -86,7 +86,7 @@ func TestTemplateOrder_Create_WritesSeamDocument(t *testing.T) {
 
 	doc := fs.entities[EntityType][o.ID]
 	checks := map[string]any{
-		"state": "Pending", "machine_id": int64(0), "workflow_mode": "template", "workflow_index": 0,
+		"state": "Pending", "workflow_mode": "template", "workflow_index": 0,
 		"template_id": int64(1), "template_version": 3, "assignment_type": AssignmentDirect,
 		"responsible_type": "crew", "responsible_id": int64(7), "assigned_to": "Cuadrilla A",
 		"title": "Pump check", "description": "Check the pump", // defaults from the template

@@ -11,6 +11,7 @@ func seedTemplateWrite(fs *fakeSubstrate) {
 	fs.put("asset_types", "5", map[string]any{"name": "Bomba"})
 	fs.put(assetEntity, "11", map[string]any{"name": "Bomba 1", "type_id": int64(5)})
 	fs.put(crewEntity, "7", map[string]any{"name": "Cuadrilla A"})
+	fs.put(usersEntity, "1", map[string]any{"name": "Ana", "active": true})
 	fs.put(consumableEntity, "1", map[string]any{"name": "Filtro", "enabled": true})
 	fs.put(consumableEntity, "2", map[string]any{"name": "Aceite", "enabled": true})
 	fs.put(woActionEntity, "3", map[string]any{"name": "Notificar", "enabled": true})
@@ -82,11 +83,12 @@ func TestCreateTemplate_FullStructureAndInstantiable(t *testing.T) {
 
 	// An order can be opened immediately from the created template!
 	order, err := svc.CreateOrder(ctx, CreateInput{
-		TemplateID:      ID(tpl.ID),
-		AssignmentType:  AssignmentDirect,
-		ResponsibleType: "crew",
-		ResponsibleID:   "7",
-		AssetIDs:        []ID{"11"},
+		TemplateID:        ID(tpl.ID),
+		AssignmentType:    AssignmentDirect,
+		ResponsibleType:   "crew",
+		ResponsibleID:     "7",
+		AssetIDs:          []ID{"11"},
+		BlockResponsibles: map[string]ID{"Preparacion": "1", "Ejecucion": "7"},
 	})
 	if err != nil {
 		t.Fatalf("CreateOrder from created template: %v", err)
