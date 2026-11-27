@@ -101,6 +101,26 @@ Probado contra los criterios de finalización con un catálogo real de 49 herram
 | Prompt ≤ 50 % del JSON equivalente | ❌ 95 % (47 261 bytes contra 49 751) |
 | Prompt determinista | ❌ se recorre un mapa de funciones sin ordenar |
 | Prueba de integración con un LLM | ⚠️ necesita Ollama con `qwen3.5:4b`; no tenía aserciones; ahora se omite si falta el entorno y acepta `OLLAMA_MODEL` |
-| RF-1, RF-2, RF-4, RF-8, diagramas, entrada en MEMORY | ❌ pendientes |
+| RF-1, RF-2, RF-4, RF-8, diagramas, entrada en MEMORY | ❌ pendientes (ver «Pendiente para que funcione») |
 
 **Corregido (26-nov-2026)**: el parser no terminaba con cualquier `$variable` (el tokenizador aceptaba `$` como primer carácter de un identificador pero el bucle de lectura no lo aceptaba, así que la posición no avanzaba y se generaban tokens vacíos sin fin) ni con una entrada que no empezara por un identificador (`(`, `Text("x")`, `foo bar`: `parseStatement` devolvía `nil` sin consumir nada). Como el prompt de molu enseña `$title = ""`, cualquier respuesta con variables colgaba el proceso y agotaba la memoria. Ahora `Parse` consume siempre al menos un token por vuelta, limita el anidamiento (500 niveles) y la entrada (1 MiB) y devuelve errores descriptivos. Pruebas nuevas en `parser_test.go` y `prompt_test.go` (generador, mapeo, neutralidad, rendimiento, concurrencia y 18 entradas hostiles con límite de tiempo); las brechas de la tabla quedan como pruebas omitidas con el motivo a la vista (`*_KnownGap`).
+
+## Pendiente para que funcione (27-nov-2026)
+
+Hoy `pkg/openui` es un prototipo desconectado. Lo que falta, en orden sugerido. Los puntos P1 y P2 se pueden hacer y probar solos; el resto depende de decisiones del equipo.
+
+| # | Tarea | Requisito | Depende de |
+|---|---|---|---|
+| P1 | **Arreglar el mapeo a componentes**: hoy los 49 salen `Generic`. Con namespace el prefijo oculta el verbo (`create`, `list`...) y nunca se asignan Query/Mutation/Card/Table/Chart; además todos los `get*` se llaman `Query` y pierden su nombre. Levantar los `*_KnownGap` de `prompt_test.go`. | mapeo ≥ 5 tipos | — |
+| P2 | **Prompt más chico y determinista**: hoy pesa el 95 % del JSON equivalente (47 261 contra 49 751 bytes) y el requisito es ≤ 50 %. Además se recorre un mapa de funciones sin ordenar: ordenar la salida. | RNF eficiencia de tokens | — |
+| P3 | **Parser completo**: evaluar llamadas a componentes (`Stack([...])`) y programas de varias statements; hoy solo literales y referencias de una statement. | RF-2 | — |
+| P4 | **Configuración**: `MOLU_FRONT_OPENUI_ENABLED` en `pkg/config`, apagado por defecto, documentado en `docs/configuration.md`. | RF-8 | — |
+| P5 | **Conectar a `pkg/mcp`**: generar el prompt desde el catálogo que ofrece el RPI. Decidir cómo se entrega (tool, resource o prompt MCP). | RF-1 | decisión de diseño; Tabaré |
+| P6 | **Ejecutar `@Run` sin pasar por el LLM**, por el camino normal de molu (RPI incluido): herramienta no ofrecida → `NOT_OFFERED`. | RF-4, eje 2 | P3, P5 |
+| P7 | **Renderer en el cliente** (React u otro): dibuja el árbol y envía los clics. Está fuera de molu; sin él, P1–P6 producen texto que nadie dibuja. | duda abierta del frontend | decisión con Tabaré |
+| P8 | **Prueba de integración con Claude además de Ollama**: elegir proveedor con `OPENUI_LLM=claude\|ollama`; con Claude usar `claude -p` (Haiku por defecto, sin API key aparte) o la API con `ANTHROPIC_API_KEY`. Agregar aserciones: lo que devuelve el modelo se parsea sin errores. Seguir omitiéndose si no hay proveedor. Motivo: Ollama es CPU-only en la máquina del equipo y un modelo de 3-4 B no distingue si falla el prompt o el modelo. | criterio de integración | P2 (para gastar menos tokens) |
+| P9 | **Cierre de la spec**: diagramas de secuencia Mermaid (`.mmd`) y PDF (catálogo → prompt → LLM → OpenUI Lang → renderer), entrada en `MEMORY.md`. | criterios de finalización | — |
+
+**Decisión previa**: cerrar con Tabaré si se sigue con OpenUI antes de invertir en P5–P7.
+
+**Nota**: molu solo genera el prompt; quien llama al modelo es el cliente MCP (Claude, Gemini, etc.). Por eso el modelo concreto solo importa para la prueba de integración (P8).
