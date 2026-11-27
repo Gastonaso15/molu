@@ -123,7 +123,7 @@ El 26-nov-2026 la rama `work_orders` recibió el commit `25e7fa7` ("Enable/Disab
 ### 8.1 Resuelto: activar/desactivar plantilla (fila 4, pedido 1)
 - `work_order_templates.enabled` (booleano; un documento sin el campo se lee como habilitado). Se cambia con PATCH `{"enabled": bool}` (`WorkOrderTemplateSetEnabled`, `internal/ui/workorders_templates.go`).
 - Solo se puede cambiar la versión `latest` (409 si no). Una versión nueva nace con `enabled: true`.
-- Crear una WO desde una plantilla deshabilitada o no `latest` se rechaza con 409 (`internal/ui/workorders.go`, `workOrderTemplateForCreate`).
+- Crear una WO desde una plantilla deshabilitada o no `latest` se rechaza. En el código el rechazo del cargador es un 409 (`loadWorkOrderTemplate`), pero con el formulario real responde **400**: el selector de plantillas (`workOrderTemplatePickerErrors`) la excluye antes (comprobado contra Seam el 26-nov-2026).
 - **Hecho en molu (T19)**: `work_orders.SetTemplateEnabled` (`template_enabled.go`); `Template.enabled` en `ListTemplates`/`GetTemplate`; `CreateOrder` rechaza una plantilla deshabilitada con `INVALID_TRANSITION` (`details.rule=template_disabled`); `CreateTemplate`/`PublishTemplateVersion` guardan `enabled: true`. 31 funciones registradas. Pruebas unitarias y HTTP; **no** se probó contra xolu real.
 - **Diferencia consciente**: Seam hace el PATCH sin `_version`; molu usa `_version` (un cambio concurrente da `stale_state`). Repetir el estado actual no escribe (`changed: false`).
 - **Brecha que quedaba, resuelta en T22**: `CreateOrder` no comprobaba que la plantilla fuera `latest`; ahora rechaza una versión reemplazada con `INVALID_TRANSITION` (`details.rule=template_not_latest`), como Seam (409 `latest_only`).

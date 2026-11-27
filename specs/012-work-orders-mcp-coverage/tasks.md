@@ -65,4 +65,5 @@ Una tarea por vez, con TDD (`go test -v -race ./...`). Al terminar cada una: mar
 - [x] **T22. Comprobar `latest` en `CreateOrder`** (Seam rechaza versiones no `latest`) y revisar `GetOrder` con los campos nuevos.
   - **Hecho (26-nov-2026)**: `CreateOrder` rechaza plantillas no `latest` (`template_not_latest`) antes de las demás validaciones; un documento sin el campo cuenta como no `latest`, igual que en Seam. `GetOrder` ya muestra los campos nuevos (T20: `header_confirmed_at`, responsables de bloque, respuestas por bloque; T21: `consumables`). Pruebas: `TestCreateOrder_RefusesASupersededTemplateVersion` y el caso añadido a `TestRealXolu_SetTemplateEnabled` (18/18 contra xolu real).
 
-- [ ] **T18. Documento de brechas final y lista de pedidos a WO** (§5), listo para Horacio y Slack.
+- [x] **T18. Documento de brechas final y lista de pedidos a WO** (§5), listo para Horacio y Slack.
+  - **Hecho (27-nov-2026)**: `informe-brechas.md` (cobertura de las 16 funciones: 9 completas y 7 con faltante que depende de Seam; pedidos resueltos y abiertos para WO; verificación; mensaje listo para Slack). Cierra la spec 012.
