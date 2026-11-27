@@ -27,6 +27,8 @@ type fakeXoluIssues struct {
 	entities map[string]map[int64]map[string]any
 	machSeq  int64
 	entSeq   int64
+	defPosts        int
+	lastWalkPayload map[string]any
 }
 
 type fakeMachineIssues struct {
@@ -40,6 +42,7 @@ func newFakeXoluIssues() *fakeXoluIssues {
 		entities: map[string]map[int64]map[string]any{
 			"assets": {
 				200: {"id": int64(200), "name": "Main Compressor", "criticality": "Alta"},
+				201: {"id": int64(201), "name": "Secondary Pump", "criticality": "Media"},
 			},
 			"issues": {},
 		},
@@ -64,6 +67,7 @@ func (x *fakeXoluIssues) handler() http.Handler {
 		var def map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&def)
 		x.def = def
+		x.defPosts++
 		xoluJSON(w, 200, map[string]any{"id": int64(42), "name": def["name"]})
 	})
 
@@ -98,17 +102,13 @@ func (x *fakeXoluIssues) handler() http.Handler {
 				Payload map[string]any `json:"payload"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&req)
-			if m.state == "reported" && req.Input != "start" && req.Input != "triage" && req.Input != "reject" {
-				xoluError(w, 409, "XOLU-INVALID_TRANSITION", fmt.Sprintf("cannot transition from %s via %s", m.state, req.Input))
+			next, ok := stepIssueLifecycle(m.state, req.Input)
+			if !ok {
+				xoluError(w, 400, "XOLU-FSM004", fmt.Sprintf("cannot transition from %s via %s", m.state, req.Input))
 				return
 			}
-			if req.Input == "start" {
-				m.state = "in_progress"
-			} else if req.Input == "resolve" {
-				m.state = "resolved"
-			} else if req.Input == "close" {
-				m.state = "closed"
-			}
+			m.state = next
+			x.lastWalkPayload = req.Payload
 			xoluJSON(w, 200, map[string]any{"current": m.state})
 		}
 	})
@@ -351,3 +351,172 @@ func TestIssues_E2E(t *testing.T) {
 	}
 }
 
+
+func stepIssueLifecycle(state, input string) (string, bool) {
+	switch state {
+	case "reported":
+		switch input {
+		case "triage":
+			return "triaged", true
+		case "start":
+			return "in_progress", true
+		case "reject":
+			return "rejected", true
+		case "merge":
+			return "duplicate", true
+		}
+	case "triaged":
+		switch input {
+		case "start":
+			return "in_progress", true
+		case "hold":
+			return "on_hold", true
+		case "reject":
+			return "rejected", true
+		case "merge":
+			return "duplicate", true
+		}
+	case "in_progress":
+		switch input {
+		case "hold":
+			return "on_hold", true
+		case "resolve":
+			return "resolved", true
+		case "reject":
+			return "rejected", true
+		case "merge":
+			return "duplicate", true
+		}
+	case "on_hold":
+		switch input {
+		case "resume":
+			return "in_progress", true
+		case "reject":
+			return "rejected", true
+		}
+	case "resolved":
+		switch input {
+		case "close":
+			return "closed", true
+		case "reject":
+			return "rejected", true
+		}
+	}
+	return "", false
+}
+
+func TestIssues_E2E_SeamAlignment(t *testing.T) {
+	h := setupIssuesE2E(t)
+
+	// 1. T8 + T9 + T10: Alta/high issue with reporter_id=77 and Media/medium issue without reporter.
+	alta := e2eSuccess(t, h.call(t, "issues.CreateIssue", map[string]any{
+		"tenant":      "tenant-alpha",
+		"title":       "Compressor vibration",
+		"description": "Unit 200 bearing noise",
+		"priority":    "high",
+		"severity":    "major",
+		"asset_id":    200,
+		"reporter_id": 77,
+	}))
+	altaID := int64(alta["id"].(float64))
+	if alta["asset_category"] != "critico" || alta["channel"] != "api" || alta["reported_by"] != float64(77) || alta["assignee"] != float64(77) {
+		t.Fatalf("unexpected Alta E2E issue: %v", alta)
+	}
+	aCreated, _ := time.Parse(time.RFC3339, alta["created_at"].(string))
+	aFirst, _ := time.Parse(time.RFC3339, alta["sla_first_response_deadline"].(string))
+	aRes, _ := time.Parse(time.RFC3339, alta["sla_resolution_deadline"].(string))
+	if aFirst.Sub(aCreated) != 120*time.Minute || aRes.Sub(aCreated) != 1440*time.Minute {
+		t.Errorf("Alta/high SLA = (%v, %v), want (120m, 1440m)", aFirst.Sub(aCreated), aRes.Sub(aCreated))
+	}
+
+	media := e2eSuccess(t, h.call(t, "issues.CreateIssue", map[string]any{
+		"tenant":   "tenant-alpha",
+		"title":    "Minor pump rattle",
+		"priority": "medium",
+		"severity": "minor",
+		"asset_id": 201,
+	}))
+	mediaID := int64(media["id"].(float64))
+	if media["asset_category"] != "normal" {
+		t.Errorf("Media asset_category = %v, want normal", media["asset_category"])
+	}
+	mCreated, _ := time.Parse(time.RFC3339, media["created_at"].(string))
+	mFirst, _ := time.Parse(time.RFC3339, media["sla_first_response_deadline"].(string))
+	mRes, _ := time.Parse(time.RFC3339, media["sla_resolution_deadline"].(string))
+	if mFirst.Sub(mCreated) != 480*time.Minute || mRes.Sub(mCreated) != 4320*time.Minute {
+		t.Errorf("Media/medium SLA = (%v, %v), want (480m, 4320m)", mFirst.Sub(mCreated), mRes.Sub(mCreated))
+	}
+
+	// T7 + T14: single seam_issue_lifecycle definition across multiple CreateIssue calls, no tenant in stored doc.
+	h.xolu.mu.Lock()
+	defPosts := h.xolu.defPosts
+	defName, _ := h.xolu.def["name"].(string)
+	_, hasTenant := h.xolu.entities["issues"][altaID]["tenant"]
+	h.xolu.mu.Unlock()
+	if defPosts != 1 || defName != issues.DefinitionName {
+		t.Fatalf("FSM definitions: posts=%d name=%q, want 1/%q", defPosts, defName, issues.DefinitionName)
+	}
+	if hasTenant {
+		t.Errorf("stored xolu issue document must not include tenant key")
+	}
+
+	// 2. T7: triage -> merge -> duplicate.
+	_ = e2eSuccess(t, h.call(t, "issues.AdvanceIssue", map[string]any{
+		"tenant": "tenant-alpha", "issue_id": mediaID, "transition": "triage", "actor_id": 77,
+	}))
+	merged := e2eSuccess(t, h.call(t, "issues.AdvanceIssue", map[string]any{
+		"tenant": "tenant-alpha", "issue_id": mediaID, "transition": "merge", "actor_id": 77,
+	}))
+	if merged["new_state"] != "duplicate" {
+		t.Fatalf("merge new_state = %v, want duplicate", merged["new_state"])
+	}
+
+	// 3. T11: reject without reason fails; reject with reason sends {motivo, actor} and persists reject_reason.
+	rejectMissingReason := e2eErrorText(t, h.call(t, "issues.AdvanceIssue", map[string]any{
+		"tenant": "tenant-alpha", "issue_id": altaID, "transition": "reject",
+	}))
+	if !strings.Contains(rejectMissingReason, "reason") {
+		t.Errorf("expected reason error, got %q", rejectMissingReason)
+	}
+	rejected := e2eSuccess(t, h.call(t, "issues.AdvanceIssue", map[string]any{
+		"tenant":     "tenant-alpha",
+		"issue_id":   altaID,
+		"transition": "reject",
+		"reason":     "False sensor spike",
+		"actor_id":   77,
+	}))
+	rejIssue, _ := rejected["issue"].(map[string]any)
+	if rejected["new_state"] != "rejected" || rejIssue["reject_reason"] != "False sensor spike" {
+		t.Fatalf("unexpected reject response: %v", rejected)
+	}
+	h.xolu.mu.Lock()
+	walkMotivo := h.xolu.lastWalkPayload["motivo"]
+	walkActor := h.xolu.lastWalkPayload["actor"]
+	h.xolu.mu.Unlock()
+	if walkMotivo != "False sensor spike" || walkActor != float64(77) {
+		t.Errorf("walk payload = (motivo=%v, actor=%v), want (False sensor spike, 77)", walkMotivo, walkActor)
+	}
+
+	// 4. T12: grouped child (master_id > 0) rejected with XOLU-INVALID_TRANSITION (grouped_child).
+	child := e2eSuccess(t, h.call(t, "issues.CreateIssue", map[string]any{
+		"tenant": "tenant-alpha", "title": "Child grouped symptom",
+	}))
+	childID := int64(child["id"].(float64))
+	h.xolu.mu.Lock()
+	h.xolu.entities["issues"][childID]["master_id"] = mediaID
+	h.xolu.mu.Unlock()
+
+	gotChild := e2eSuccess(t, h.call(t, "issues.GetIssue", map[string]any{
+		"tenant": "tenant-alpha", "issue_id": childID,
+	}))
+	if gotChild["master_id"] != float64(mediaID) {
+		t.Fatalf("GetIssue master_id = %v, want %d", gotChild["master_id"], mediaID)
+	}
+
+	groupedErr := e2eErrorText(t, h.call(t, "issues.AdvanceIssue", map[string]any{
+		"tenant": "tenant-alpha", "issue_id": childID, "transition": "start", "actor_id": 77,
+	}))
+	if !strings.Contains(groupedErr, "XOLU-INVALID_TRANSITION") || !strings.Contains(groupedErr, "grouped_child") {
+		t.Fatalf("expected XOLU-INVALID_TRANSITION grouped_child, got %q", groupedErr)
+	}
+}
