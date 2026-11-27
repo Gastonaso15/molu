@@ -163,6 +163,7 @@ Contra la rama `work_orders` en `25e7fa7`. Funciones del publicador: 33 (`work_o
 - La identidad del que actúa (`user_id`) la informa el cliente, sin verificar (igual que `ClaimOrder`).
 - La firma del técnico ya no se pide en el avance de las órdenes con máquina (Seam no la recoge en esta ruta); `signed` en `GetOrder` solo vale para órdenes antiguas. Falta confirmar con WO dónde queda la firma.
 - No se replicó la comprobación de Seam de que el estado de la máquina coincida con el de la orden al cargar (el sustrato no expone leer una máquina); sí se comprueba el estado que devuelve el `fsm_walk`.
+- **Ítems booleanos obligatorios omitidos** (hallazgo del benchmark del 27-nov-2026): `ConfirmExecutionHeader` acepta no enviar un ítem booleano obligatorio (queda en falso), igual que el formulario de Seam, donde una casilla sin marcar es válida. Dos agentes (Sonnet y Gemini) confirmaron así la cabecera de una orden con "recepción confirmada" sin responder. Decisión pendiente: exigir el valor explícito en la superficie MCP.
 - `ConsumeFromOrder` y `ReturnLeftovers` no exigían cabecera confirmada ni responsable (Seam sí): resuelto en T21 (§8.5), donde se reemplazan.
 - `ListTemplates`/`GetTemplate` no muestran aún `responsible_type` por bloque como dato destacado para el agente (sí va en `blocks`).
 

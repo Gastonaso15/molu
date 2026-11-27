@@ -12,10 +12,13 @@ spec = importlib.util.spec_from_file_location("run014", os.path.join(HERE, "run.
 R1 = "R1 · 25-nov · flujo anterior (30 funciones)"
 R2 = "R2 · 26-nov · flujo de ejecución (33 funciones)"
 R3 = "R3 · 26-nov · perfil 4 con molu_help"
+R4 = "R4 · 27-nov · modelos Claude más simples (Sonnet y Haiku)"
 SOURCES = [  # archivo, ronda, modelo (si el archivo no lo trae)
-    ("main.jsonl", R1, "Claude (CLI local)"),
-    ("ronda2.jsonl", R2, "Claude (CLI local)"),
-    ("ronda3.jsonl", R3, "Claude (CLI local)"),
+    ("main.jsonl", R1, "Claude (CLI, modelo por defecto)"),
+    ("ronda2.jsonl", R2, "claude-opus-5-5 (CLI por defecto)"),
+    ("ronda3.jsonl", R3, "claude-opus-5-5 (CLI por defecto)"),
+    ("ronda4-sonnet.jsonl", R4, None),
+    ("ronda4-haiku.jsonl", R4, None),
     ("ronda2-gemini-35-flash-lite.jsonl", R2, None),
     ("ronda2-gemini-flash.jsonl", R2, None),
 ]
@@ -23,6 +26,7 @@ PERFIL = {1: "1. Pelado (13 primitivos)", 2: "2. Seam + xolu", 3: "3. + system p
 
 def label_model(row, default):
     m = row.get("model") or default or "?"
+    if m == "claude-opus-5-5": m = "claude-opus-5-5 (CLI por defecto)"
     return m
 
 rows = []
@@ -37,7 +41,7 @@ for fn, ronda, default_model in SOURCES:
                          turnos=r.get("turns"), llamadas=r.get("tool_calls"), errores=r.get("tool_errors"), usd=r.get("usd"),
                          skill="sí" if r.get("used_skill") else "no", help=r.get("help_calls", 0 if "help_calls" not in r else r["help_calls"]),
                          tok_in=r.get("input_tokens") or r.get("prompt_tokens"), tok_out=r.get("output_tokens"), detalle=r.get("detail", "")))
-order = {R1: 1, R2: 2, R3: 3}
+order = {R1: 1, R2: 2, R3: 3, R4: 4}
 rows.sort(key=lambda x: (order[x["ronda"]], x["modelo"], x["perfil"], ["L1", "L2", "G1", "G2", "V1", "V2"].index(x["prompt"]), x["rep"]))
 
 HEAD = PatternFill("solid", fgColor="1F3A5F"); HFONT = Font(bold=True, color="FFFFFF"); thin = Side(style="thin", color="D0D0D0")
@@ -97,7 +101,8 @@ for line in [
     "RONDAS",
     "R1 (25-nov): flujo anterior de work_orders.* (30 funciones: avance con respuestas y firma, ConsumeFromOrder/ReturnLeftovers). Sus números NO son comparables con R2/R3.",
     "R2 (26-nov): flujo de ejecución de la rama work_orders de Seam (33 funciones). Claude (3 perfiles × 6 prompts × 2 repeticiones) y Gemini (1 repetición, hecha por el equipo).",
-    "R3 (26-nov): perfil 4 con molu_help. Claude (2 repeticiones).",
+    "R3 (26-nov): perfil 4 con molu_help. Claude Opus 5.5 (2 repeticiones).",
+    "R4 (27-nov): los mismos 4 perfiles con modelos Claude más simples: Sonnet 5.5 y Haiku 5.5 (2 repeticiones cada uno). El modelo por defecto del CLI en R2 y R3 es Opus 5.5 (verificado en la transcripción de R3).",
     "",
     "RÚBRICA DE CALIDAD (automática, sobre el estado final de xolu)",
     "perfecta = objetivo cumplido, sin preguntas, ≤ 2 errores de herramienta · buena = cumplido, sin preguntas, más de 2 errores · aceptable = cumplido pero preguntó · regular = a medias · mala = no cumplido.",

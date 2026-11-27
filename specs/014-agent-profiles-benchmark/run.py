@@ -148,7 +148,8 @@ def quality(score, asked, errors):
 def run_claude(profile, prompt, tag):
     cwd = workdir(profile)
     if profile == 4: prompt = PREAMBLE4 + prompt
-    cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--mcp-config", mcp_config(profile),
+    model_args = ["--model", os.environ["BENCH_CLAUDE_MODEL"]] if os.environ.get("BENCH_CLAUDE_MODEL") else []  # e.g. sonnet, haiku
+    cmd = ["claude", "-p", prompt, *model_args, "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--mcp-config", mcp_config(profile),
            "--setting-sources", "project" if profile == 3 else "", "--no-session-persistence", "--max-turns", "60"]
     if profile == 3:
         cmd += ["--tools", "Skill", "--allowedTools", "mcp__molu", "Skill", "--append-system-prompt", PRIMING]
@@ -181,6 +182,7 @@ def run_claude(profile, prompt, tag):
         elif ev.get("type") == "result": res = ev
     return dict(wall_s=round(wall, 1), api_s=round(res.get("duration_api_ms", 0) / 1000, 1), turns=res.get("num_turns"), tool_calls=calls,
                 tool_errors=errs, usd=round(res.get("total_cost_usd", 0) or 0, 3), used_skill=skill, help_calls=helps, timeout=timeout,
+                model=", ".join((res.get("modelUsage") or {}).keys()) or os.environ.get("BENCH_CLAUDE_MODEL", ""),
                 text=res.get("result") or "", tools_seen=tools_seen)
 
 def resolve_runner(arg):
