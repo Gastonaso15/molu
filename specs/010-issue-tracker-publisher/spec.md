@@ -48,6 +48,7 @@ El equipo de Issue Tracker requiere exponer sus capacidades de negocio como herr
 - **RF-2**: CUANDO el servicio recibe una consulta `GetIssue` para un identificador inexistente, EL SISTEMA retorna `NOT_FOUND` (HTTP 404).
 - **RF-3**: CUANDO el servicio recibe una solicitud `AdvanceIssue` y la transición es rechazada por la FSM de xolu, EL SISTEMA retorna HTTP 409 con el error tipado `XOLU-INVALID_TRANSITION` preservando el diagnóstico verbatim.
 - **RF-4**: CUANDO el servicio recibe una solicitud `AdvanceIssue` con transición `start` y el campo `first_response_at` no estaba registrado, EL SISTEMA persiste la marca de tiempo de primera respuesta y el actor correspondiente.
+- **RF-11**: SI el servicio recibe una solicitud `AdvanceIssue` para una incidencia hija perteneciente a un caso agrupado (`master_id > 0`), ENTONCES EL SISTEMA rechaza la transición sin invocar la FSM devolviendo HTTP 409 con el error tipado `XOLU-INVALID_TRANSITION` (`details.rule = "grouped_child"`, `details.master_id`, `details.state`, `details.source = "issue-tracker-publisher"`), y expone `master_id` en `Issue` cuando existe en el documento.
 
 ### Servidor HTTP y Registro
 - **RF-5**: CUANDO el binario `cmd/publisher-issues` inicia, EL SISTEMA carga la configuración de variables `MOLU_PUBLISHER_ISSUES_*`, inicia un servidor HTTP en el puerto configurado (default `:8093`) y registra sus herramientas en el Hub remoto especificado por `MOLU_PUBLISHER_ISSUES_HUB_URL`.
@@ -58,6 +59,10 @@ El equipo de Issue Tracker requiere exponer sus capacidades de negocio como herr
 ### Concurrencia y Neutralidad
 - **RF-9**: EL SISTEMA garantiza ausencia total de data races en todas las peticiones concurrentes (`go test -v -race ./...`).
 - **RF-10**: EL SISTEMA mantiene neutralidad estricta de dominio en el código base, constantes y configuración por defecto (cero ocurrencias del término restringido "Seam").
+
+## Fuera de alcance (Decisiones de alineación T12)
+- **Permisos por responsable/rol en transiciones**: El publicador no bloquea `AdvanceIssue` por `actor_id` ni por rol de usuario, ya que el protocolo MCP no transporta sesión ni rol verificados de la aplicación cliente; la visibilidad por rol se gobierna en el Eje 1 mediante el proveedor RPI del Hub.
+- **Replicación de transiciones a incidencias hijas**: Cuando se avanza una incidencia maestra que agrupa hijas, el publicador transiciona únicamente la incidencia maestra solicitada sin replicar la transición a las hijas.
 
 ## Requisitos no funcionales
 - Concurrencia segura y pase obligatorio de `go test -v -race ./...`.

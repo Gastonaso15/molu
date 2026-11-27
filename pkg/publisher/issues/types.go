@@ -44,6 +44,7 @@ type Issue struct {
 	ReportedBy               int64          `json:"reported_by,omitempty"`
 	Assignee                 int64          `json:"assignee,omitempty"`
 	Channel                  string         `json:"channel,omitempty"`
+	MasterID                 int64          `json:"master_id,omitempty"`
 	Metadata                 map[string]any `json:"metadata,omitempty"`
 }
 

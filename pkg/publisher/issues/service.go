@@ -139,6 +139,9 @@ func (s *IssueService) GetIssue(ctx context.Context, req GetIssueRequest) (Issue
 }
 
 // AdvanceIssue performs a lifecycle transition on the issue's FSM in xolu.
+// Grouped child issues (master_id > 0) are rejected with XOLU-INVALID_TRANSITION
+// (rule="grouped_child"). Caller role/assignee checks and master-to-child
+// replication are intentionally not enforced by this stateless publisher.
 func (s *IssueService) AdvanceIssue(ctx context.Context, req AdvanceIssueRequest) (AdvanceIssueResponse, error) {
 	// Reject requires a non-empty reason (stored as reject_reason, walked as payload.motivo);
 	// other transitions ignore reason.
@@ -153,6 +156,18 @@ func (s *IssueService) AdvanceIssue(ctx context.Context, req AdvanceIssueRequest
 	}
 
 	issue := decodeIssue(req.Tenant, req.IssueID, data)
+	if issue.MasterID > 0 {
+		return AdvanceIssueResponse{}, &taxonomy.TypedError{
+			Code:    taxonomy.PrefixXolu + string(taxonomy.CodeInvalidTransition),
+			Message: fmt.Sprintf("issue %d is grouped under master issue %d and cannot be transitioned individually", req.IssueID, issue.MasterID),
+			Details: map[string]any{
+				"rule":      "grouped_child",
+				"master_id": issue.MasterID,
+				"state":     issue.State,
+				"source":    PublisherID,
+			},
+		}
+	}
 	previousState := issue.State
 
 	now := time.Now().UTC()
@@ -279,6 +294,9 @@ func decodeIssue(tenant string, id int64, data map[string]any) Issue {
 	}
 	if v, ok := data["assignee"]; ok {
 		issue.Assignee = toInt64(v)
+	}
+	if v, ok := data["master_id"]; ok {
+		issue.MasterID = toInt64(v)
 	}
 	return issue
 }

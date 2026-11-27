@@ -259,3 +259,43 @@ func TestIssueServer_Advance_RejectRequiresReasonHTTP400(t *testing.T) {
 		t.Fatalf("unexpected reject response: %v", out)
 	}
 }
+
+func TestIssueServer_Advance_GroupedChildReturnsHTTP409(t *testing.T) {
+	mockX := newMockXolu()
+	srv := newTestIssueServer(mockX)
+	defer srv.Close()
+
+	_, masterOut := postIssue(t, srv.URL+"/api/v1/issues/create", testToken, `{"tenant":"tenant-1","title":"Master issue"}`)
+	masterID := int64(masterOut["id"].(float64))
+
+	_, childOut := postIssue(t, srv.URL+"/api/v1/issues/create", testToken, `{"tenant":"tenant-1","title":"Grouped child issue"}`)
+	childID := int64(childOut["id"].(float64))
+
+	_ = mockX.PatchEntity(t.Context(), "tenant-1", "issues", childID, map[string]any{
+		"master_id": float64(masterID),
+	})
+
+	getBody, _ := json.Marshal(map[string]any{"tenant": "tenant-1", "issue_id": childID})
+	getResp, got := postIssue(t, srv.URL+"/api/v1/issues/get", testToken, string(getBody))
+	if getResp.StatusCode != http.StatusOK || got["master_id"] != float64(masterID) {
+		t.Fatalf("get grouped child: status=%d body=%v, want master_id=%d", getResp.StatusCode, got, masterID)
+	}
+
+	advBody, _ := json.Marshal(map[string]any{
+		"tenant":     "tenant-1",
+		"issue_id":   childID,
+		"transition": "start",
+		"actor_id":   10,
+	})
+	resp, out := postIssue(t, srv.URL+"/api/v1/issues/advance", testToken, string(advBody))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for grouped child, got %d: %v", resp.StatusCode, out)
+	}
+	if out["code"] != "XOLU-INVALID_TRANSITION" {
+		t.Fatalf("code = %v, want XOLU-INVALID_TRANSITION", out["code"])
+	}
+	details, _ := out["details"].(map[string]any)
+	if details["rule"] != "grouped_child" || details["master_id"] != float64(masterID) || details["source"] != issues.PublisherID {
+		t.Fatalf("unexpected details = %v", details)
+	}
+}

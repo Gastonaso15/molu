@@ -98,3 +98,4 @@ flowchart TD
 | **RF-9** | Todos | Ausencia de data races validada con `go test -v -race ./...`. |
 | **RF-10** | Todos | Neutralidad estricta (cero menciones al término restringido). |
 
+| **RF-11** | `pkg/publisher/issues/service.go` | `AdvanceIssue` rechaza incidencias hijas agrupadas (`master_id > 0`) con `XOLU-INVALID_TRANSITION` (`details.rule = "grouped_child"`) sin invocar la FSM, y `GetIssue` expone `master_id`. |

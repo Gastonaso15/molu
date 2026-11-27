@@ -842,3 +842,135 @@ func TestAdvanceIssue_RejectWithReason(t *testing.T) {
 		}
 	})
 }
+
+func TestAdvanceIssue_GroupedChildAndPermissions(t *testing.T) {
+	t.Run("child_issue_with_master_id_is_rejected_without_walking_fsm", func(t *testing.T) {
+		for _, rawMasterID := range []any{int64(50), float64(50)} {
+			mockX := newMockXolu()
+			svc := issues.NewIssueService(mockX)
+
+			child, err := svc.CreateIssue(context.Background(), issues.CreateIssueRequest{
+				Tenant:     "tenant-alpha",
+				Title:      "Child sensor alert",
+				ReporterID: 42,
+			})
+			if err != nil {
+				t.Fatalf("CreateIssue: %v", err)
+			}
+			if child.MasterID != 0 {
+				t.Fatalf("newly created issue MasterID = %d, want 0", child.MasterID)
+			}
+
+			if err := mockX.PatchEntity(context.Background(), "tenant-alpha", "issues", child.ID, map[string]any{
+				"master_id": rawMasterID,
+			}); err != nil {
+				t.Fatalf("PatchEntity(master_id): %v", err)
+			}
+
+			got, err := svc.GetIssue(context.Background(), issues.GetIssueRequest{
+				Tenant:  "tenant-alpha",
+				IssueID: child.ID,
+			})
+			if err != nil {
+				t.Fatalf("GetIssue: %v", err)
+			}
+			if got.MasterID != 50 {
+				t.Fatalf("GetIssue.MasterID = %d (from %T), want 50", got.MasterID, rawMasterID)
+			}
+
+			_, err = svc.AdvanceIssue(context.Background(), issues.AdvanceIssueRequest{
+				Tenant:     "tenant-alpha",
+				IssueID:    child.ID,
+				Transition: "start",
+				ActorID:    42,
+			})
+			if err == nil {
+				t.Fatal("expected error when advancing a grouped child issue")
+			}
+
+			var te *taxonomy.TypedError
+			if !errors.As(err, &te) {
+				t.Fatalf("expected *taxonomy.TypedError, got %T: %v", err, err)
+			}
+			if te.Code != taxonomy.PrefixXolu+string(taxonomy.CodeInvalidTransition) {
+				t.Errorf("code = %q, want %q", te.Code, taxonomy.PrefixXolu+string(taxonomy.CodeInvalidTransition))
+			}
+			if te.Details["rule"] != "grouped_child" {
+				t.Errorf("details.rule = %v, want %q", te.Details["rule"], "grouped_child")
+			}
+			if te.Details["master_id"] != int64(50) {
+				t.Errorf("details.master_id = %v, want 50", te.Details["master_id"])
+			}
+			if te.Details["state"] != "reported" {
+				t.Errorf("details.state = %v, want %q", te.Details["state"], "reported")
+			}
+			if te.Details["source"] != issues.PublisherID {
+				t.Errorf("details.source = %v, want %q", te.Details["source"], issues.PublisherID)
+			}
+			if mockX.walkCalls != 0 {
+				t.Errorf("WalkMachine called %d times, want 0", mockX.walkCalls)
+			}
+
+			stored, _ := mockX.GetEntity(context.Background(), "tenant-alpha", "issues", child.ID)
+			if stored["state"] != "reported" {
+				t.Errorf("stored state = %v, want reported", stored["state"])
+			}
+			if _, hasFirstResp := stored["first_response_at"]; hasFirstResp {
+				t.Errorf("first_response_at must not be set on rejected grouped child, got %v", stored["first_response_at"])
+			}
+		}
+	})
+
+	t.Run("master_issue_advances_for_any_actor_without_replicating_to_children", func(t *testing.T) {
+		mockX := newMockXolu()
+		svc := issues.NewIssueService(mockX)
+
+		master, err := svc.CreateIssue(context.Background(), issues.CreateIssueRequest{
+			Tenant:     "tenant-alpha",
+			Title:      "Master outage",
+			ReporterID: 77,
+		})
+		if err != nil {
+			t.Fatalf("CreateIssue(master): %v", err)
+		}
+		child, err := svc.CreateIssue(context.Background(), issues.CreateIssueRequest{
+			Tenant:     "tenant-alpha",
+			Title:      "Child symptom",
+			ReporterID: 77,
+		})
+		if err != nil {
+			t.Fatalf("CreateIssue(child): %v", err)
+		}
+		_ = mockX.PatchEntity(context.Background(), "tenant-alpha", "issues", child.ID, map[string]any{
+			"master_id": master.ID,
+		})
+
+		// ActorID 99 differs from Assignee 77: allowed per T12 ADR, and child remains untouched.
+		resp, err := svc.AdvanceIssue(context.Background(), issues.AdvanceIssueRequest{
+			Tenant:     "tenant-alpha",
+			IssueID:    master.ID,
+			Transition: "start",
+			ActorID:    99,
+		})
+		if err != nil {
+			t.Fatalf("AdvanceIssue(master) failed: %v", err)
+		}
+		if resp.NewState != "in_progress" {
+			t.Errorf("master NewState = %q, want in_progress", resp.NewState)
+		}
+		if mockX.walkCalls != 1 {
+			t.Errorf("walkCalls = %d, want 1 (master only, no child replication)", mockX.walkCalls)
+		}
+
+		gotChild, err := svc.GetIssue(context.Background(), issues.GetIssueRequest{
+			Tenant:  "tenant-alpha",
+			IssueID: child.ID,
+		})
+		if err != nil {
+			t.Fatalf("GetIssue(child): %v", err)
+		}
+		if gotChild.State != "reported" || gotChild.MasterID != master.ID {
+			t.Errorf("child after master advance: state=%q master_id=%d, want reported/%d", gotChild.State, gotChild.MasterID, master.ID)
+		}
+	})
+}

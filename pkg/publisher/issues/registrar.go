@@ -93,7 +93,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			}),
 		mk("AdvanceIssue",
 			"Advance an issue through its lifecycle by firing a transition input (triage, start, hold, resume, resolve, close, reject, merge). "+
-				"Reject requires reason (ignored on other transitions). Invalid transitions are rejected by the FSM and returned verbatim.",
+				"Reject requires reason (ignored on other transitions). Grouped child issues (master_id > 0) cannot be transitioned individually. Invalid transitions are rejected by the FSM and returned verbatim.",
 			"/api/v1/issues/advance",
 			map[string]any{
 				"type": "object",
