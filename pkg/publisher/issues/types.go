@@ -31,6 +31,7 @@ type Issue struct {
 	Priority                 string         `json:"priority"`
 	Severity                 string         `json:"severity"`
 	State                    string         `json:"state"`
+	RejectReason             string         `json:"reject_reason,omitempty"`
 	MachineID                int64          `json:"machine_id"`
 	AssetID                  int64          `json:"asset_id,omitempty"`
 	AssetCategory            string         `json:"asset_category"`
@@ -63,6 +64,7 @@ type AdvanceIssueRequest struct {
 	IssueID    int64  `json:"issue_id"`
 	Transition string `json:"transition"`
 	ActorID    int64  `json:"actor_id,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 // AdvanceIssueResponse is returned upon a successful lifecycle transition.

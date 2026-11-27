@@ -140,6 +140,13 @@ func (s *IssueService) GetIssue(ctx context.Context, req GetIssueRequest) (Issue
 
 // AdvanceIssue performs a lifecycle transition on the issue's FSM in xolu.
 func (s *IssueService) AdvanceIssue(ctx context.Context, req AdvanceIssueRequest) (AdvanceIssueResponse, error) {
+	// Reject requires a non-empty reason (stored as reject_reason, walked as payload.motivo);
+	// other transitions ignore reason.
+	reason := strings.TrimSpace(req.Reason)
+	if req.Transition == "reject" && reason == "" {
+		return AdvanceIssueResponse{}, taxonomy.NewContractViolation(req.Tenant, "issues.AdvanceIssue", []string{"reason"})
+	}
+
 	data, err := s.xolu.GetEntity(ctx, req.Tenant, "issues", req.IssueID)
 	if err != nil {
 		return AdvanceIssueResponse{}, s.mapSubstrateError(req.Tenant, "issues", fmt.Sprintf("%d", req.IssueID), err)
@@ -164,6 +171,9 @@ func (s *IssueService) AdvanceIssue(ctx context.Context, req AdvanceIssueRequest
 	if req.ActorID > 0 {
 		payload["actor"] = req.ActorID
 	}
+	if req.Transition == "reject" {
+		payload["motivo"] = reason
+	}
 
 	nextState, err := s.xolu.WalkMachine(ctx, req.Tenant, issue.MachineID, req.Transition, payload)
 	if err != nil {
@@ -176,6 +186,9 @@ func (s *IssueService) AdvanceIssue(ctx context.Context, req AdvanceIssueRequest
 
 	patch["state"] = nextState
 	patch["updated_at"] = now.Format(time.RFC3339)
+	if req.Transition == "reject" {
+		patch["reject_reason"] = reason
+	}
 
 	if err := s.xolu.PatchEntity(ctx, req.Tenant, "issues", req.IssueID, patch); err != nil {
 		return AdvanceIssueResponse{}, s.mapSubstrateError(req.Tenant, "issues", fmt.Sprintf("%d", req.IssueID), err)
@@ -183,6 +196,9 @@ func (s *IssueService) AdvanceIssue(ctx context.Context, req AdvanceIssueRequest
 
 	issue.State = nextState
 	issue.UpdatedAt = patch["updated_at"].(string)
+	if req.Transition == "reject" {
+		issue.RejectReason = reason
+	}
 
 	return AdvanceIssueResponse{
 		Issue:         issue,
@@ -221,6 +237,9 @@ func decodeIssue(tenant string, id int64, data map[string]any) Issue {
 	}
 	if v, ok := data["severity"].(string); ok {
 		issue.Severity = v
+	}
+	if v, ok := data["reject_reason"].(string); ok {
+		issue.RejectReason = v
 	}
 	if v, ok := data["state"].(string); ok {
 		issue.State = v

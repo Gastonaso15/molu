@@ -218,3 +218,44 @@ func TestIssueServer_EchoesRequestID(t *testing.T) {
 	}
 }
 
+
+
+func TestIssueServer_Advance_RejectRequiresReasonHTTP400(t *testing.T) {
+	srv := newTestIssueServer(newMockXolu())
+	defer srv.Close()
+
+	_, created := postIssue(t, srv.URL+"/api/v1/issues/create", testToken, `{"tenant":"tenant-1","title":"Reject validation"}`)
+	issueID := int64(created["id"].(float64))
+
+	// Missing reason -> 400 with invalid_fields: ["reason"]
+	badBody, _ := json.Marshal(map[string]any{
+		"tenant":     "tenant-1",
+		"issue_id":   issueID,
+		"transition": "reject",
+	})
+	resp, out := postIssue(t, srv.URL+"/api/v1/issues/advance", testToken, string(badBody))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d: %v", resp.StatusCode, out)
+	}
+	fields, _ := out["invalid_fields"].([]any)
+	if len(fields) != 1 || fields[0] != "reason" {
+		t.Fatalf("invalid_fields = %v, want [reason]", out["invalid_fields"])
+	}
+
+	// Valid reason -> 200 with reject_reason persisted
+	goodBody, _ := json.Marshal(map[string]any{
+		"tenant":     "tenant-1",
+		"issue_id":   issueID,
+		"transition": "reject",
+		"reason":     "Out of scope",
+		"actor_id":   55,
+	})
+	resp, out = postIssue(t, srv.URL+"/api/v1/issues/advance", testToken, string(goodBody))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %v", resp.StatusCode, out)
+	}
+	issMap, _ := out["issue"].(map[string]any)
+	if out["new_state"] != "rejected" || issMap["reject_reason"] != "Out of scope" {
+		t.Fatalf("unexpected reject response: %v", out)
+	}
+}

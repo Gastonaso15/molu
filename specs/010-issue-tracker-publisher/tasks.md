@@ -95,7 +95,7 @@ Las filas ❌ confirman, contra Seam real, las diferencias que esta lista ya des
   - **Problema**: Seam guarda `channel`, `reported_by`, `assignee` y `updated_at`; el publicador no escribe `channel` ni `assignee`, y añade un campo `tenant` que Seam no usa.
   - **Hecho cuando**: `CreateIssue` escribe `channel = "api"` (valores válidos en Seam: `app`, `qr`, `api`), `reported_by` y `assignee` desde `reporter_id` (si no viene, se omiten), y no escribe `tenant` en el documento; `AdvanceIssue` actualiza `state` y `updated_at`; el documento resultante tiene las mismas claves que uno creado por Seam, salvo las que dependen de plantillas de Seam (`template_id`, `form_data`). Hay que decidir y documentar el valor de `channel` (`api` es el propuesto).
 
-- [ ] **T11. Rechazo con motivo.**
+- [x] **T11. Rechazo con motivo.**
   - **Archivos**: `pkg/publisher/issues/types.go`, `service.go`, `registrar.go`, tests
   - **Problema**: Seam exige un motivo para rechazar, lo envía como `payload.motivo` y lo guarda en `reject_reason`. `issues.AdvanceIssue` no tiene ese campo, así que rechaza sin motivo.
   - **Hecho cuando**: `AdvanceIssue` acepta `reason`; con `transition = reject` es obligatorio (si falta, `CONTRACT_VIOLATION` con `fields: ["reason"]`); se envía `{motivo, actor}` a la FSM y se guarda `reject_reason` en la incidencia; en las demás transiciones `reason` se rechaza o se ignora de forma documentada. También se envía `actor` en el payload de todas las transiciones, como hace Seam.

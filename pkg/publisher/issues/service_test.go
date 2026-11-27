@@ -22,6 +22,9 @@ type mockXoluClient struct {
 
 	walkErr      error
 	substrateErr error
+
+	walkCalls       int
+	lastWalkPayload map[string]any
 }
 
 type mockMachine struct {
@@ -125,6 +128,16 @@ func (m *mockXoluClient) WalkMachine(ctx context.Context, tenant string, machine
 	}
 	if m.walkErr != nil {
 		return "", m.walkErr
+	}
+	m.walkCalls++
+	if payload != nil {
+		cp := make(map[string]any, len(payload))
+		for k, v := range payload {
+			cp[k] = v
+		}
+		m.lastWalkPayload = cp
+	} else {
+		m.lastWalkPayload = nil
 	}
 	mach, ok := m.machines[machineID]
 	if !ok {
@@ -711,6 +724,121 @@ func TestCreateIssue_SeamDocumentFields(t *testing.T) {
 		}
 		if stored["channel"] != "api" {
 			t.Errorf("stored channel = %v, want %q", stored["channel"], "api")
+		}
+	})
+}
+
+func TestAdvanceIssue_RejectWithReason(t *testing.T) {
+	t.Run("missing_or_blank_reason_returns_contract_violation", func(t *testing.T) {
+		for _, blank := range []string{"", "   \t\n "} {
+			mockX := newMockXolu()
+			svc := issues.NewIssueService(mockX)
+			created, err := svc.CreateIssue(context.Background(), issues.CreateIssueRequest{
+				Tenant: "tenant-alpha",
+				Title:  "Needs reason to reject",
+			})
+			if err != nil {
+				t.Fatalf("CreateIssue: %v", err)
+			}
+
+			_, err = svc.AdvanceIssue(context.Background(), issues.AdvanceIssueRequest{
+				Tenant:     "tenant-alpha",
+				IssueID:    created.ID,
+				Transition: "reject",
+				Reason:     blank,
+				ActorID:    42,
+			})
+			var te *taxonomy.TypedError
+			if !errors.As(err, &te) || te.Code != taxonomy.FullCode(taxonomy.PrefixMolu, taxonomy.CodeContractViolation) {
+				t.Fatalf("expected CONTRACT_VIOLATION for blank reason %q, got %v", blank, err)
+			}
+			fields, _ := te.Details["fields"].([]string)
+			if len(fields) != 1 || fields[0] != "reason" {
+				t.Errorf("details.fields = %v, want [reason]", te.Details["fields"])
+			}
+			if mockX.walkCalls != 0 {
+				t.Errorf("WalkMachine called %d times, want 0 when reason missing", mockX.walkCalls)
+			}
+		}
+	})
+
+	t.Run("valid_reason_sends_motivo_actor_and_persists_reject_reason", func(t *testing.T) {
+		mockX := newMockXolu()
+		svc := issues.NewIssueService(mockX)
+		created, err := svc.CreateIssue(context.Background(), issues.CreateIssueRequest{
+			Tenant: "tenant-alpha",
+			Title:  "False alarm",
+		})
+		if err != nil {
+			t.Fatalf("CreateIssue: %v", err)
+		}
+
+		resp, err := svc.AdvanceIssue(context.Background(), issues.AdvanceIssueRequest{
+			Tenant:     "tenant-alpha",
+			IssueID:    created.ID,
+			Transition: "reject",
+			Reason:     "  Duplicate of sensor test  ",
+			ActorID:    42,
+		})
+		if err != nil {
+			t.Fatalf("AdvanceIssue(reject): %v", err)
+		}
+		if resp.NewState != "rejected" || resp.Issue.State != "rejected" {
+			t.Errorf("state = %q / %q, want rejected", resp.NewState, resp.Issue.State)
+		}
+		if resp.Issue.RejectReason != "Duplicate of sensor test" {
+			t.Errorf("RejectReason = %q, want trimmed reason", resp.Issue.RejectReason)
+		}
+		if gotMotivo, _ := mockX.lastWalkPayload["motivo"].(string); gotMotivo != "Duplicate of sensor test" {
+			t.Errorf("walk payload motivo = %v, want %q", mockX.lastWalkPayload["motivo"], "Duplicate of sensor test")
+		}
+		if gotActor, _ := mockX.lastWalkPayload["actor"].(int64); gotActor != 42 {
+			t.Errorf("walk payload actor = %v, want 42", mockX.lastWalkPayload["actor"])
+		}
+
+		stored, _ := mockX.GetEntity(context.Background(), "tenant-alpha", "issues", created.ID)
+		if stored["reject_reason"] != "Duplicate of sensor test" {
+			t.Errorf("stored reject_reason = %v, want trimmed reason", stored["reject_reason"])
+		}
+
+		got, err := svc.GetIssue(context.Background(), issues.GetIssueRequest{
+			Tenant:  "tenant-alpha",
+			IssueID: created.ID,
+		})
+		if err != nil {
+			t.Fatalf("GetIssue: %v", err)
+		}
+		if got.RejectReason != "Duplicate of sensor test" {
+			t.Errorf("GetIssue.RejectReason = %q, want %q", got.RejectReason, "Duplicate of sensor test")
+		}
+	})
+
+	t.Run("non_reject_transition_ignores_reason_and_sends_actor", func(t *testing.T) {
+		mockX := newMockXolu()
+		svc := issues.NewIssueService(mockX)
+		created, _ := svc.CreateIssue(context.Background(), issues.CreateIssueRequest{
+			Tenant: "tenant-alpha",
+			Title:  "Valid issue",
+		})
+
+		resp, err := svc.AdvanceIssue(context.Background(), issues.AdvanceIssueRequest{
+			Tenant:     "tenant-alpha",
+			IssueID:    created.ID,
+			Transition: "triage",
+			Reason:     "ignored note",
+			ActorID:    99,
+		})
+		if err != nil {
+			t.Fatalf("AdvanceIssue(triage): %v", err)
+		}
+		if resp.Issue.RejectReason != "" {
+			t.Errorf("non-reject transition stored RejectReason = %q, want empty", resp.Issue.RejectReason)
+		}
+		if _, hasMotivo := mockX.lastWalkPayload["motivo"]; hasMotivo {
+			t.Errorf("non-reject payload must not include motivo, got %v", mockX.lastWalkPayload)
+		}
+		if gotActor, _ := mockX.lastWalkPayload["actor"].(int64); gotActor != 99 {
+			t.Errorf("walk payload actor = %v, want 99", mockX.lastWalkPayload["actor"])
 		}
 	})
 }

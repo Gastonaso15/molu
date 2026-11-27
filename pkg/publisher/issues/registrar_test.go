@@ -187,3 +187,23 @@ func TestIssueRegistrar_AdvanceIssueSchemaIncludesMerge(t *testing.T) {
 	}
 	t.Fatal("issues.AdvanceIssue tool not returned by Registrar.Tools()")
 }
+
+
+func TestIssueRegistrar_AdvanceIssueSchemaIncludesReason(t *testing.T) {
+	r := issues.NewRegistrar("http://hub:8091", "http://publisher:8093", fastIssueBackoff())
+	for _, tl := range r.Tools() {
+		if tl.Name != "issues.AdvanceIssue" {
+			continue
+		}
+		props, _ := tl.InputSchema["properties"].(map[string]any)
+		reasonProp, ok := props["reason"].(map[string]any)
+		if !ok {
+			t.Fatalf("AdvanceIssue schema missing reason property: %v", props)
+		}
+		if reasonProp["type"] != "string" {
+			t.Errorf("reason type = %v, want string", reasonProp["type"])
+		}
+		return
+	}
+	t.Fatal("issues.AdvanceIssue tool not returned by Registrar.Tools()")
+}

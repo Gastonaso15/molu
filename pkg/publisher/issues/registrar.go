@@ -93,7 +93,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 			}),
 		mk("AdvanceIssue",
 			"Advance an issue through its lifecycle by firing a transition input (triage, start, hold, resume, resolve, close, reject, merge). "+
-				"Invalid transitions are rejected by the FSM and returned verbatim.",
+				"Reject requires reason (ignored on other transitions). Invalid transitions are rejected by the FSM and returned verbatim.",
 			"/api/v1/issues/advance",
 			map[string]any{
 				"type": "object",
@@ -102,6 +102,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 					"issue_id":   map[string]any{"type": "integer", "description": "Issue ID to transition."},
 					"transition": map[string]any{"type": "string", "enum": []any{"triage", "start", "hold", "resume", "resolve", "close", "reject", "merge"}, "description": "Lifecycle transition input."},
 					"actor_id":   map[string]any{"type": "integer", "description": "User ID performing the transition."},
+					"reason":     map[string]any{"type": "string", "description": "Rejection reason (required when transition is \"reject\"; ignored for other transitions)."},
 				},
 				"required":             []any{"issue_id", "transition"},
 				"additionalProperties": false,
