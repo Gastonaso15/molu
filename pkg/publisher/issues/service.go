@@ -82,7 +82,7 @@ func (s *IssueService) CreateIssue(ctx context.Context, req CreateIssueRequest) 
 
 	createdAtStr := now.Format(time.RFC3339)
 	data := map[string]any{
-		"tenant":                      req.Tenant,
+		"channel":                     DefaultIssueChannel,
 		"title":                       req.Title,
 		"description":                 req.Description,
 		"priority":                    req.Priority,
@@ -100,6 +100,7 @@ func (s *IssueService) CreateIssue(ctx context.Context, req CreateIssueRequest) 
 	}
 	if req.ReporterID > 0 {
 		data["reported_by"] = req.ReporterID
+		data["assignee"] = req.ReporterID
 	}
 
 	entityID, err := s.xolu.CreateEntity(ctx, req.Tenant, "issues", data)
@@ -122,6 +123,8 @@ func (s *IssueService) CreateIssue(ctx context.Context, req CreateIssueRequest) 
 		SLAResolutionDeadline:    resDeadline,
 		CreatedAt:                createdAtStr,
 		ReportedBy:               req.ReporterID,
+		Assignee:                 req.ReporterID,
+		Channel:                  DefaultIssueChannel,
 	}, nil
 }
 
@@ -242,6 +245,9 @@ func decodeIssue(tenant string, id int64, data map[string]any) Issue {
 	}
 	if v, ok := data["first_responded_by"]; ok {
 		issue.FirstRespondedBy = toInt64(v)
+	}
+	if v, ok := data["channel"].(string); ok {
+		issue.Channel = v
 	}
 	if v, ok := data["created_at"].(string); ok {
 		issue.CreatedAt = v

@@ -17,6 +17,9 @@ const (
 	DefinitionName = "seam_issue_lifecycle"
 	// TokenRef is the reference the Execution Bridge resolves to the bearer token.
 	TokenRef = "issues:api-token"
+	// DefaultIssueChannel records the intake channel stored on Seam issue documents.
+	// Valid Seam channels are "app", "qr", and "api"; this publisher always writes "api".
+	DefaultIssueChannel = "api"
 )
 
 // Issue represents an issue tracked by the domain service.
@@ -39,6 +42,7 @@ type Issue struct {
 	UpdatedAt                string         `json:"updated_at,omitempty"`
 	ReportedBy               int64          `json:"reported_by,omitempty"`
 	Assignee                 int64          `json:"assignee,omitempty"`
+	Channel                  string         `json:"channel,omitempty"`
 	Metadata                 map[string]any `json:"metadata,omitempty"`
 }
 

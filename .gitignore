@@ -27,3 +27,8 @@
 .vscode/
 .idea/
 .DS_Store
+
+
+# Estado local de repoman (journal WAL y tickets temporales)
+.ed-journal.json
+.ed-tickets.json

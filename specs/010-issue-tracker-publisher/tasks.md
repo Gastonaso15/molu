@@ -90,7 +90,7 @@ Las filas ❌ confirman, contra Seam real, las diferencias que esta lista ya des
 
   - **Hecho cuando**: para las 8 combinaciones los plazos coinciden con los de Seam, con un test que compara las tablas. Queda documentado que Seam permite sobrescribir los minutos por plantilla de incidencia (`slaMinutesFromTemplate`) y que el publicador usa solo los valores por defecto.
 
-- [ ] **T10. Campos del documento como los escribe Seam.**
+- [x] **T10. Campos del documento como los escribe Seam.**
   - **Archivos**: `pkg/publisher/issues/types.go`, `service.go`, `registrar.go` (esquemas), tests
   - **Problema**: Seam guarda `channel`, `reported_by`, `assignee` y `updated_at`; el publicador no escribe `channel` ni `assignee`, y añade un campo `tenant` que Seam no usa.
   - **Hecho cuando**: `CreateIssue` escribe `channel = "api"` (valores válidos en Seam: `app`, `qr`, `api`), `reported_by` y `assignee` desde `reporter_id` (si no viene, se omiten), y no escribe `tenant` en el documento; `AdvanceIssue` actualiza `state` y `updated_at`; el documento resultante tiene las mismas claves que uno creado por Seam, salvo las que dependen de plantillas de Seam (`template_id`, `form_data`). Hay que decidir y documentar el valor de `channel` (`api` es el propuesto).

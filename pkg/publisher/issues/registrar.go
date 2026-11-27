@@ -63,7 +63,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 
 	return []hub.ToolRegistration{
 		mk("CreateIssue",
-			"Create a new operational issue associated optionally with an asset. Computes SLA deadlines and initializes lifecycle FSM.",
+			"Create a new operational issue associated optionally with an asset. Computes SLA deadlines, sets channel=\"api\", and initializes lifecycle FSM.",
 			"/api/v1/issues/create",
 			map[string]any{
 				"type": "object",
@@ -74,7 +74,7 @@ func (r *Registrar) Tools() []hub.ToolRegistration {
 					"priority":    map[string]any{"type": "string", "enum": []any{"critical", "high", "medium", "low"}, "description": "Issue priority level."},
 					"severity":    map[string]any{"type": "string", "enum": []any{"critical", "major", "minor"}, "description": "Issue severity level."},
 					"asset_id":    map[string]any{"type": "integer", "description": "Related asset identifier in xolu."},
-					"reporter_id": map[string]any{"type": "integer", "description": "User id of the reporter."},
+					"reporter_id": map[string]any{"type": "integer", "description": "User id of the reporter (recorded as reported_by and initial assignee)."},
 				},
 				"required":             []any{"title"},
 				"additionalProperties": false,

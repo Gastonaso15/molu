@@ -595,3 +595,122 @@ func TestDefaultSLATables_MatchSeam(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateIssue_SeamDocumentFields(t *testing.T) {
+	t.Run("with_reporter_and_asset", func(t *testing.T) {
+		mockX := newMockXolu()
+		mockX.entities["assets"] = map[int64]map[string]any{
+			200: {"id": int64(200), "name": "Boiler", "criticality": "Alta"},
+		}
+		svc := issues.NewIssueService(mockX)
+
+		created, err := svc.CreateIssue(context.Background(), issues.CreateIssueRequest{
+			Tenant:      "tenant-alpha",
+			Title:       "Pipe leak",
+			Description: "Unit 3",
+			Priority:    "high",
+			Severity:    "major",
+			AssetID:     200,
+			ReporterID:  77,
+		})
+		if err != nil {
+			t.Fatalf("CreateIssue failed: %v", err)
+		}
+
+		if created.Channel != "api" {
+			t.Errorf("created.Channel = %q, want %q", created.Channel, "api")
+		}
+		if created.ReportedBy != 77 || created.Assignee != 77 {
+			t.Errorf("created ReportedBy=%d Assignee=%d, want both 77", created.ReportedBy, created.Assignee)
+		}
+
+		stored, err := mockX.GetEntity(context.Background(), "tenant-alpha", "issues", created.ID)
+		if err != nil {
+			t.Fatalf("GetEntity failed: %v", err)
+		}
+		if _, hasTenant := stored["tenant"]; hasTenant {
+			t.Errorf("stored xolu document must NOT contain tenant key, got %v", stored["tenant"])
+		}
+		if gotChan, _ := stored["channel"].(string); gotChan != "api" {
+			t.Errorf("stored channel = %v, want %q", stored["channel"], "api")
+		}
+		if stored["reported_by"] != int64(77) || stored["assignee"] != int64(77) {
+			t.Errorf("stored reported_by=%v assignee=%v, want 77/77", stored["reported_by"], stored["assignee"])
+		}
+
+		wantKeys := map[string]bool{
+			"id":                          true,
+			"title":                       true,
+			"description":                 true,
+			"priority":                    true,
+			"severity":                    true,
+			"state":                       true,
+			"machine_id":                  true,
+			"channel":                     true,
+			"created_at":                  true,
+			"asset_id":                    true,
+			"asset_category":              true,
+			"sla_first_response_deadline": true,
+			"sla_resolution_deadline":     true,
+			"reported_by":                 true,
+			"assignee":                    true,
+		}
+		if len(stored) != len(wantKeys) {
+			t.Errorf("stored keys count = %d, want %d; stored=%v", len(stored), len(wantKeys), stored)
+		}
+		for k := range stored {
+			if !wantKeys[k] {
+				t.Errorf("unexpected stored key %q in xolu document", k)
+			}
+		}
+
+		got, err := svc.GetIssue(context.Background(), issues.GetIssueRequest{
+			Tenant:  "tenant-alpha",
+			IssueID: created.ID,
+		})
+		if err != nil {
+			t.Fatalf("GetIssue failed: %v", err)
+		}
+		if got.Channel != "api" || got.ReportedBy != 77 || got.Assignee != 77 {
+			t.Errorf("decoded GetIssue channel=%q reported_by=%d assignee=%d, want api/77/77", got.Channel, got.ReportedBy, got.Assignee)
+		}
+
+		adv, err := svc.AdvanceIssue(context.Background(), issues.AdvanceIssueRequest{
+			Tenant:     "tenant-alpha",
+			IssueID:    created.ID,
+			Transition: "triage",
+			ActorID:    77,
+		})
+		if err != nil {
+			t.Fatalf("AdvanceIssue failed: %v", err)
+		}
+		if adv.Issue.State != "triaged" || adv.Issue.UpdatedAt == "" || adv.Issue.Channel != "api" {
+			t.Errorf("AdvanceIssue result state=%q updated_at=%q channel=%q", adv.Issue.State, adv.Issue.UpdatedAt, adv.Issue.Channel)
+		}
+		if stored["state"] != "triaged" || stored["updated_at"] == "" || stored["updated_at"] == nil {
+			t.Errorf("stored after AdvanceIssue state=%v updated_at=%v", stored["state"], stored["updated_at"])
+		}
+	})
+
+	t.Run("without_reporter_or_asset_omits_optional_keys", func(t *testing.T) {
+		mockX := newMockXolu()
+		svc := issues.NewIssueService(mockX)
+
+		created, err := svc.CreateIssue(context.Background(), issues.CreateIssueRequest{
+			Tenant: "tenant-alpha",
+			Title:  "Anonymous report",
+		})
+		if err != nil {
+			t.Fatalf("CreateIssue failed: %v", err)
+		}
+		stored, _ := mockX.GetEntity(context.Background(), "tenant-alpha", "issues", created.ID)
+		for _, forbidden := range []string{"tenant", "reported_by", "assignee", "asset_id"} {
+			if _, ok := stored[forbidden]; ok {
+				t.Errorf("stored document should omit %q when unset, got %v", forbidden, stored[forbidden])
+			}
+		}
+		if stored["channel"] != "api" {
+			t.Errorf("stored channel = %v, want %q", stored["channel"], "api")
+		}
+	})
+}
